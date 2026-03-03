@@ -121,15 +121,29 @@ All features are built on the raw ANSI renderer (`render.ts` + `state.ts`).
   Shift+arrow entry from browse, multi-line annotation wiring). 19 new tests
   (state: 13, keypress: 2, render: 4). All 108 tests pass.*
 
-- [ ] **2.5 Inline annotation display**
-  Collapsed (`●`) and expanded (`▼`) annotation blocks rendered between source
-  lines in Viewport. `Enter` toggles expand/collapse. Block shows
-  source/intent/category/comment, styled per source (`agent` vs `user`).
+- [x] **2.5 Inline annotation display + interaction**
+  GitLab-style bordered annotation boxes rendered between source lines.
+  `Tab` toggles expand/collapse (all annotations on cursor line). Collapsed
+  annotations show `●` gutter marker; expanded show `▼` plus a bordered box
+  with source/intent/category/comment, replies, and status. When cursor is on
+  an expanded annotation line: `r` → REPLY mode (text input, adds reply),
+  `e` → EDIT mode (text input, updates comment), `x` → delete annotation.
+  Annotation boxes consume viewport rows — fewer source lines visible when
+  expanded. Schema extended with `replies: Reply[]` and
+  `status: 'approved' | 'dismissed'` (both optional). Reply source defaults
+  to `'user'`. 269 tests (63 new).
+  *New/changed files: `src/annotation-box.ts` + `src/annotation-box.test.ts`,
+  `src/schema.ts` (Reply, status, replies fields), `src/state.ts`
+  (expandedAnnotations, toggle/delete/update/add_reply actions, ReplyFlowState,
+  EditFlowState), `src/dispatch.ts` (handleReplyKey, handleEditKey, browse Tab/r/e/x),
+  `src/render.ts` (viewport interleaving, reply/edit prompts, ▼ marker),
+  `src/keypress.ts` (Tab parsing), `src/cli.ts` (reply/edit mode wiring).*
 
-- [ ] **2.6 Pre-seeded annotation interaction**
-  `Tab` to focus expanded annotation → ANN_FOCUS mode. `a` approve, `d`
-  dismiss, `u` undo status, `r` reply (→ REPLY mode with inline text input).
-  `Esc`/`Tab` exits focus.
+- [x] **2.6 Pre-seeded annotation interaction** *(merged into 2.5)*
+  Reply, edit, delete available directly when annotation is expanded on cursor
+  line — no separate ANN_FOCUS mode needed. Status display (approved/dismissed)
+  rendered in box. Approve/dismiss actions deferred to a future iteration
+  (status can be set via input JSON round-trip).
 
 - [ ] **2.7 Search**
   `/` → SEARCH mode → pattern input → matches highlighted in viewport. `n`/`N`
