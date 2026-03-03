@@ -6,7 +6,8 @@
  */
 
 import type { Annotation } from './schema.js';
-import type { BrowseState, Mode } from './state.js';
+import type { BrowseState, Mode, Selection } from './state.js';
+import { selectionRange } from './state.js';
 
 // --- ANSI escape helpers ---
 
@@ -22,6 +23,9 @@ const CLEAR_LINE = `${ESC}2K`;
 
 /** Subtle highlight background — slightly lighter than one-dark-pro's #282C34. */
 const CURSOR_BG = `${ESC}48;2;44;49;58m`;
+
+/** Selection range background — muted blue tint. */
+const SELECT_BG = `${ESC}48;2;38;50;70m`;
 
 const bold = (s: string): string => `${BOLD}${s}${RESET}`;
 const dim = (s: string): string => `${DIM}${s}${RESET}`;
@@ -93,10 +97,13 @@ const renderViewport = (
   state: BrowseState,
   viewportHeight: number,
   cols: number,
-  focusAnnotation?: string
+  focusAnnotation?: string,
+  selection?: Selection
 ): string[] => {
   const gutterWidth = String(lines.length).length;
   const rows: string[] = [];
+
+  const selRange = selection ? selectionRange(selection) : undefined;
 
   for (let i = 0; i < viewportHeight; i++) {
     const lineIndex = state.viewportOffset + i;
@@ -107,6 +114,10 @@ const renderViewport = (
 
     const lineNumber = lineIndex + 1;
     const isCursor = lineNumber === state.cursorLine;
+    const isSelected =
+      selRange !== undefined &&
+      lineNumber >= selRange.startLine &&
+      lineNumber <= selRange.endLine;
     const pointer = isCursor ? '>' : ' ';
     const marker = lineMarker(
       lineNumber,
@@ -116,9 +127,10 @@ const renderViewport = (
     const paddedNum = String(lineNumber).padStart(gutterWidth, ' ');
     const raw = `${pointer}${paddedNum} ${marker} ${lines[lineIndex]}`;
 
-    rows.push(
-      `${CLEAR_LINE}${isCursor ? bgLine(raw, CURSOR_BG, cols) : raw}`
-    );
+    // Selection bg takes precedence over cursor bg; cursor line within
+    // selection gets the selection color for visual consistency.
+    const bg = isSelected ? SELECT_BG : isCursor ? CURSOR_BG : undefined;
+    rows.push(`${CLEAR_LINE}${bg ? bgLine(raw, bg, cols) : raw}`);
   }
 
   return rows;
@@ -129,6 +141,7 @@ const MODE_COLORS: Record<Mode, string> = {
   decide: YELLOW,
   annotate: CYAN,
   goto: CYAN,
+  select: YELLOW,
 };
 
 const renderStatusBar = (state: BrowseState, filePath: string): string => {
@@ -137,18 +150,28 @@ const renderStatusBar = (state: BrowseState, filePath: string): string => {
     ` ${state.mode.toUpperCase()} `
   );
   const count = state.annotations.length;
+  const selInfo =
+    state.mode === 'select' && state.selection
+      ? (() => {
+          const r = selectionRange(state.selection);
+          const span = r.endLine - r.startLine + 1;
+          return `  sel ${r.startLine}–${r.endLine} (${span} ln${span === 1 ? '' : 's'})`;
+        })()
+      : '';
   const info = dim(
-    `  ln ${state.cursorLine}/${state.lineCount}  ${count} annotation${count === 1 ? '' : 's'}  raw  ${filePath}`
+    `  ln ${state.cursorLine}/${state.lineCount}${selInfo}  ${count} annotation${count === 1 ? '' : 's'}  raw  ${filePath}`
   );
   return `${CLEAR_LINE}${modeTag}${info}`;
 };
 
 const HELP_HINTS: Record<Mode, string> = {
   browse:
-    '[j/k ↑↓] move  [PgUp/Dn Ctrl+U/D] half-page  [gg/G Home/End] jump  [:] goto  [n] annotate  [q] finish',
+    '[j/k ↑↓] move  [v Shift+↑↓] select  [PgUp/Dn Ctrl+U/D] half-page  [gg/G Home/End] jump  [:] goto  [n] annotate  [q] finish',
   decide: '[a] approve  [d] deny  [Esc] back',
   annotate: '[Esc] cancel',
   goto: '',
+  select:
+    '[j/k ↑↓ Shift+↑↓] extend  [Enter] annotate  [Esc] cancel',
 };
 
 const renderHelpBar = (mode: Mode): string =>
@@ -241,7 +264,8 @@ export const buildFrame = (ctx: RenderContext): string => {
       ctx.state,
       viewportHeight,
       ctx.terminalCols,
-      ctx.focusAnnotation
+      ctx.focusAnnotation,
+      ctx.state.selection
     )
   );
 
