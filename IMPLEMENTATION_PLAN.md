@@ -68,11 +68,11 @@ keystroke. The final architecture is simpler and faster than either predecessor.
   - Removed `jsx` config from `tsconfig.json`, `.tsx` from includes.
   - State reducer (`state.ts`) transferred 1:1 — it was already framework-agnostic.
 
-- [ ] **1.8 Manual parity verification**
+- [x] **1.8 Manual parity verification**
   Verify raw ANSI path matches all expected behaviors on macOS and Linux:
   - `j`/`k`/arrows scroll viewport with scroll-off.
   - `g`/`G` jump to top/bottom.
-  - `n` → annotation creation flow (intent → category → comment) → annotation appears.
+  - `a` → annotation creation flow (intent → category → comment) → annotation appears.
   - `q` → decision picker → `a`/`d` → JSON stdout → exit 0.
   - `Ctrl+C` → exit 1, no output, terminal restored (alt screen off, cursor visible).
   - `--line`, `--focus-annotation`, `--annotations`, piped stdin all work.
@@ -80,7 +80,7 @@ keystroke. The final architecture is simpler and faster than either predecessor.
 
 **Exit criteria:** Raw ANSI path passes all parity checks on macOS. No React/Ink
 dependencies. Zero flicker. `tsc --noEmit` clean.
-✅ 1.1–1.7 complete. Remaining: 1.8 (manual parity verification).
+✅ Phase 1 complete (1.1–1.8). Manual parity verified on macOS.
 
 ### Phase 2 — Navigation & features
 
@@ -145,9 +145,25 @@ All features are built on the raw ANSI renderer (`render.ts` + `state.ts`).
   rendered in box. Approve/dismiss actions deferred to a future iteration
   (status can be set via input JSON round-trip).
 
-- [ ] **2.7 Search**
-  `/` → SEARCH mode → pattern input → matches highlighted in viewport. `n`/`N`
-  to navigate matches. `Esc` clears.
+- [x] **2.7 Search**
+  `/` → SEARCH mode → pattern input (single-line textbox) → case-insensitive
+  substring matching with live preview as user types. Enter commits search and
+  returns to browse with matches highlighted (amber bg for matches, brighter
+  amber for current match). `n`/`N` (and `Ctrl+N`/`Ctrl+P`) navigate between
+  matches with wrap-around. `Esc` in search mode clears and returns to browse;
+  `Esc` in browse mode clears active search highlights. Status bar shows
+  `"pattern" M/N` match info. Help bar updates contextually to show search
+  navigation hints.
+  *Keybinding change: "new annotation" moved from `n` → `a` to free `n`/`N`
+  for vim-standard search navigation.*
+  *New/changed files: `src/state.ts` (SearchFlowState, SearchState, set_search/
+  clear_search/navigate_match actions), `src/dispatch.ts` (handleSearchKey,
+  browse `n`/`N`/`Ctrl+N`/`Ctrl+P`/`Esc` wiring, `a` for annotate),
+  `src/keypress.ts` (Ctrl+N/Ctrl+P parsing), `src/render.ts` (search modal,
+  viewport match highlighting, status bar search info, help bar updates),
+  `src/ansi.ts` (SEARCH_BG/SEARCH_CURRENT_BG), `src/cli.ts` (search mode
+  wiring + sourceLines for matching). 30 new tests (state: 10, dispatch: 18,
+  keypress: 2). All 407 tests pass.*
 
 - [ ] **2.8 Terminal resize handling**
   Already wired (`stderr.on('resize', paint)` in `cli.ts`). Verify viewport
