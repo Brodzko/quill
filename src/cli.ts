@@ -50,6 +50,8 @@ const ALT_SCREEN_OFF = '\x1b[?1049l';
 const CURSOR_HIDE = '\x1b[?25l';
 const CURSOR_SHOW = '\x1b[?25h';
 const CURSOR_HOME = '\x1b[H';
+const MOUSE_ON = '\x1b[?1000h\x1b[?1006h';
+const MOUSE_OFF = '\x1b[?1000l\x1b[?1006l';
 
 const command = defineCommand({
   meta: {
@@ -163,7 +165,7 @@ const command = defineCommand({
       input.resume();
 
       // --- Alternate screen buffer ---
-      stderr.write(`${ALT_SCREEN_ON}${CURSOR_HIDE}`);
+      stderr.write(`${ALT_SCREEN_ON}${CURSOR_HIDE}${MOUSE_ON}`);
 
       // --- State + render loop ---
       let state = initialState;
@@ -174,6 +176,9 @@ const command = defineCommand({
       let decideFlow: DecideFlowState | undefined;
       let confirmFlow: ConfirmFlowState | undefined;
       let searchFlow: SearchFlowState | undefined;
+
+      // Row→line mapping from last render, used for mouse click → cursor
+      let lastRowToLine: (number | undefined)[] = [];
 
       const paint = (): void => {
         const rows = stderr.rows ?? 24;
@@ -201,13 +206,15 @@ const command = defineCommand({
           searchFlow,
         };
 
-        stderr.write(`${CURSOR_HOME}${buildFrame(ctx)}`);
+        const result = buildFrame(ctx);
+        lastRowToLine = result.rowToLine;
+        stderr.write(`${CURSOR_HOME}${result.frame}`);
       };
 
       const finish = (result: SessionResult): void => {
         input.setRawMode(false);
         input.pause();
-        stderr.write(`${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
+        stderr.write(`${MOUSE_OFF}${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
         cleanupTerminal(input);
 
         if (result.type === 'abort') {
@@ -278,6 +285,20 @@ const command = defineCommand({
           return;
         }
 
+        // Mouse click → set cursor to clicked line (browse/select only)
+        if (key.mouseRow > 0 && (state.mode === 'browse' || state.mode === 'select')) {
+          // Terminal row 1 = title, row 2+ = viewport
+          const vpRow = key.mouseRow - 2; // 0-based viewport row index
+          if (vpRow >= 0 && vpRow < lastRowToLine.length) {
+            const targetLine = lastRowToLine[vpRow];
+            if (targetLine !== undefined) {
+              state = reduce(state, { type: 'set_cursor', line: targetLine });
+              paint();
+            }
+          }
+          return;
+        }
+
         // Dispatch to mode-specific handler
         if (state.mode === 'search' && searchFlow) {
           applyResult(handleSearchKey(key, state, searchFlow, sourceLines));
@@ -301,7 +322,7 @@ const command = defineCommand({
       });
     } catch (error) {
       // Ensure we leave alt screen on crash
-      stderr.write(`${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
+      stderr.write(`${MOUSE_OFF}${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
       const message = error instanceof Error ? error.message : 'Unknown error';
       stderr.write(`${message}\n`);
       process.exit(1);

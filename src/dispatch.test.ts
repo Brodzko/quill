@@ -51,6 +51,8 @@ const EMPTY_KEY: Key = {
   pageDown: false,
   home: false,
   end: false,
+  scrollUp: false,
+  scrollDown: false,
 };
 
 const key = (overrides: Partial<Key>): Key => ({ ...EMPTY_KEY, ...overrides });
@@ -115,6 +117,37 @@ describe('handleBrowseKey', () => {
   it('Ctrl+D moves by half page down', () => {
     const result = handleBrowseKey(key({ ctrl: true, char: 'd' }), makeState(), false);
     expect(result.state.cursorLine).toBe(20);
+  });
+
+  it('scrollUp scrolls viewport up without moving cursor', () => {
+    const state = makeState({ cursorLine: 15, viewportOffset: 10 });
+    const result = handleBrowseKey(key({ scrollUp: true }), state, false);
+    expect(result.state.viewportOffset).toBe(7);
+    expect(result.state.cursorLine).toBe(15); // cursor stays
+  });
+
+  it('scrollDown scrolls viewport down without moving cursor', () => {
+    const state = makeState({ cursorLine: 15, viewportOffset: 10 });
+    const result = handleBrowseKey(key({ scrollDown: true }), state, false);
+    expect(result.state.viewportOffset).toBe(13);
+    expect(result.state.cursorLine).toBe(15); // cursor stays
+  });
+
+  it('scrollUp clamps cursor into viewport when it falls off-screen', () => {
+    const state = makeState({ cursorLine: 20, viewportOffset: 15 });
+    const result = handleBrowseKey(key({ scrollUp: true }), state, false);
+    // viewport moves to 12, visible range 13..32 (1-based), cursor 20 stays
+    expect(result.state.viewportOffset).toBe(12);
+    expect(result.state.cursorLine).toBe(20);
+  });
+
+  it('scrollDown clamps cursor into viewport when it falls off-screen', () => {
+    // viewport at 5, viewportHeight=20, visible 6..25. Cursor at 6.
+    // Scroll down 3 → viewport at 8, visible 9..28. Cursor 6 < 9 → clamped to 9.
+    const state = makeState({ cursorLine: 6, viewportOffset: 5 });
+    const result = handleBrowseKey(key({ scrollDown: true }), state, false);
+    expect(result.state.viewportOffset).toBe(8);
+    expect(result.state.cursorLine).toBe(9);
   });
 
   it('Home jumps to line 1', () => {

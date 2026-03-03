@@ -448,6 +448,14 @@ export const handleBrowseKey = (
     return { state: reduce(state, { type: 'move_cursor', delta: hp }) };
   }
 
+  // Mouse wheel scroll — moves viewport, cursor stays unless off-screen
+  if (key.scrollUp) {
+    return { state: reduce(state, { type: 'scroll_viewport', delta: -3 }) };
+  }
+  if (key.scrollDown) {
+    return { state: reduce(state, { type: 'scroll_viewport', delta: 3 }) };
+  }
+
   // Jump to top/bottom
   if (key.home) {
     return { state: reduce(state, { type: 'set_cursor', line: 1 }) };
