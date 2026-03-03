@@ -14,18 +14,40 @@ const ESC = '\x1b[';
 const RESET = `${ESC}0m`;
 const BOLD = `${ESC}1m`;
 const DIM = `${ESC}2m`;
-const INVERSE = `${ESC}7m`;
 const GREEN = `${ESC}32m`;
 const YELLOW = `${ESC}33m`;
 const CYAN = `${ESC}36m`;
 const RED = `${ESC}31m`;
 const CLEAR_LINE = `${ESC}2K`;
 
+/** Subtle highlight background — slightly lighter than one-dark-pro's #282C34. */
+const CURSOR_BG = `${ESC}48;2;44;49;58m`;
+
 const bold = (s: string): string => `${BOLD}${s}${RESET}`;
 const dim = (s: string): string => `${DIM}${s}${RESET}`;
-const inverse = (s: string): string => `${INVERSE}${s}${RESET}`;
 const colorBold = (color: string, s: string): string =>
   `${color}${BOLD}${s}${RESET}`;
+
+// --- ANSI-aware string helpers ---
+
+/** Strip ANSI escape sequences to compute visible character width. */
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const stripAnsi = (s: string): string => s.replace(ANSI_RE, '');
+const visibleLength = (s: string): number => stripAnsi(s).length;
+
+/**
+ * Wrap a string with a background color that extends to the full terminal width.
+ *
+ * Embedded RESET sequences (`\x1b[0m`) kill all attributes including background,
+ * so we re-inject the background after every reset to keep it continuous.
+ */
+const bgLine = (s: string, bg: string, cols: number): string => {
+  const visible = visibleLength(s);
+  const padding = Math.max(0, cols - visible);
+  const patched = s.replaceAll(RESET, `${RESET}${bg}`);
+  return `${bg}${patched}${' '.repeat(padding)}${RESET}`;
+};
 
 // --- Annotation flow types ---
 
@@ -70,6 +92,7 @@ const renderViewport = (
   lines: string[],
   state: BrowseState,
   viewportHeight: number,
+  cols: number,
   focusAnnotation?: string
 ): string[] => {
   const gutterWidth = String(lines.length).length;
@@ -93,7 +116,9 @@ const renderViewport = (
     const paddedNum = String(lineNumber).padStart(gutterWidth, ' ');
     const raw = `${pointer}${paddedNum} ${marker} ${lines[lineIndex]}`;
 
-    rows.push(`${CLEAR_LINE}${isCursor ? inverse(raw) : raw}`);
+    rows.push(
+      `${CLEAR_LINE}${isCursor ? bgLine(raw, CURSOR_BG, cols) : raw}`
+    );
   }
 
   return rows;
@@ -195,7 +220,13 @@ export const buildFrame = (ctx: RenderContext): string => {
 
   // Viewport
   frame.push(
-    ...renderViewport(ctx.lines, ctx.state, viewportHeight, ctx.focusAnnotation)
+    ...renderViewport(
+      ctx.lines,
+      ctx.state,
+      viewportHeight,
+      ctx.terminalCols,
+      ctx.focusAnnotation
+    )
   );
 
   // Status + Help

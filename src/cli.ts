@@ -4,6 +4,7 @@ import { readFileSync } from 'fs';
 import { stderr, stdout } from 'process';
 import * as R from 'remeda';
 import { defineCommand, runMain } from 'citty';
+import { type BundledTheme, DEFAULT_THEME, highlightCode } from './highlight.js';
 import { parseKeypress } from './keypress.js';
 import {
   type AnnotationFlowState,
@@ -67,6 +68,11 @@ const command = defineCommand({
       type: 'string',
       description: 'Read annotations JSON from file instead of stdin',
     },
+    theme: {
+      type: 'string',
+      description:
+        'Shiki theme name for syntax highlighting (default: one-dark-pro)',
+    },
   },
   async run({ args }) {
     const filePath = args.file;
@@ -74,6 +80,7 @@ const command = defineCommand({
       args.line !== undefined ? Number.parseInt(args.line, 10) : undefined;
     const focusAnnotationArg = args['focus-annotation'] ?? undefined;
     const annotationsPath = args.annotations ?? undefined;
+    const theme = (args.theme as BundledTheme | undefined) ?? DEFAULT_THEME;
 
     try {
       // --- Input resolution ---
@@ -85,7 +92,12 @@ const command = defineCommand({
         annotationsJsonFromFile ?? pipedInput
       );
 
-      const lines = readFileSync(filePath, 'utf-8').split(/\r?\n/);
+      const rawContent = readFileSync(filePath, 'utf-8');
+      const lines = await highlightCode({
+        code: rawContent,
+        filePath,
+        theme,
+      });
       const lineCount = lines.length;
       const initialAnnotations = normalizeInputAnnotations(envelope);
 
