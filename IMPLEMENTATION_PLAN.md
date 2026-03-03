@@ -86,10 +86,12 @@ dependencies. Zero flicker. `tsc --noEmit` clean.
 
 All features are built on the raw ANSI renderer (`render.ts` + `state.ts`).
 
-- [ ] **2.1 Shiki syntax highlighting**
+- [x] **2.1 Shiki syntax highlighting**
   Integrate Shiki: `file → ANSI string[]` with language detection from
   extension, configurable theme (`--theme`, default `one-dark-pro`). Feed
   highlighted lines into `Viewport`.
+  *Done: `src/highlight.ts` — lazy singleton highlighter, hex→truecolor ANSI,
+  60+ extension→language mappings, plain-text fallback for unknown langs.*
 
 - [ ] **2.2 Extended navigation**
   Half-page scroll (`PgUp`/`PgDn`, `Ctrl+U`/`Ctrl+D`), `gg`/`G`/`Home`/`End`
@@ -993,7 +995,7 @@ for selecting `approve` vs `deny` before emitting output.
   "citty": "^0.2.0",
   "remeda": "^2.33.0",
   "zod": "^3.21.0",
-  "shiki": "^1.0.0",
+  "shiki": "4.0.1",
   "parse-diff": "^0.11.0"
 }
 ```
