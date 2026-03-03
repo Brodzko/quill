@@ -1,0 +1,27 @@
+{
+  "name": "quill",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "quill": "dist/cli.js"
+  },
+  "scripts": {
+    "dev": "node --loader ts-node/esm --no-warnings src/cli.ts",
+    "build": "tsup src/cli.ts --format esm --target node20 --out-dir dist",
+    "start": "node dist/cli.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "citty": "0.2.1",
+    "remeda": "1.61.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.11.0",
+    "prettier": "3.8.1",
+    "tsup": "8.5.1",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3"
+  }
+}
