@@ -165,9 +165,20 @@ All features are built on the raw ANSI renderer (`render.ts` + `state.ts`).
   wiring + sourceLines for matching). 30 new tests (state: 10, dispatch: 18,
   keypress: 2). All 407 tests pass.*
 
-- [ ] **2.8 Terminal resize handling**
-  Already wired (`stderr.on('resize', paint)` in `cli.ts`). Verify viewport
-  height recomputation and repaint on resize works correctly across terminals.
+- [x] **2.8 Terminal resize + mouse scroll**
+  Resize was already wired (`stderr.on('resize', paint)` in `cli.ts`) — viewport
+  height recomputes on resize and repaints. Added mouse scroll support: SGR and
+  legacy X10 mouse wheel parsing in `keypress.ts`, mouse reporting
+  enable/disable (`\x1b[?1000h/l`, `\x1b[?1006h/l`) in `cli.ts`, scroll
+  dispatched as 3-line viewport scroll (not cursor move) in `dispatch.ts`
+  via new `scroll_viewport` reducer action. Also added: line truncation
+  (`truncateAnsi` in `ansi.ts`) so long lines are clipped at terminal width
+  instead of wrapping into the gutter; mouse click-to-line support (SGR +
+  X10 left-click parsing → `mouseRow`/`mouseCol` on `Key`, row→line mapping
+  from `renderViewport`, click handler in `cli.ts` sets cursor in
+  browse/select modes). `buildFrame` now returns `FrameResult` with both
+  `frame` string and `rowToLine` mapping. 23 new tests (keypress: 7,
+  dispatch: 4, state: 6, ansi: 6). All 439 tests pass.
 
 **Exit criteria:** All navigation and annotation features from the spec work.
 Manual smoke test on macOS covers every keybinding in the Navigation table.
