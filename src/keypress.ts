@@ -14,6 +14,7 @@ export type Key = {
   escape: boolean;
   return: boolean;
   backspace: boolean;
+  tab: boolean;
   upArrow: boolean;
   downArrow: boolean;
   pageUp: boolean;
@@ -29,6 +30,7 @@ const EMPTY_KEY: Key = {
   escape: false,
   return: false,
   backspace: false,
+  tab: false,
   upArrow: false,
   downArrow: false,
   pageUp: false,
@@ -78,6 +80,9 @@ export const parseKeypress = (data: Buffer | string): Key => {
   if (raw === '\x07') return { ...EMPTY_KEY, char: 'g', ctrl: true };
   // Ctrl+U (0x15)
   if (raw === '\x15') return { ...EMPTY_KEY, char: 'u', ctrl: true };
+
+  // Tab
+  if (raw === '\t') return { ...EMPTY_KEY, tab: true, char: '\t' };
 
   // Enter / Return
   if (raw === '\r' || raw === '\n') return { ...EMPTY_KEY, return: true };

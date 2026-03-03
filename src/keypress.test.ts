@@ -21,6 +21,7 @@ const expectKey = (
     'escape',
     'return',
     'backspace',
+    'tab',
     'upArrow',
     'downArrow',
     'pageUp',
@@ -151,6 +152,10 @@ describe('control characters', () => {
 describe('special keys', () => {
   it('parses Escape', () => {
     expectKey('\x1b', { escape: true });
+  });
+
+  it('parses Tab', () => {
+    expectKey('\t', { tab: true, char: '\t' });
   });
 
   it('parses Enter (\\r)', () => {

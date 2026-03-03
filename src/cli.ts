@@ -8,7 +8,9 @@ import {
   handleAnnotateKey,
   handleBrowseKey,
   handleDecideKey,
+  handleEditKey,
   handleGotoKey,
+  handleReplyKey,
   handleSelectKey,
 } from './dispatch.js';
 import { type BundledTheme, DEFAULT_THEME, highlightCode } from './highlight.js';
@@ -23,7 +25,9 @@ import {
 import {
   type AnnotationFlowState,
   type BrowseState,
+  type EditFlowState,
   type GotoFlowState,
+  type ReplyFlowState,
   clampLine,
   computeViewportOffset,
   reduce,
@@ -140,6 +144,7 @@ const command = defineCommand({
         }),
         mode: 'browse',
         annotations: initialAnnotations,
+        expandedAnnotations: new Set(),
       };
 
       // --- Interactive input setup ---
@@ -158,6 +163,8 @@ const command = defineCommand({
       let state = initialState;
       let annotationFlow: AnnotationFlowState | undefined;
       let gotoFlow: GotoFlowState | undefined;
+      let replyFlow: ReplyFlowState | undefined;
+      let editFlow: EditFlowState | undefined;
 
       const paint = (): void => {
         const rows = stderr.rows ?? 24;
@@ -178,6 +185,8 @@ const command = defineCommand({
           focusAnnotation: focusAnnotationArg,
           annotationFlow,
           gotoFlow,
+          replyFlow,
+          editFlow,
         };
 
         stderr.write(`${CURSOR_HOME}${buildFrame(ctx)}`);
@@ -219,6 +228,8 @@ const command = defineCommand({
         state = result.state;
         if ('annotationFlow' in result) annotationFlow = result.annotationFlow;
         if ('gotoFlow' in result) gotoFlow = result.gotoFlow;
+        if ('replyFlow' in result) replyFlow = result.replyFlow;
+        if ('editFlow' in result) editFlow = result.editFlow;
 
         // Handle gg timer state from browse handler
         if (result.gg) {
@@ -257,6 +268,10 @@ const command = defineCommand({
           applyResult(handleAnnotateKey(key, state, annotationFlow));
         } else if (state.mode === 'goto' && gotoFlow) {
           applyResult(handleGotoKey(key, state, gotoFlow));
+        } else if (state.mode === 'reply' && replyFlow) {
+          applyResult(handleReplyKey(key, state, replyFlow));
+        } else if (state.mode === 'edit' && editFlow) {
+          applyResult(handleEditKey(key, state, editFlow));
         } else if (state.mode === 'select') {
           applyResult(handleSelectKey(key, state));
         } else if (state.mode === 'browse') {

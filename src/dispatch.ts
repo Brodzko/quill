@@ -12,13 +12,18 @@ import type { KnownCategory, KnownIntent, SessionResult } from './schema.js';
 import {
   type AnnotationFlowState,
   type BrowseState,
+  type EditFlowState,
   type GotoFlowState,
+  type ReplyFlowState,
   INITIAL_ANNOTATION_FLOW,
+  INITIAL_EDIT_FLOW,
   INITIAL_GOTO_FLOW,
+  INITIAL_REPLY_FLOW,
   halfPage,
   reduce,
   selectionRange,
 } from './state.js';
+import { annotationsOnLine } from './annotation-box.js';
 
 // --- Result type ---
 
@@ -26,6 +31,8 @@ export type DispatchResult = {
   readonly state: BrowseState;
   readonly annotationFlow?: AnnotationFlowState;
   readonly gotoFlow?: GotoFlowState;
+  readonly replyFlow?: ReplyFlowState;
+  readonly editFlow?: EditFlowState;
   /** When set, the CLI should call `finish()` with this result. */
   readonly exit?: SessionResult;
   /** When set, controls the gg two-key sequence timer state. */
@@ -278,6 +285,55 @@ export const handleBrowseKey = (
     return { state: reduce(state, { type: 'start_select' }) };
   }
 
+  // Tab — toggle annotation expand/collapse on cursor line
+  if (key.tab) {
+    const annsOnLine = annotationsOnLine(state.annotations, state.cursorLine);
+    if (annsOnLine.length > 0) {
+      // Toggle all annotations on this line
+      let s = state;
+      for (const ann of annsOnLine) {
+        s = reduce(s, { type: 'toggle_annotation', annotationId: ann.id });
+      }
+      return { state: s };
+    }
+    return { state };
+  }
+
+  // r — reply to expanded annotation on cursor line
+  if (key.char === 'r') {
+    const target = annotationsOnLine(state.annotations, state.cursorLine)
+      .find((a) => state.expandedAnnotations.has(a.id));
+    if (target) {
+      return {
+        state: reduce(state, { type: 'set_mode', mode: 'reply' }),
+        replyFlow: INITIAL_REPLY_FLOW(target.id),
+      };
+    }
+  }
+
+  // e — edit expanded annotation on cursor line
+  if (key.char === 'e') {
+    const target = annotationsOnLine(state.annotations, state.cursorLine)
+      .find((a) => state.expandedAnnotations.has(a.id));
+    if (target) {
+      return {
+        state: reduce(state, { type: 'set_mode', mode: 'edit' }),
+        editFlow: INITIAL_EDIT_FLOW(target),
+      };
+    }
+  }
+
+  // x — delete expanded annotation on cursor line
+  if (key.char === 'x') {
+    const target = annotationsOnLine(state.annotations, state.cursorLine)
+      .find((a) => state.expandedAnnotations.has(a.id));
+    if (target) {
+      return {
+        state: reduce(state, { type: 'delete_annotation', annotationId: target.id }),
+      };
+    }
+  }
+
   // Annotate (single-line)
   if (key.char === 'n') {
     return {
@@ -292,6 +348,100 @@ export const handleBrowseKey = (
   }
 
   return { state };
+};
+
+// --- Reply mode ---
+
+export const handleReplyKey = (
+  key: Key,
+  state: BrowseState,
+  flow: ReplyFlowState
+): DispatchResult => {
+  if (key.escape) {
+    return {
+      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
+      replyFlow: undefined,
+    };
+  }
+
+  if (key.return) {
+    const trimmed = flow.comment.trim();
+    if (trimmed.length > 0) {
+      const nextState = reduce(state, {
+        type: 'add_reply',
+        annotationId: flow.annotationId,
+        reply: { comment: trimmed, source: 'user' },
+      });
+      return {
+        state: reduce(nextState, { type: 'set_mode', mode: 'browse' }),
+        replyFlow: undefined,
+      };
+    }
+    return { state, replyFlow: flow };
+  }
+
+  if (key.backspace) {
+    return {
+      state,
+      replyFlow: { ...flow, comment: flow.comment.slice(0, -1) },
+    };
+  }
+
+  if (key.char && !key.ctrl) {
+    return {
+      state,
+      replyFlow: { ...flow, comment: flow.comment + key.char },
+    };
+  }
+
+  return { state, replyFlow: flow };
+};
+
+// --- Edit mode ---
+
+export const handleEditKey = (
+  key: Key,
+  state: BrowseState,
+  flow: EditFlowState
+): DispatchResult => {
+  if (key.escape) {
+    return {
+      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
+      editFlow: undefined,
+    };
+  }
+
+  if (key.return) {
+    const trimmed = flow.comment.trim();
+    if (trimmed.length > 0) {
+      const nextState = reduce(state, {
+        type: 'update_annotation',
+        annotationId: flow.annotationId,
+        changes: { comment: trimmed },
+      });
+      return {
+        state: reduce(nextState, { type: 'set_mode', mode: 'browse' }),
+        editFlow: undefined,
+      };
+    }
+    return { state, editFlow: flow };
+  }
+
+  if (key.backspace) {
+    return {
+      state,
+      editFlow: { ...flow, comment: flow.comment.slice(0, -1) },
+    };
+  }
+
+  if (key.char && !key.ctrl) {
+    return {
+      state,
+      editFlow: { ...flow, comment: flow.comment + key.char },
+    };
+  }
+
+  return { state, editFlow: flow };
 };
 
 // --- Decide mode ---

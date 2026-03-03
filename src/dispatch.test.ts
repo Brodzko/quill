@@ -3,11 +3,19 @@ import {
   handleAnnotateKey,
   handleBrowseKey,
   handleDecideKey,
+  handleEditKey,
   handleGotoKey,
+  handleReplyKey,
   handleSelectKey,
 } from './dispatch.js';
 import type { Key } from './keypress.js';
-import type { AnnotationFlowState, BrowseState, GotoFlowState } from './state.js';
+import type {
+  AnnotationFlowState,
+  BrowseState,
+  EditFlowState,
+  GotoFlowState,
+  ReplyFlowState,
+} from './state.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,6 +28,7 @@ const EMPTY_KEY: Key = {
   escape: false,
   return: false,
   backspace: false,
+  tab: false,
   upArrow: false,
   downArrow: false,
   pageUp: false,
@@ -37,6 +46,7 @@ const makeState = (overrides: Partial<BrowseState> = {}): BrowseState => ({
   viewportOffset: 0,
   mode: 'browse',
   annotations: [],
+  expandedAnnotations: new Set(),
   ...overrides,
 });
 
@@ -462,5 +472,200 @@ describe('handleDecideKey', () => {
     const result = handleDecideKey(key({ char: 'x' }), state);
     expect(result.state.mode).toBe('decide');
     expect(result.exit).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleBrowseKey — annotation interaction (Tab, r, e, x)
+// ---------------------------------------------------------------------------
+
+describe('handleBrowseKey — annotation interaction', () => {
+  const annotation = {
+    id: 'ann-1',
+    startLine: 10,
+    endLine: 10,
+    intent: 'comment',
+    comment: 'test comment',
+    source: 'agent',
+  };
+
+  const stateWithAnn = makeState({
+    cursorLine: 10,
+    annotations: [annotation],
+    expandedAnnotations: new Set<string>(),
+  });
+
+  const stateWithExpanded = makeState({
+    cursorLine: 10,
+    annotations: [annotation],
+    expandedAnnotations: new Set(['ann-1']),
+  });
+
+  it('Tab toggles annotation expansion on cursor line', () => {
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), stateWithAnn, false);
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
+  });
+
+  it('Tab collapses already-expanded annotation', () => {
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), stateWithExpanded, false);
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(false);
+  });
+
+  it('Tab on unannotated line is no-op', () => {
+    const state = makeState({ cursorLine: 5, annotations: [annotation] });
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    expect(result.state).toEqual(state);
+  });
+
+  it('r on expanded annotation enters reply mode', () => {
+    const result = handleBrowseKey(key({ char: 'r' }), stateWithExpanded, false);
+    expect(result.state.mode).toBe('reply');
+    expect(result.replyFlow).toBeDefined();
+    expect(result.replyFlow?.annotationId).toBe('ann-1');
+  });
+
+  it('r on collapsed annotation does not enter reply mode', () => {
+    const result = handleBrowseKey(key({ char: 'r' }), stateWithAnn, false);
+    expect(result.state.mode).toBe('browse');
+    expect(result.replyFlow).toBeUndefined();
+  });
+
+  it('e on expanded annotation enters edit mode', () => {
+    const result = handleBrowseKey(key({ char: 'e' }), stateWithExpanded, false);
+    expect(result.state.mode).toBe('edit');
+    expect(result.editFlow).toBeDefined();
+    expect(result.editFlow?.annotationId).toBe('ann-1');
+    expect(result.editFlow?.comment).toBe('test comment');
+  });
+
+  it('x on expanded annotation deletes it', () => {
+    const result = handleBrowseKey(key({ char: 'x' }), stateWithExpanded, false);
+    expect(result.state.annotations).toEqual([]);
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(false);
+  });
+
+  it('x on collapsed annotation does not delete', () => {
+    const result = handleBrowseKey(key({ char: 'x' }), stateWithAnn, false);
+    expect(result.state.annotations).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleReplyKey
+// ---------------------------------------------------------------------------
+
+describe('handleReplyKey', () => {
+  const annotation = {
+    id: 'ann-1',
+    startLine: 10,
+    endLine: 10,
+    intent: 'comment',
+    comment: 'test',
+    source: 'agent',
+  };
+  const state = makeState({
+    mode: 'reply',
+    annotations: [annotation],
+    expandedAnnotations: new Set(['ann-1']),
+  });
+  const flow: ReplyFlowState = { annotationId: 'ann-1', comment: '' };
+
+  it('typing appends to comment', () => {
+    const result = handleReplyKey(key({ char: 'h' }), state, flow);
+    expect(result.replyFlow?.comment).toBe('h');
+  });
+
+  it('backspace removes last char', () => {
+    const result = handleReplyKey(
+      key({ backspace: true }),
+      state,
+      { ...flow, comment: 'hi' }
+    );
+    expect(result.replyFlow?.comment).toBe('h');
+  });
+
+  it('Enter with text adds reply and returns to browse', () => {
+    const result = handleReplyKey(
+      key({ return: true }),
+      state,
+      { ...flow, comment: 'my reply' }
+    );
+    expect(result.state.mode).toBe('browse');
+    expect(result.replyFlow).toBeUndefined();
+    const ann = result.state.annotations.find((a) => a.id === 'ann-1');
+    expect(ann?.replies).toEqual([{ comment: 'my reply', source: 'user' }]);
+  });
+
+  it('Enter with empty text is no-op', () => {
+    const result = handleReplyKey(key({ return: true }), state, flow);
+    expect(result.state.mode).toBe('reply');
+    expect(result.replyFlow).toBeDefined();
+  });
+
+  it('Escape cancels reply', () => {
+    const result = handleReplyKey(key({ escape: true }), state, flow);
+    expect(result.state.mode).toBe('browse');
+    expect(result.replyFlow).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleEditKey
+// ---------------------------------------------------------------------------
+
+describe('handleEditKey', () => {
+  const annotation = {
+    id: 'ann-1',
+    startLine: 10,
+    endLine: 10,
+    intent: 'comment',
+    comment: 'original comment',
+    source: 'user',
+  };
+  const state = makeState({
+    mode: 'edit',
+    annotations: [annotation],
+    expandedAnnotations: new Set(['ann-1']),
+  });
+  const flow: EditFlowState = { annotationId: 'ann-1', comment: 'original comment' };
+
+  it('typing appends to comment', () => {
+    const result = handleEditKey(key({ char: '!' }), state, flow);
+    expect(result.editFlow?.comment).toBe('original comment!');
+  });
+
+  it('backspace removes last char', () => {
+    const result = handleEditKey(key({ backspace: true }), state, flow);
+    expect(result.editFlow?.comment).toBe('original commen');
+  });
+
+  it('Enter saves edited comment and returns to browse', () => {
+    const result = handleEditKey(
+      key({ return: true }),
+      state,
+      { ...flow, comment: 'updated comment' }
+    );
+    expect(result.state.mode).toBe('browse');
+    expect(result.editFlow).toBeUndefined();
+    const ann = result.state.annotations.find((a) => a.id === 'ann-1');
+    expect(ann?.comment).toBe('updated comment');
+  });
+
+  it('Enter with empty text is no-op', () => {
+    const result = handleEditKey(
+      key({ return: true }),
+      state,
+      { ...flow, comment: '   ' }
+    );
+    expect(result.state.mode).toBe('edit');
+  });
+
+  it('Escape cancels edit', () => {
+    const result = handleEditKey(key({ escape: true }), state, flow);
+    expect(result.state.mode).toBe('browse');
+    expect(result.editFlow).toBeUndefined();
+    // Original annotation should be unchanged
+    const ann = result.state.annotations.find((a) => a.id === 'ann-1');
+    expect(ann?.comment).toBe('original comment');
   });
 });
