@@ -56,43 +56,43 @@ describe('getViewportHeight', () => {
 
 describe('buildFrame', () => {
   it('returns a string', () => {
-    const frame = buildFrame(makeCtx());
+    const frame = buildFrame(makeCtx()).frame;
     expect(typeof frame).toBe('string');
   });
 
   it('contains the file path in the title', () => {
-    const frame = buildFrame(makeCtx({ filePath: 'src/foo.ts' }));
+    const frame = buildFrame(makeCtx({ filePath: 'src/foo.ts' })).frame;
     expect(frame).toContain('src/foo.ts');
   });
 
   it('contains the cursor line content', () => {
-    const frame = buildFrame(makeCtx({ lines: ['hello world', 'second'] }));
+    const frame = buildFrame(makeCtx({ lines: ['hello world', 'second'] })).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('hello world');
   });
 
   it('shows mode in status bar', () => {
-    const frame = buildFrame(makeCtx());
+    const frame = buildFrame(makeCtx()).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('BROWSE');
   });
 
   it('shows line position in status bar', () => {
     const ctx = makeCtx();
-    const frame = buildFrame(ctx);
+    const frame = buildFrame(ctx).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('ln 1/20');
   });
 
   it('shows cursor pointer on current line', () => {
-    const frame = buildFrame(makeCtx());
+    const frame = buildFrame(makeCtx()).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('>');
   });
 
   it('pads frame to terminal rows', () => {
     const ctx = makeCtx({ terminalRows: 30 });
-    const frame = buildFrame(ctx);
+    const frame = buildFrame(ctx).frame;
     const lineCount = frame.split('\n').length;
     expect(lineCount).toBeGreaterThanOrEqual(30);
   });
@@ -116,7 +116,7 @@ describe('buildFrame — decide mode', () => {
     const frame = buildFrame(makeCtx({
       state,
       decideFlow: { ...INITIAL_DECIDE_FLOW },
-    }));
+    })).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('Decision');
     expect(plain).toContain('approve');
@@ -141,7 +141,7 @@ describe('buildFrame — goto mode', () => {
     };
     const frame = buildFrame(
       makeCtx({ state, gotoFlow: { input: '42' } })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('Go to line');
     expect(plain).toContain('42');
@@ -169,7 +169,7 @@ describe('buildFrame — annotation flow', () => {
         state,
         annotationFlow: { ...INITIAL_ANNOTATION_FLOW },
       })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('Intent');
     expect(plain).toContain('instruct');
@@ -195,7 +195,7 @@ describe('buildFrame — select mode', () => {
       expandedAnnotations: new Set(),
       selection: { anchor: 3, active: 5 },
     };
-    const frame = buildFrame(makeCtx({ state }));
+    const frame = buildFrame(makeCtx({ state })).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('SELECT');
   });
@@ -211,7 +211,7 @@ describe('buildFrame — select mode', () => {
       expandedAnnotations: new Set(),
       selection: { anchor: 3, active: 7 },
     };
-    const frame = buildFrame(makeCtx({ state }));
+    const frame = buildFrame(makeCtx({ state })).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('sel 3–7');
     expect(plain).toContain('5 lns');
@@ -228,7 +228,7 @@ describe('buildFrame — select mode', () => {
       expandedAnnotations: new Set(),
       selection: { anchor: 5, active: 5 },
     };
-    const frame = buildFrame(makeCtx({ state }));
+    const frame = buildFrame(makeCtx({ state })).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('extend');
     expect(plain).toContain('Enter');
@@ -246,7 +246,7 @@ describe('buildFrame — select mode', () => {
       expandedAnnotations: new Set(),
       selection: { anchor: 3, active: 5 },
     };
-    const frame = buildFrame(makeCtx({ state }));
+    const frame = buildFrame(makeCtx({ state })).frame;
     expect(frame).toContain('\x1b[48;2;38;50;70m');
   });
 });
@@ -276,7 +276,7 @@ describe('buildFrame — annotation markers', () => {
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     const lines = plain.split('\n');
     const line3 = lines.find((l) => l.includes('line 3'));
@@ -307,7 +307,7 @@ describe('buildFrame — annotation markers', () => {
         focusAnnotation: 'focus-ann',
         lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`),
       })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     const line3 = plain.split('\n').find((l) => l.includes('line 3'));
     expect(line3).toContain('◎');
@@ -325,7 +325,7 @@ describe('buildFrame — annotation markers', () => {
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 5 }, (_, i) => `line ${i + 1}`) })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).not.toContain('●');
     expect(plain).not.toContain('◎');
@@ -353,7 +353,7 @@ describe('buildFrame — viewport overflow', () => {
         lines: ['a', 'b', 'c'],
         terminalRows: 15,
       })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('~');
   });
@@ -384,7 +384,7 @@ describe('buildFrame — expanded annotation box', () => {
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('┌');
     expect(plain).toContain('This is a test comment.');
@@ -411,7 +411,7 @@ describe('buildFrame — expanded annotation box', () => {
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     const line3 = plain.split('\n').find((l) => l.includes('line 3'));
     expect(line3).toContain('▼');
@@ -441,7 +441,7 @@ describe('buildFrame — expanded annotation box', () => {
         lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`),
         terminalRows: 20,
       })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('[r]eply');
     expect(plain).toContain('[w] edit');
@@ -467,7 +467,7 @@ describe('buildFrame — expanded annotation box', () => {
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).not.toContain('This should not appear expanded.');
   });
@@ -492,7 +492,7 @@ describe('buildFrame — expanded annotation box', () => {
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`) })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     const visibleLines = plain.split('\n').filter((l) => l.match(/line \d+/));
     expect(visibleLines.length).toBeLessThan(10);
@@ -519,7 +519,7 @@ describe('buildFrame — reply mode', () => {
         state,
         replyFlow: { annotationId: 'a1', comment: createBuffer('hello') },
       })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('Reply');
     expect(plain).toContain('hello');
@@ -542,7 +542,7 @@ describe('buildFrame — edit mode', () => {
         state,
         editFlow: { annotationId: 'a1', comment: createBuffer('editing') },
       })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('Edit comment');
     expect(plain).toContain('editing');
@@ -570,7 +570,7 @@ describe('buildFrame — annotation flow category step', () => {
           picker: createPicker(CATEGORY_OPTIONS),
         },
       })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('Category');
     expect(plain).toContain('bug');
@@ -599,7 +599,7 @@ describe('buildFrame — annotation flow comment step', () => {
           picker: createPicker([]),
         },
       })
-    );
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('question');
     expect(plain).toContain('bug');

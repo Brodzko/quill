@@ -39,6 +39,7 @@ import {
   colorBold,
   dim,
   highlightSearchMatches,
+  truncateAnsi,
 } from './ansi.js';
 import { annotationsOnLine, renderAnnotationBox } from './annotation-box.js';
 import { renderPicker } from './picker.js';
@@ -73,6 +74,12 @@ const lineMarker = (
 const gutterBlank = (gutterWidth: number): string =>
   ' '.repeat(1 + gutterWidth + 1 + 1 + 1);
 
+type ViewportResult = {
+  rows: string[];
+  /** Maps each viewport row index to a 1-based source line number, or undefined for non-code rows (annotation boxes, tildes). */
+  rowToLine: (number | undefined)[];
+};
+
 const renderViewport = (
   lines: string[],
   state: BrowseState,
@@ -81,9 +88,10 @@ const renderViewport = (
   focusAnnotation?: string,
   selection?: Selection,
   search?: SearchState
-): string[] => {
+): ViewportResult => {
   const gutterWidth = String(lines.length).length;
   const rows: string[] = [];
+  const rowToLine: (number | undefined)[] = [];
   const selRange = selection ? selectionRange(selection) : undefined;
   const gutterPfx = gutterBlank(gutterWidth);
   const boxMaxWidth = Math.min(80, cols - gutterPfx.length);
@@ -93,6 +101,7 @@ const renderViewport = (
   while (rows.length < viewportHeight) {
     if (lineIndex >= lines.length) {
       rows.push(`${CLEAR_LINE}~`);
+      rowToLine.push(undefined);
       lineIndex++;
       continue;
     }
@@ -139,7 +148,9 @@ const renderViewport = (
           : isCursor
             ? CURSOR_BG
             : undefined;
-    rows.push(`${CLEAR_LINE}${bg ? bgLine(displayRaw, bg, cols) : displayRaw}`);
+    const truncated = truncateAnsi(displayRaw, cols);
+    rows.push(`${CLEAR_LINE}${bg ? bgLine(truncated, bg, cols) : truncated}`);
+    rowToLine.push(lineNumber);
 
     const expandedAnns = annotationsOnLine(state.annotations, lineNumber).filter(
       (a) => state.expandedAnnotations.has(a.id) && a.endLine === lineNumber
@@ -155,13 +166,14 @@ const renderViewport = (
       for (const boxRow of boxRows) {
         if (rows.length >= viewportHeight) break;
         rows.push(boxRow);
+        rowToLine.push(lineNumber); // annotation box belongs to this line
       }
     }
 
     lineIndex++;
   }
 
-  return rows;
+  return { rows, rowToLine };
 };
 
 // --- Status bar ---
@@ -418,7 +430,13 @@ const FIXED_CHROME = 2;
  * The caller should write this with cursor homed (`\x1b[H`) so the frame
  * overwrites the previous one in-place — no clearing required.
  */
-export const buildFrame = (ctx: RenderContext): string => {
+export type FrameResult = {
+  frame: string;
+  /** Maps each viewport row index (0-based, after the title row) to a 1-based source line, or undefined. */
+  rowToLine: (number | undefined)[];
+};
+
+export const buildFrame = (ctx: RenderContext): FrameResult => {
   const mH = modalHeight(ctx);
   const hasModal = mH > 0;
 
@@ -436,17 +454,16 @@ export const buildFrame = (ctx: RenderContext): string => {
   frame.push(`${CLEAR_LINE}${bold(`Quill — ${ctx.filePath}`)}`);
 
   // Viewport
-  frame.push(
-    ...renderViewport(
-      ctx.lines,
-      ctx.state,
-      viewportHeight,
-      ctx.terminalCols,
-      ctx.focusAnnotation,
-      ctx.state.selection,
-      ctx.state.search
-    )
+  const viewport = renderViewport(
+    ctx.lines,
+    ctx.state,
+    viewportHeight,
+    ctx.terminalCols,
+    ctx.focusAnnotation,
+    ctx.state.selection,
+    ctx.state.search
   );
+  frame.push(...viewport.rows);
 
   // Status bar
   frame.push(renderStatusBar(ctx.state, ctx.filePath));
@@ -496,7 +513,7 @@ export const buildFrame = (ctx: RenderContext): string => {
     frame.push(CLEAR_LINE);
   }
 
-  return frame.join('\n');
+  return { frame: frame.join('\n'), rowToLine: viewport.rowToLine };
 };
 
 /** Compute the viewport height for a given terminal height and context. */
