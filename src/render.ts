@@ -15,6 +15,8 @@ import type {
   GotoFlowState,
   Mode,
   ReplyFlowState,
+  SearchFlowState,
+  SearchState,
   Selection,
 } from './state.js';
 import { selectionRange } from './state.js';
@@ -26,12 +28,17 @@ import {
   GREEN,
   RED,
   RESET,
+  SEARCH_CURRENT_LINE_BG,
+  SEARCH_CURRENT_MATCH_BG,
+  SEARCH_LINE_BG,
+  SEARCH_MATCH_BG,
   SELECT_BG,
   YELLOW,
   bgLine,
   bold,
   colorBold,
   dim,
+  highlightSearchMatches,
 } from './ansi.js';
 import { annotationsOnLine, renderAnnotationBox } from './annotation-box.js';
 import { renderPicker } from './picker.js';
@@ -72,7 +79,8 @@ const renderViewport = (
   viewportHeight: number,
   cols: number,
   focusAnnotation?: string,
-  selection?: Selection
+  selection?: Selection,
+  search?: SearchState
 ): string[] => {
   const gutterWidth = String(lines.length).length;
   const rows: string[] = [];
@@ -105,8 +113,33 @@ const renderViewport = (
     const paddedNum = String(lineNumber).padStart(gutterWidth, ' ');
     const raw = `${pointer}${paddedNum} ${marker} ${lines[lineIndex]}`;
 
-    const bg = isSelected ? SELECT_BG : isCursor ? CURSOR_BG : undefined;
-    rows.push(`${CLEAR_LINE}${bg ? bgLine(raw, bg, cols) : raw}`);
+    const isCurrentMatch =
+      search !== undefined &&
+      search.currentMatchIndex >= 0 &&
+      search.matchLines[search.currentMatchIndex] === lineNumber;
+    const isMatch =
+      !isCurrentMatch &&
+      search !== undefined &&
+      search.matchLines.length > 0 &&
+      search.matchLines.includes(lineNumber);
+
+    // Apply inline substring highlighting on match lines
+    let displayRaw = raw;
+    if ((isCurrentMatch || isMatch) && search) {
+      const inlineBg = isCurrentMatch ? SEARCH_CURRENT_MATCH_BG : SEARCH_MATCH_BG;
+      displayRaw = highlightSearchMatches(raw, search.pattern, inlineBg);
+    }
+
+    const bg = isSelected
+      ? SELECT_BG
+      : isCurrentMatch
+        ? SEARCH_CURRENT_LINE_BG
+        : isMatch
+          ? SEARCH_LINE_BG
+          : isCursor
+            ? CURSOR_BG
+            : undefined;
+    rows.push(`${CLEAR_LINE}${bg ? bgLine(displayRaw, bg, cols) : displayRaw}`);
 
     const expandedAnns = annotationsOnLine(state.annotations, lineNumber).filter(
       (a) => state.expandedAnnotations.has(a.id) && a.endLine === lineNumber
@@ -142,6 +175,7 @@ const MODE_COLORS: Record<Mode, string> = {
   reply: CYAN,
   edit: CYAN,
   confirm: RED,
+  search: YELLOW,
 };
 
 const renderStatusBar = (state: BrowseState, filePath: string): string => {
@@ -158,8 +192,13 @@ const renderStatusBar = (state: BrowseState, filePath: string): string => {
           return `  sel ${r.startLine}–${r.endLine} (${span} ln${span === 1 ? '' : 's'})`;
         })()
       : '';
+  const searchInfo = state.search && state.search.matchLines.length > 0
+    ? `  "${state.search.pattern}" ${state.search.currentMatchIndex + 1}/${state.search.matchLines.length}`
+    : state.search && state.search.pattern.length > 0
+      ? `  "${state.search.pattern}" 0 matches`
+      : '';
   const info = dim(
-    `  ln ${state.cursorLine}/${state.lineCount}${selInfo}  ${count} annotation${count === 1 ? '' : 's'}  raw  ${filePath}`
+    `  ln ${state.cursorLine}/${state.lineCount}${selInfo}  ${count} annotation${count === 1 ? '' : 's'}${searchInfo}  raw  ${filePath}`
   );
   return `${CLEAR_LINE}${modeTag}${info}`;
 };
@@ -167,9 +206,11 @@ const renderStatusBar = (state: BrowseState, filePath: string): string => {
 // --- Help bar (browse/select only) ---
 
 const BROWSE_HELP =
-  '[j/k ↑↓] move  [v Shift+↑↓] select  [Tab/S-Tab] annotations  [PgUp/Dn Ctrl+U/D] half-page  [gg/G Home/End] jump  [:] goto  [n] annotate  [q] finish';
+  '[j/k ↑↓] move  [v Shift+↑↓] select  [Tab/S-Tab] annotations  [/] search  [a] annotate  [:] goto  [q] finish';
+const BROWSE_SEARCH_HELP =
+  '[j/k ↑↓] move  [n/N] next/prev match  [/] new search  [Esc] clear  [a] annotate  [q] finish';
 const BROWSE_EXPANDED_HELP =
-  '[j/k ↑↓] move  [Tab/S-Tab] next/prev  [r]eply  [w] edit  [x] delete  [c] toggle  [C] toggle all  [n] new  [q] finish';
+  '[j/k ↑↓] move  [Tab/S-Tab] next/prev  [r]eply  [w] edit  [x] delete  [c] toggle  [C] toggle all  [a] new  [q] finish';
 const SELECT_HELP =
   '[j/k ↑↓ Shift+↑↓] extend  [Enter] annotate  [Esc] cancel';
 
@@ -179,7 +220,8 @@ const renderHelpBar = (state: BrowseState): string => {
     // Show annotation-specific hints when on an expanded annotation line
     const hasExpanded = annotationsOnLine(state.annotations, state.cursorLine)
       .some((a) => state.expandedAnnotations.has(a.id));
-    const hints = hasExpanded ? BROWSE_EXPANDED_HELP : BROWSE_HELP;
+    const hasSearch = state.search !== undefined && state.search.matchLines.length > 0;
+    const hints = hasExpanded ? BROWSE_EXPANDED_HELP : hasSearch ? BROWSE_SEARCH_HELP : BROWSE_HELP;
     return `${CLEAR_LINE}${dim(hints)}`;
   }
   return CLEAR_LINE;
@@ -295,6 +337,25 @@ const renderConfirmModal = (
   });
 };
 
+// --- Search modal ---
+
+const renderSearchModal = (
+  flow: SearchFlowState,
+  searchState: SearchState | undefined,
+  cols: number
+): string[] => {
+  return renderTextbox(flow.input, {
+    label: 'Search',
+    cols,
+    visibleRows: 1,
+    context: searchState && searchState.matchLines.length > 0
+      ? `${searchState.currentMatchIndex + 1}/${searchState.matchLines.length} matches`
+      : searchState && searchState.pattern.length > 0
+        ? '0 matches'
+        : undefined,
+  });
+};
+
 // --- Reply / Edit modals ---
 
 const renderReplyModal = (flow: ReplyFlowState, cols: number): string[] => {
@@ -327,6 +388,7 @@ export type RenderContext = {
   editFlow?: EditFlowState;
   decideFlow?: DecideFlowState;
   confirmFlow?: ConfirmFlowState;
+  searchFlow?: SearchFlowState;
 };
 
 /** Compute modal height for a given render context. */
@@ -343,6 +405,7 @@ const modalHeight = (ctx: RenderContext): number => {
   if (ctx.state.mode === 'goto' && ctx.gotoFlow) return 4;
   if (ctx.state.mode === 'reply' && ctx.replyFlow) return 7; // 4 rows + 3 chrome
   if (ctx.state.mode === 'edit' && ctx.editFlow) return 9; // 6 rows + 3 chrome
+  if (ctx.state.mode === 'search' && ctx.searchFlow) return 5; // 1 row + 3 chrome + context
   return 0;
 };
 
@@ -380,7 +443,8 @@ export const buildFrame = (ctx: RenderContext): string => {
       viewportHeight,
       ctx.terminalCols,
       ctx.focusAnnotation,
-      ctx.state.selection
+      ctx.state.selection,
+      ctx.state.search
     )
   );
 
@@ -420,6 +484,11 @@ export const buildFrame = (ctx: RenderContext): string => {
   }
   if (ctx.state.mode === 'edit' && ctx.editFlow) {
     frame.push(...renderEditModal(ctx.editFlow, ctx.terminalCols));
+  }
+  if (ctx.state.mode === 'search' && ctx.searchFlow) {
+    frame.push(
+      ...renderSearchModal(ctx.searchFlow, ctx.state.search, ctx.terminalCols)
+    );
   }
 
   // Pad remaining terminal rows

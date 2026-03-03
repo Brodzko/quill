@@ -22,6 +22,15 @@ export const CURSOR_BG = `${ESC}48;2;44;49;58m`;
 /** Selection range background — muted blue tint. */
 export const SELECT_BG = `${ESC}48;2;38;50;70m`;
 
+/** Search match line background — very subtle tint so the line is distinguishable. */
+export const SEARCH_LINE_BG = `${ESC}48;2;36;40;48m`;
+/** Current/focused search match line background — slightly warmer. */
+export const SEARCH_CURRENT_LINE_BG = `${ESC}48;2;42;45;52m`;
+/** Inline search match highlight — warm tint visible over dark themes without killing readability. */
+export const SEARCH_MATCH_BG = `${ESC}48;2;65;55;25m`;
+/** Inline current search match highlight — reverse video (fg↔bg swap). */
+export const SEARCH_CURRENT_MATCH_BG = `${ESC}7m`;
+
 export const ITALIC = `${ESC}3m`;
 export const MAGENTA = `${ESC}35m`;
 export const WHITE = `${ESC}37m`;
@@ -61,6 +70,84 @@ export const visibleLength = (s: string): number => stripAnsi(s).length;
  * Embedded RESET sequences (`\x1b[0m`) kill all attributes including background,
  * so we re-inject the background after every reset to keep it continuous.
  */
+/**
+ * Build a mapping from visible character index to raw string index.
+ * Returns an array where `map[visibleIdx]` is the raw string index of that
+ * visible character. Length = number of visible characters.
+ */
+const buildVisibleToRawMap = (s: string): number[] => {
+  const map: number[] = [];
+  let i = 0;
+  while (i < s.length) {
+    // Check for ANSI escape sequence at this position
+    if (s[i] === '\x1b' && s[i + 1] === '[') {
+      // Skip past the escape sequence
+      let j = i + 2;
+      while (j < s.length && s[j] !== 'm') j++;
+      i = j + 1; // skip past the 'm'
+      continue;
+    }
+    map.push(i);
+    i++;
+  }
+  return map;
+};
+
+/**
+ * Highlight all occurrences of `pattern` within an ANSI-styled string.
+ * Injects `matchBg` around each matched substring, preserving existing
+ * syntax highlighting by saving/restoring surrounding escape state.
+ *
+ * Case-insensitive substring matching on visible text.
+ */
+export const highlightSearchMatches = (
+  s: string,
+  pattern: string,
+  matchBg: string
+): string => {
+  if (pattern.length === 0) return s;
+
+  const visMap = buildVisibleToRawMap(s);
+  const visible = stripAnsi(s);
+  const lowerVisible = visible.toLowerCase();
+  const lowerPattern = pattern.toLowerCase();
+
+  // Find all match ranges in visible text (non-overlapping, left to right)
+  const matches: Array<{ start: number; end: number }> = [];
+  let searchFrom = 0;
+  while (searchFrom <= lowerVisible.length - lowerPattern.length) {
+    const idx = lowerVisible.indexOf(lowerPattern, searchFrom);
+    if (idx === -1) break;
+    matches.push({ start: idx, end: idx + lowerPattern.length });
+    searchFrom = idx + lowerPattern.length;
+  }
+
+  if (matches.length === 0) return s;
+
+  // Build result by copying raw string segments and injecting highlights.
+  // We process matches in reverse order so earlier indices stay valid.
+  let result = s;
+  for (let m = matches.length - 1; m >= 0; m--) {
+    const match = matches[m]!;
+    const rawStart = visMap[match.start]!;
+    // rawEnd: position *after* the last matched visible char
+    const rawEnd =
+      match.end < visMap.length
+        ? visMap[match.end]!
+        : result.length;
+
+    const before = result.slice(0, rawStart);
+    const matched = result.slice(rawStart, rawEnd);
+    const after = result.slice(rawEnd);
+
+    // Patch the matched segment: inject matchBg after any RESETs inside it
+    const patchedMatch = matched.replaceAll(RESET, `${RESET}${matchBg}`);
+    result = `${before}${matchBg}${patchedMatch}${RESET}${after}`;
+  }
+
+  return result;
+};
+
 export const bgLine = (s: string, bg: string, cols: number): string => {
   const visible = visibleLength(s);
   const padding = Math.max(0, cols - visible);

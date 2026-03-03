@@ -133,6 +133,10 @@ export const parseKeypress = (data: Buffer | string): Key => {
   if (raw === '\x05') return { ...EMPTY_KEY, char: 'e', ctrl: true };
   // Ctrl+G (0x07)
   if (raw === '\x07') return { ...EMPTY_KEY, char: 'g', ctrl: true };
+  // Ctrl+N (0x0E)
+  if (raw === '\x0e') return { ...EMPTY_KEY, char: 'n', ctrl: true };
+  // Ctrl+P (0x10)
+  if (raw === '\x10') return { ...EMPTY_KEY, char: 'p', ctrl: true };
   // Ctrl+U (0x15)
   if (raw === '\x15') return { ...EMPTY_KEY, char: 'u', ctrl: true };
 

@@ -18,12 +18,14 @@ import {
   type EditFlowState,
   type GotoFlowState,
   type ReplyFlowState,
+  type SearchFlowState,
   INITIAL_ANNOTATION_FLOW,
   INITIAL_CONFIRM_FLOW,
   INITIAL_DECIDE_FLOW,
   INITIAL_EDIT_FLOW,
   INITIAL_GOTO_FLOW,
   INITIAL_REPLY_FLOW,
+  INITIAL_SEARCH_FLOW,
   halfPage,
   reduce,
   selectionRange,
@@ -63,6 +65,7 @@ export type DispatchResult = {
   readonly editFlow?: EditFlowState;
   readonly decideFlow?: DecideFlowState;
   readonly confirmFlow?: ConfirmFlowState;
+  readonly searchFlow?: SearchFlowState;
   /** When set, the CLI should call `finish()` with this result. */
   readonly exit?: SessionResult;
   /** When set, controls the gg two-key sequence timer state. */
@@ -410,6 +413,11 @@ export const handleBrowseKey = (
   state: BrowseState,
   ggPending: boolean
 ): DispatchResult => {
+  // Escape clears active search highlights
+  if (key.escape && state.search) {
+    return { state: reduce(state, { type: 'clear_search' }) };
+  }
+
   // Shift+arrows → start selection and extend
   if (key.shift && key.upArrow) {
     let s = reduce(state, { type: 'start_select' });
@@ -448,6 +456,20 @@ export const handleBrowseKey = (
     return {
       state: reduce(state, { type: 'set_cursor', line: state.lineCount }),
     };
+  }
+
+  // Search navigation: Ctrl+N / Ctrl+P
+  if (key.ctrl && key.char === 'n') {
+    if (state.search && state.search.matchLines.length > 0) {
+      return { state: reduce(state, { type: 'navigate_match', delta: 1 }) };
+    }
+    return { state };
+  }
+  if (key.ctrl && key.char === 'p') {
+    if (state.search && state.search.matchLines.length > 0) {
+      return { state: reduce(state, { type: 'navigate_match', delta: -1 }) };
+    }
+    return { state };
   }
 
   // Goto line (must precede gg check — Ctrl+G has char='g' + ctrl=true)
@@ -552,11 +574,35 @@ export const handleBrowseKey = (
   }
 
   // Annotate (single-line)
-  if (key.char === 'n') {
+  if (key.char === 'a') {
     return {
       state: reduce(state, { type: 'set_mode', mode: 'annotate' }),
       annotationFlow: { ...INITIAL_ANNOTATION_FLOW },
     };
+  }
+
+  // Search
+  if (key.char === '/') {
+    return {
+      state: reduce(state, { type: 'set_mode', mode: 'search' }),
+      searchFlow: { ...INITIAL_SEARCH_FLOW },
+    };
+  }
+
+  // Next search match
+  if (key.char === 'n') {
+    if (state.search && state.search.matchLines.length > 0) {
+      return { state: reduce(state, { type: 'navigate_match', delta: 1 }) };
+    }
+    return { state };
+  }
+
+  // Previous search match
+  if (key.char === 'N') {
+    if (state.search && state.search.matchLines.length > 0) {
+      return { state: reduce(state, { type: 'navigate_match', delta: -1 }) };
+    }
+    return { state };
   }
 
   // Finish / decision picker
@@ -716,6 +762,82 @@ export const handleConfirmKey = (
   }
 
   return { state, confirmFlow: flow };
+};
+
+// --- Search mode ---
+
+/**
+ * Find all 1-indexed line numbers whose raw content matches the pattern
+ * (case-insensitive substring match).
+ */
+const findMatchLines = (
+  sourceLines: readonly string[],
+  pattern: string
+): number[] => {
+  if (pattern.length === 0) return [];
+  const lower = pattern.toLowerCase();
+  const result: number[] = [];
+  for (let i = 0; i < sourceLines.length; i++) {
+    if (sourceLines[i]!.toLowerCase().includes(lower)) {
+      result.push(i + 1);
+    }
+  }
+  return result;
+};
+
+export const handleSearchKey = (
+  key: Key,
+  state: BrowseState,
+  flow: SearchFlowState,
+  sourceLines: readonly string[]
+): DispatchResult => {
+  // Escape clears search and returns to browse
+  if (key.escape) {
+    return {
+      state: reduce(
+        reduce(state, { type: 'clear_search' }),
+        { type: 'set_mode', mode: 'browse' }
+      ),
+      searchFlow: undefined,
+    };
+  }
+
+  // Enter commits the search and returns to browse (keeps highlights)
+  if (key.return && !key.shift && !key.alt) {
+    const pattern = getText(flow.input).trim();
+    if (pattern.length > 0) {
+      const matchLines = findMatchLines(sourceLines, pattern);
+      return {
+        state: reduce(
+          reduce(state, { type: 'set_search', pattern, matchLines }),
+          { type: 'set_mode', mode: 'browse' }
+        ),
+        searchFlow: undefined,
+      };
+    }
+    // Empty pattern — clear search and return
+    return {
+      state: reduce(
+        reduce(state, { type: 'clear_search' }),
+        { type: 'set_mode', mode: 'browse' }
+      ),
+      searchFlow: undefined,
+    };
+  }
+
+  // Text editing keys
+  const updatedBuf = applyTextKey(key, flow.input);
+  if (updatedBuf) {
+    // Live preview: compute matches as user types
+    const pattern = getText(updatedBuf).trim();
+    const matchLines = findMatchLines(sourceLines, pattern);
+    const nextState = pattern.length > 0
+      ? reduce(state, { type: 'set_search', pattern, matchLines })
+      : reduce(state, { type: 'clear_search' });
+    return { state: nextState, searchFlow: { ...flow, input: updatedBuf } };
+  }
+
+  return { state, searchFlow: flow };
 };
 
 // --- Decide mode ---

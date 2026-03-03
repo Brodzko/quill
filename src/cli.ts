@@ -12,6 +12,7 @@ import {
   handleEditKey,
   handleGotoKey,
   handleReplyKey,
+  handleSearchKey,
   handleSelectKey,
 } from './dispatch.js';
 import { type BundledTheme, DEFAULT_THEME, highlightCode } from './highlight.js';
@@ -31,6 +32,7 @@ import {
   type EditFlowState,
   type GotoFlowState,
   type ReplyFlowState,
+  type SearchFlowState,
   clampLine,
   computeViewportOffset,
   reduce,
@@ -99,6 +101,7 @@ const command = defineCommand({
       );
 
       const rawContent = readFileSync(filePath, 'utf-8');
+      const sourceLines = rawContent.split('\n');
       const lines = await highlightCode({
         code: rawContent,
         filePath,
@@ -170,6 +173,7 @@ const command = defineCommand({
       let editFlow: EditFlowState | undefined;
       let decideFlow: DecideFlowState | undefined;
       let confirmFlow: ConfirmFlowState | undefined;
+      let searchFlow: SearchFlowState | undefined;
 
       const paint = (): void => {
         const rows = stderr.rows ?? 24;
@@ -194,6 +198,7 @@ const command = defineCommand({
           editFlow,
           decideFlow,
           confirmFlow,
+          searchFlow,
         };
 
         stderr.write(`${CURSOR_HOME}${buildFrame(ctx)}`);
@@ -239,6 +244,7 @@ const command = defineCommand({
         if ('editFlow' in result) editFlow = result.editFlow;
         if ('decideFlow' in result) decideFlow = result.decideFlow;
         if ('confirmFlow' in result) confirmFlow = result.confirmFlow;
+        if ('searchFlow' in result) searchFlow = result.searchFlow;
 
         // Handle gg timer state from browse handler
         if (result.gg) {
@@ -273,7 +279,9 @@ const command = defineCommand({
         }
 
         // Dispatch to mode-specific handler
-        if (state.mode === 'confirm' && confirmFlow) {
+        if (state.mode === 'search' && searchFlow) {
+          applyResult(handleSearchKey(key, state, searchFlow, sourceLines));
+        } else if (state.mode === 'confirm' && confirmFlow) {
           applyResult(handleConfirmKey(key, state, confirmFlow));
         } else if (state.mode === 'annotate' && annotationFlow) {
           applyResult(handleAnnotateKey(key, state, annotationFlow));

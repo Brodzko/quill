@@ -74,13 +74,35 @@ export type ConfirmFlowState = {
   readonly picker: PickerState;
 };
 
+export type SearchFlowState = {
+  /** The search input being typed (while in search mode). */
+  readonly input: TextBuffer;
+};
+
+export const INITIAL_SEARCH_FLOW: SearchFlowState = {
+  input: createBuffer(),
+};
+
+/**
+ * Persistent search state — lives on BrowseState so highlights/navigation
+ * survive exiting search mode back to browse.
+ */
+export type SearchState = {
+  /** The committed search pattern (after Enter). Empty string = no search. */
+  readonly pattern: string;
+  /** 1-indexed line numbers that contain a match. */
+  readonly matchLines: readonly number[];
+  /** Index into matchLines for the current/focused match (-1 = none). */
+  readonly currentMatchIndex: number;
+};
+
 export const INITIAL_CONFIRM_FLOW = (annotationId: string): ConfirmFlowState => ({
   action: 'delete_annotation',
   annotationId,
   picker: createPicker(CONFIRM_OPTIONS),
 });
 
-export type Mode = 'browse' | 'decide' | 'annotate' | 'goto' | 'select' | 'reply' | 'edit' | 'confirm';
+export type Mode = 'browse' | 'decide' | 'annotate' | 'goto' | 'select' | 'reply' | 'edit' | 'confirm' | 'search';
 
 // Re-export TextBuffer for consumers
 export type { TextBuffer } from './text-buffer.js';
@@ -103,6 +125,8 @@ export type BrowseState = {
   readonly selection?: Selection;
   /** Set of annotation ids that are currently expanded inline. */
   readonly expandedAnnotations: ReadonlySet<string>;
+  /** Persistent search state — survives mode transitions. */
+  readonly search?: SearchState;
 };
 
 // Standard useReducer-compatible signature: (state, action) => state.
@@ -119,7 +143,10 @@ export type BrowseAction =
   | { type: 'toggle_annotation'; annotationId: string }
   | { type: 'delete_annotation'; annotationId: string }
   | { type: 'update_annotation'; annotationId: string; changes: Partial<Pick<Annotation, 'comment' | 'status'>> }
-  | { type: 'add_reply'; annotationId: string; reply: { comment: string; source: string } };
+  | { type: 'add_reply'; annotationId: string; reply: { comment: string; source: string } }
+  | { type: 'set_search'; pattern: string; matchLines: readonly number[] }
+  | { type: 'clear_search' }
+  | { type: 'navigate_match'; delta: 1 | -1 };
 
 export const clampLine = (value: number, lineCount: number): number =>
   R.clamp(value, { min: 1, max: Math.max(1, lineCount) });
@@ -275,6 +302,51 @@ export const reduce = (state: BrowseState, action: BrowseAction): BrowseState =>
             ? { ...a, replies: [...(a.replies ?? []), action.reply] }
             : a
         ),
+      };
+    }
+    case 'set_search': {
+      if (action.matchLines.length === 0) {
+        return {
+          ...state,
+          search: { pattern: action.pattern, matchLines: [], currentMatchIndex: -1 },
+        };
+      }
+      // Find the first match at or after the current cursor line
+      const idx = action.matchLines.findIndex((l) => l >= state.cursorLine);
+      const matchIdx = idx >= 0 ? idx : 0;
+      const cursorLine = action.matchLines[matchIdx]!;
+      const viewportOffset = computeViewportOffset({
+        cursorLine,
+        currentOffset: state.viewportOffset,
+        viewportHeight: state.viewportHeight,
+        lineCount: state.lineCount,
+      });
+      return {
+        ...state,
+        cursorLine,
+        viewportOffset,
+        search: { pattern: action.pattern, matchLines: action.matchLines, currentMatchIndex: matchIdx },
+      };
+    }
+    case 'clear_search': {
+      return { ...state, search: undefined };
+    }
+    case 'navigate_match': {
+      if (!state.search || state.search.matchLines.length === 0) return state;
+      const len = state.search.matchLines.length;
+      const nextIdx = ((state.search.currentMatchIndex + action.delta) % len + len) % len;
+      const cursorLine = state.search.matchLines[nextIdx]!;
+      const viewportOffset = computeViewportOffset({
+        cursorLine,
+        currentOffset: state.viewportOffset,
+        viewportHeight: state.viewportHeight,
+        lineCount: state.lineCount,
+      });
+      return {
+        ...state,
+        cursorLine,
+        viewportOffset,
+        search: { ...state.search, currentMatchIndex: nextIdx },
       };
     }
   }
