@@ -25,6 +25,12 @@ export type Key = {
   pageDown: boolean;
   home: boolean;
   end: boolean;
+  scrollUp: boolean;
+  scrollDown: boolean;
+  /** 1-based terminal row for mouse click, 0 = not a click. */
+  mouseRow: number;
+  /** 1-based terminal column for mouse click, 0 = not a click. */
+  mouseCol: number;
 };
 
 const EMPTY_KEY: Key = {
@@ -44,10 +50,42 @@ const EMPTY_KEY: Key = {
   pageDown: false,
   home: false,
   end: false,
+  scrollUp: false,
+  scrollDown: false,
+  mouseRow: 0,
+  mouseCol: 0,
 };
 
 export const parseKeypress = (data: Buffer | string): Key => {
   const raw = typeof data === 'string' ? data : data.toString('utf-8');
+
+  // --- Mouse events (SGR extended mode: \x1b[<button;col;rowM/m) ---
+  const sgrMatch = raw.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/);
+  if (sgrMatch) {
+    const btn = Number(sgrMatch[1]);
+    const col = Number(sgrMatch[2]);
+    const row = Number(sgrMatch[3]);
+    const press = sgrMatch[4] === 'M';
+    // Wheel events
+    if (btn === 64) return { ...EMPTY_KEY, scrollUp: true };
+    if (btn === 65) return { ...EMPTY_KEY, scrollDown: true };
+    // Left click press (button 0)
+    if (btn === 0 && press) return { ...EMPTY_KEY, mouseRow: row, mouseCol: col };
+    return EMPTY_KEY; // ignore other mouse events
+  }
+
+  // --- Mouse events (legacy X10 mode: \x1b[M followed by 3 bytes) ---
+  if (raw.length === 6 && raw.startsWith('\x1b[M')) {
+    const btn = raw.charCodeAt(3) - 32;
+    const col = raw.charCodeAt(4) - 32;
+    const row = raw.charCodeAt(5) - 32;
+    // Wheel events
+    if (btn === 64) return { ...EMPTY_KEY, scrollUp: true };
+    if (btn === 65) return { ...EMPTY_KEY, scrollDown: true };
+    // Left click press (button 0)
+    if (btn === 0) return { ...EMPTY_KEY, mouseRow: row, mouseCol: col };
+    return EMPTY_KEY; // ignore other mouse events
+  }
 
   // --- CSI u protocol (kitty keyboard) ---
 

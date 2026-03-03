@@ -31,6 +31,8 @@ const expectKey = (
     'pageDown',
     'home',
     'end',
+    'scrollUp',
+    'scrollDown',
   ];
   for (const field of boolFields) {
     if (!(field in expected)) {
@@ -286,6 +288,48 @@ describe('ctrl+a / ctrl+e', () => {
 describe('shift+enter', () => {
   it('parses Shift+Enter (CSI u: \\x1b[13;2u)', () => {
     expectKey('\x1b[13;2u', { return: true, shift: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mouse wheel
+// ---------------------------------------------------------------------------
+
+describe('mouse wheel', () => {
+  it('parses SGR wheel up (\x1b[<64;1;1M)', () => {
+    expectKey('\x1b[<64;1;1M', { scrollUp: true });
+  });
+
+  it('parses SGR wheel down (\x1b[<65;10;20M)', () => {
+    expectKey('\x1b[<65;10;20M', { scrollDown: true });
+  });
+
+  it('ignores SGR non-wheel non-click mouse events', () => {
+    const key = parseKeypress('\x1b[<2;10;20M');
+    expect(key.scrollUp).toBe(false);
+    expect(key.scrollDown).toBe(false);
+    expect(key.mouseRow).toBe(0);
+  });
+
+  it('parses SGR left click press', () => {
+    expectKey('\x1b[<0;15;8M', { mouseRow: 8, mouseCol: 15 });
+  });
+
+  it('ignores SGR left click release (lowercase m)', () => {
+    const key = parseKeypress('\x1b[<0;15;8m');
+    expect(key.mouseRow).toBe(0);
+  });
+
+  it('parses legacy X10 wheel up', () => {
+    // Button 64+32=96=0x60, col=1+32=33, row=1+32=33
+    const raw = `\x1b[M${String.fromCharCode(96, 33, 33)}`;
+    expectKey(raw, { scrollUp: true });
+  });
+
+  it('parses legacy X10 wheel down', () => {
+    // Button 65+32=97=0x61, col=1+32=33, row=1+32=33
+    const raw = `\x1b[M${String.fromCharCode(97, 33, 33)}`;
+    expectKey(raw, { scrollDown: true });
   });
 });
 
