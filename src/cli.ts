@@ -95,6 +95,7 @@ const command = defineCommand({
       );
 
       const lines = readFileSync(filePath, 'utf-8').split(/\r?\n/);
+      const lineCount = lines.length;
 
       const initialAnnotations = normalizeInputAnnotations(envelope);
 
@@ -106,16 +107,23 @@ const command = defineCommand({
         : undefined;
 
       const initialCursorLine = focusedAnnotation
-        ? clampLine(focusedAnnotation.startLine, lines.length)
-        : clampLine(lineArg ?? 1, lines.length);
+        ? clampLine(focusedAnnotation.startLine, lineCount)
+        : clampLine(lineArg ?? 1, lineCount);
+
+      const initialViewportHeight = getViewportHeight(
+        'browse',
+        getTerminalRows()
+      );
 
       const initialState: BrowseState = {
+        lineCount,
+        viewportHeight: initialViewportHeight,
         cursorLine: initialCursorLine,
         viewportOffset: computeViewportOffset({
           cursorLine: initialCursorLine,
           currentOffset: 0,
-          viewportHeight: getViewportHeight('browse', getTerminalRows()),
-          lineCount: lines.length,
+          viewportHeight: initialViewportHeight,
+          lineCount,
         }),
         mode: 'browse',
         annotations: initialAnnotations,
@@ -165,12 +173,17 @@ const command = defineCommand({
       let state = initialState;
 
       const dispatch = (action: BrowseAction): void => {
-        state = reduce(
-          state,
-          action,
-          lines.length,
-          getViewportHeight(state.mode, getTerminalRows())
-        );
+        state = reduce(state, action);
+      };
+
+      // Sync viewportHeight from terminal size whenever mode changes, since
+      // header height differs between browse and decide modes.
+      const dispatchModeChange = (mode: BrowseState['mode']): void => {
+        dispatch({ type: 'set_mode', mode });
+        dispatch({
+          type: 'update_viewport',
+          viewportHeight: getViewportHeight(mode, getTerminalRows()),
+        });
       };
 
       const finishWithDecision = (decision: Decision): void => {
@@ -211,13 +224,13 @@ const command = defineCommand({
             },
           });
         },
-        q: () => dispatch({ type: 'set_mode', mode: 'decide' }),
+        q: () => dispatchModeChange('decide'),
       };
 
       const decideHandlers: Record<string, KeyHandler> = {
         a: () => finishWithDecision('approve'),
         d: () => finishWithDecision('deny'),
-        '\u001B': () => dispatch({ type: 'set_mode', mode: 'browse' }),
+        '\u001B': () => dispatchModeChange('browse'),
       };
 
       const handlersByMode: Record<string, Record<string, KeyHandler>> = {

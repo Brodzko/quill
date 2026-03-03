@@ -5,7 +5,7 @@ import { stderr } from 'process';
 import { ReadStream as TtyReadStream } from 'tty';
 import type { SessionResult } from './schema.js';
 import { buildFrame, getViewportHeight } from './render.js';
-import { type BrowseAction, type BrowseState, reduce } from './state.js';
+import { type BrowseState, reduce } from './state.js';
 import { runCommentPrompt } from './terminal.js';
 
 type InkShellAppProps = {
@@ -27,16 +27,7 @@ const InkShellApp = ({
 }: InkShellAppProps) => {
   const { exit } = useApp();
   const terminalRows = process.stderr.rows ?? 24;
-  const [state, dispatch] = useReducer(
-    (currentState: BrowseState, action: BrowseAction) =>
-      reduce(
-        currentState,
-        action,
-        lines.length,
-        getViewportHeight(currentState.mode, terminalRows)
-      ),
-    initialState
-  );
+  const [state, dispatch] = useReducer(reduce, initialState);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
 
   useInput((input, key) => {
@@ -90,6 +81,10 @@ const InkShellApp = ({
 
       if (input === 'q') {
         dispatch({ type: 'set_mode', mode: 'decide' });
+        dispatch({
+          type: 'update_viewport',
+          viewportHeight: getViewportHeight('decide', terminalRows),
+        });
       }
 
       return;
@@ -108,6 +103,10 @@ const InkShellApp = ({
 
       if (key.escape) {
         dispatch({ type: 'set_mode', mode: 'browse' });
+        dispatch({
+          type: 'update_viewport',
+          viewportHeight: getViewportHeight('browse', terminalRows),
+        });
       }
     }
   });
