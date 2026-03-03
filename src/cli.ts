@@ -1,20 +1,32 @@
 #!/usr/bin/env node
+import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
-import { createElement } from 'react';
-import { render as renderInk } from 'ink';
-import { defineCommand, runMain } from 'citty';
-import * as R from 'remeda';
 import { stderr, stdout } from 'process';
+import * as R from 'remeda';
+import { defineCommand, runMain } from 'citty';
+import { parseKeypress } from './keypress.js';
 import {
+  type AnnotationFlowState,
+  type RenderContext,
+  INITIAL_ANNOTATION_FLOW,
+  buildFrame,
+  getViewportHeight,
+} from './render.js';
+import {
+  CATEGORY_BY_KEY,
+  INTENT_BY_KEY,
+  type KnownCategory,
+  type KnownIntent,
+  type SessionResult,
   createOutput,
   normalizeInputAnnotations,
   tryParseInputEnvelope,
-  type SessionResult,
 } from './schema.js';
 import {
   type BrowseState,
   clampLine,
   computeViewportOffset,
+  reduce,
 } from './state.js';
 import {
   cleanupTerminal,
@@ -22,9 +34,13 @@ import {
   resolveInteractiveInput,
 } from './terminal.js';
 
-// Ink manages stdin directly via its render config.
-// We still resolve interactive input here for the piped-stdin → /dev/tty fallback.
-import { App } from './components/App.js';
+// --- Terminal escape sequences ---
+
+const ALT_SCREEN_ON = '\x1b[?1049h';
+const ALT_SCREEN_OFF = '\x1b[?1049l';
+const CURSOR_HIDE = '\x1b[?25l';
+const CURSOR_SHOW = '\x1b[?25h';
+const CURSOR_HOME = '\x1b[H';
 
 const command = defineCommand({
   meta: {
@@ -84,10 +100,8 @@ const command = defineCommand({
         ? clampLine(focusedAnnotation.startLine, lineCount)
         : clampLine(lineArg ?? 1, lineCount);
 
-      const initialViewportHeight = Math.max(
-        3,
-        (stderr.rows ?? 24) - 4
-      );
+      const terminalRows = stderr.rows ?? 24;
+      const initialViewportHeight = getViewportHeight(terminalRows);
 
       const initialState: BrowseState = {
         lineCount,
@@ -103,59 +117,240 @@ const command = defineCommand({
         annotations: initialAnnotations,
       };
 
-      // --- Interactive input ---
+      // --- Interactive input setup ---
       const input = resolveInteractiveInput();
-      process.on('exit', () => cleanupTerminal(input));
-
-      if ('setEncoding' in input) {
-        input.setEncoding('utf-8');
+      if (!('setRawMode' in input) || typeof input.setRawMode !== 'function') {
+        throw new Error('Cannot enable raw mode — not a TTY');
       }
+      input.setRawMode(true);
+      input.setEncoding('utf-8');
       input.resume();
 
-      // --- Ink render ---
-      const result = await new Promise<SessionResult>((resolve) => {
-        let resolved = false;
+      // --- Alternate screen buffer ---
+      stderr.write(`${ALT_SCREEN_ON}${CURSOR_HIDE}`);
 
-        const app = renderInk(
-          createElement(App, {
-            filePath,
-            lines,
-            initialState,
-            focusAnnotation: focusAnnotationArg,
-            onResult: (r: SessionResult) => {
-              resolved = true;
-              resolve(r);
-            },
-          }),
-          {
-            stdin: input,
-            stdout: stderr,
-            stderr,
-            exitOnCtrlC: false,
-          }
-        );
+      // --- State + render loop ---
+      let state = initialState;
+      let annotationFlow: AnnotationFlowState | undefined;
 
-        void app.waitUntilExit().then(() => {
-          if (!resolved) {
-            resolve({ type: 'abort' });
-          }
+      const paint = (): void => {
+        const rows = stderr.rows ?? 24;
+        const cols = stderr.columns ?? 80;
+
+        // Sync viewport height on resize
+        const vh = getViewportHeight(rows);
+        if (vh !== state.viewportHeight) {
+          state = reduce(state, { type: 'update_viewport', viewportHeight: vh });
+        }
+
+        const ctx: RenderContext = {
+          filePath,
+          lines,
+          state,
+          terminalRows: rows,
+          terminalCols: cols,
+          focusAnnotation: focusAnnotationArg,
+          annotationFlow,
+        };
+
+        stderr.write(`${CURSOR_HOME}${buildFrame(ctx)}`);
+      };
+
+      const finish = (result: SessionResult): void => {
+        input.setRawMode(false);
+        input.pause();
+        stderr.write(`${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
+        cleanupTerminal(input);
+
+        if (result.type === 'abort') {
+          process.exit(1);
+        }
+
+        const output = createOutput({
+          filePath,
+          decision: result.decision,
+          annotations: result.annotations,
         });
+        stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+        process.exit(0);
+      };
+
+      // Handle terminal resize
+      stderr.on('resize', paint);
+
+      // Initial paint
+      paint();
+
+      // --- Keypress dispatch ---
+      input.on('data', (data: string | Buffer) => {
+        const key = parseKeypress(data);
+
+        // --- Global: Ctrl+C ---
+        if (key.ctrl && key.char === 'c') {
+          finish({ type: 'abort' });
+          return;
+        }
+
+        // --- Annotate mode ---
+        if (state.mode === 'annotate' && annotationFlow) {
+          if (key.escape) {
+            annotationFlow = undefined;
+            state = reduce(state, { type: 'set_mode', mode: 'browse' });
+            paint();
+            return;
+          }
+
+          if (annotationFlow.step === 'intent') {
+            const matched =
+              INTENT_BY_KEY[key.char as keyof typeof INTENT_BY_KEY];
+            if (matched) {
+              annotationFlow = {
+                ...annotationFlow,
+                step: 'category',
+                intent: matched,
+              };
+            }
+            paint();
+            return;
+          }
+
+          if (annotationFlow.step === 'category') {
+            if (key.return) {
+              annotationFlow = { ...annotationFlow, step: 'comment' };
+              paint();
+              return;
+            }
+            const matched =
+              CATEGORY_BY_KEY[key.char as keyof typeof CATEGORY_BY_KEY];
+            if (matched) {
+              annotationFlow = {
+                ...annotationFlow,
+                step: 'comment',
+                category: matched,
+              };
+            }
+            paint();
+            return;
+          }
+
+          if (annotationFlow.step === 'comment') {
+            if (key.return) {
+              const trimmed = annotationFlow.comment.trim();
+              if (
+                trimmed.length > 0 &&
+                annotationFlow.intent
+              ) {
+                state = reduce(state, {
+                  type: 'add_annotation',
+                  annotation: {
+                    id: randomUUID(),
+                    startLine: state.cursorLine,
+                    endLine: state.cursorLine,
+                    intent: annotationFlow.intent as KnownIntent,
+                    category: annotationFlow.category as
+                      | KnownCategory
+                      | undefined,
+                    comment: trimmed,
+                    source: 'user',
+                  },
+                });
+                annotationFlow = undefined;
+                state = reduce(state, { type: 'set_mode', mode: 'browse' });
+              }
+              paint();
+              return;
+            }
+            if (key.backspace) {
+              annotationFlow = {
+                ...annotationFlow,
+                comment: annotationFlow.comment.slice(0, -1),
+              };
+              paint();
+              return;
+            }
+            if (key.char && !key.ctrl) {
+              annotationFlow = {
+                ...annotationFlow,
+                comment: annotationFlow.comment + key.char,
+              };
+            }
+            paint();
+            return;
+          }
+
+          return;
+        }
+
+        // --- Browse mode ---
+        if (state.mode === 'browse') {
+          if (key.char === 'k' || key.upArrow) {
+            state = reduce(state, { type: 'move_cursor', delta: -1 });
+            paint();
+            return;
+          }
+          if (key.char === 'j' || key.downArrow) {
+            state = reduce(state, { type: 'move_cursor', delta: 1 });
+            paint();
+            return;
+          }
+          if (key.char === 'g') {
+            // gg = go to top (simplified: single g goes to top)
+            state = reduce(state, {
+              type: 'move_cursor',
+              delta: -(state.cursorLine - 1),
+            });
+            paint();
+            return;
+          }
+          if (key.char === 'G') {
+            state = reduce(state, {
+              type: 'move_cursor',
+              delta: state.lineCount - state.cursorLine,
+            });
+            paint();
+            return;
+          }
+          if (key.char === 'n') {
+            annotationFlow = { ...INITIAL_ANNOTATION_FLOW };
+            state = reduce(state, { type: 'set_mode', mode: 'annotate' });
+            paint();
+            return;
+          }
+          if (key.char === 'q') {
+            state = reduce(state, { type: 'set_mode', mode: 'decide' });
+            paint();
+            return;
+          }
+          return;
+        }
+
+        // --- Decide mode ---
+        if (state.mode === 'decide') {
+          if (key.char === 'a') {
+            finish({
+              type: 'finish',
+              decision: 'approve',
+              annotations: state.annotations,
+            });
+            return;
+          }
+          if (key.char === 'd') {
+            finish({
+              type: 'finish',
+              decision: 'deny',
+              annotations: state.annotations,
+            });
+            return;
+          }
+          if (key.escape) {
+            state = reduce(state, { type: 'set_mode', mode: 'browse' });
+            paint();
+          }
+        }
       });
-
-      // --- Output ---
-      if (result.type === 'abort') {
-        process.exit(1);
-      }
-
-      const output = createOutput({
-        filePath,
-        decision: result.decision,
-        annotations: result.annotations,
-      });
-
-      stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-      process.exit(0);
     } catch (error) {
+      // Ensure we leave alt screen on crash
+      stderr.write(`${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
       const message = error instanceof Error ? error.message : 'Unknown error';
       stderr.write(`${message}\n`);
       process.exit(1);

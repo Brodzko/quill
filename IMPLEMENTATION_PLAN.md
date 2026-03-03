@@ -17,84 +17,74 @@ an agent, to a review system, or to yourself) actually useful in practice?
 
 ---
 
-## What exists today (raw loop prototype)
+## What exists today (current architecture)
 
-The raw loop prototype validated the core workflow (file → scroll → annotate →
-decide → JSON stdout). It is **not** the shipping architecture — Ink is. The
-prototype lives in these modules and will be deleted once Ink reaches parity:
+The current architecture uses **raw ANSI terminal rendering** with an alternate
+screen buffer. This replaced both the original raw `while(true)` loop prototype
+and a brief Ink/React phase (removed due to unfixable full-screen flicker caused
+by Ink's clear→rewrite rendering strategy).
 
-| File | Responsibility | Fate |
-|------|----------------|------|
-| `src/schema.ts` | Zod schemas, types, normalize/parse/output helpers | **Keep** — shared by all paths |
-| `src/state.ts` | `BrowseState`, `BrowseAction`, `reduce`, viewport math | **Keep** — used directly by Ink `useReducer` |
-| `src/render.ts` | ~~`buildFrame` string concatenation, `lineMarker`~~ | **Deleted** — replaced by Ink components |
-| `src/terminal.ts` | TTY I/O: stdin reading, `/dev/tty` fallback, annotation readline prompt | **Trimmed** — kept `readStdinIfPiped`, `resolveInteractiveInput`, `cleanupTerminal`, `runCommentPrompt` (temporary until 1.6) |
-| `src/ink-shell.ts` | ~~Experimental Ink path (readline-inside-React hybrid)~~ | **Deleted** — replaced by proper Ink components |
-| `src/cli.ts` | CLI definition, arg parsing, Ink `render(<App>)` | **Rewritten** — raw loop + `--ink-shell` flag removed; Ink is the only path |
-| `src/components/App.tsx` | Root Ink component: `useReducer`, `useInput`, mode dispatch | **New** |
-| `src/components/Viewport.tsx` | Scrollable line container with gutter markers | **New** |
-| `src/components/StatusBar.tsx` | Mode, cursor position, annotation count, file info | **New** |
-| `src/components/DecisionPicker.tsx` | Approve/deny/esc overlay in decide mode | **New** |
-| `src/components/HelpBar.tsx` | Mode-aware keybinding hints | **New** |
+The core loop is: `stdin keypress → reduce(state, action) → buildFrame(state) → single write()`.
+No React, no framework — just a pure reducer, pure render functions, and direct
+terminal I/O.
+
+| File | Responsibility |
+|------|----------------|
+| `src/schema.ts` | Zod schemas, types, normalize/parse/output helpers |
+| `src/state.ts` | `BrowseState`, `BrowseAction`, `reduce`, viewport math (pure, framework-agnostic) |
+| `src/render.ts` | Pure frame builder: `buildFrame(ctx) → string`. Viewport, status bar, help bar, decision picker, annotation flow — all as ANSI strings |
+| `src/keypress.ts` | Minimal raw-mode stdin keypress parser: `parseKeypress(data) → Key` |
+| `src/terminal.ts` | TTY I/O: piped stdin reading, `/dev/tty` fallback, cleanup |
+| `src/cli.ts` | CLI definition (citty), arg parsing, alternate screen buffer, raw-mode dispatch loop |
 
 ## Execution Plan
 
-### Phase 1 — Ink migration (current)
+### Phase 1 — TUI rendering (complete)
 
-Replace the raw loop with proper Ink components. All subsequent features are
-built in Ink — no double work.
+Establish a flicker-free, framework-agnostic TUI rendering architecture.
 
-- [x] **1.1 Delete `ink-shell.ts`**
-  Deleted the readline-inside-React hybrid.
+**History:** Started with a raw `while(true)` loop prototype, migrated to
+Ink/React components (1.1–1.6), then pivoted to raw ANSI rendering when Ink's
+clear→rewrite rendering strategy caused unfixable full-screen flicker on every
+keystroke. The final architecture is simpler and faster than either predecessor.
 
-- [x] **1.2 Core Ink shell**
-  `src/components/App.tsx` — root component with `useReducer(reduce, initialState)`,
-  `useInput` key dispatch (mode-aware, `isActive` gate for prompt), renders child
-  components. `cli.ts` calls Ink `render(<App>)` as the only execution path.
-  Raw `while (true)` loop and `--ink-shell` flag removed.
+- [x] **1.1–1.6 Ink migration (superseded)**
+  Built full Ink component tree (`App`, `Viewport`, `StatusBar`, `DecisionPicker`,
+  `HelpBar`, `AnnotationFlow`). Worked correctly but flickered on every keystroke
+  due to Ink's terminal I/O strategy (cursor-up + clear-line + rewrite per line).
+  `React.memo`, `useMemo`, single-`<Text>` consolidation did not help — the
+  flicker is in Ink's output layer, not React reconciliation.
 
-- [x] **1.3 `Viewport` component**
-  `src/components/Viewport.tsx` — scrollable line container using `<Box>`/`<Text>`.
-  Line numbers, gutter markers (`●`/`◎`/` `), cursor highlight via `inverse`.
-  Dynamic gutter width based on line count.
+- [x] **1.7 Raw ANSI pivot**
+  Replaced Ink/React with raw ANSI rendering:
+  - `src/render.ts` — pure `buildFrame(ctx) → string` function. Viewport, status
+    bar, help bar, decision picker, annotation flow all rendered as ANSI strings.
+  - `src/keypress.ts` — minimal raw stdin keypress parser (arrows, escape, enter,
+    backspace, Ctrl+C, printable chars).
+  - `src/cli.ts` — alternate screen buffer (`\x1b[?1049h`), cursor home
+    (`\x1b[H`) + single `write()` per frame. No clearing, no flicker.
+  - Deleted `src/components/` directory (6 `.tsx` files).
+  - Removed `ink`, `react`, `@types/react` from dependencies.
+  - Removed `jsx` config from `tsconfig.json`, `.tsx` from includes.
+  - State reducer (`state.ts`) transferred 1:1 — it was already framework-agnostic.
 
-- [x] **1.4 `StatusBar` component**
-  `src/components/StatusBar.tsx` — mode (colored), cursor position, annotation
-  count, file path. Also added `HelpBar.tsx` for mode-aware keybinding hints.
-
-- [x] **1.5 `DecisionPicker` component**
-  `src/components/DecisionPicker.tsx` — colored approve/deny/esc overlay rendered
-  when `state.mode === 'decide'`.
-
-- [x] **1.6 Annotation creation flow**
-  Replaced readline `runCommentPrompt` with `src/components/AnnotationFlow.tsx` —
-  a single Ink component managing three sub-steps (intent → category → comment)
-  via local `useState`. `useInput` handles all keypresses natively in Ink.
-  `runCommentPrompt`, readline, and `askQuestion` removed from `terminal.ts`.
-  `'annotate'` added to `Mode` type in reducer; `App.tsx` uses
-  `isActive: state.mode !== 'annotate'` to gate its own key dispatch.
-
-- [ ] **1.7 Raw loop parity**
-  Verify Ink path matches all raw loop behaviors:
+- [ ] **1.8 Manual parity verification**
+  Verify raw ANSI path matches all expected behaviors on macOS and Linux:
   - `j`/`k`/arrows scroll viewport with scroll-off.
-  - `n` → annotation creation flow → annotation appears in state.
+  - `g`/`G` jump to top/bottom.
+  - `n` → annotation creation flow (intent → category → comment) → annotation appears.
   - `q` → decision picker → `a`/`d` → JSON stdout → exit 0.
-  - `Ctrl+C` → exit 1, no output, terminal restored.
+  - `Ctrl+C` → exit 1, no output, terminal restored (alt screen off, cursor visible).
   - `--line`, `--focus-annotation`, `--annotations`, piped stdin all work.
+  - Terminal resize repaints correctly.
 
-- [x] **1.8 Delete raw loop**
-  Raw `while (true)` loop removed from `cli.ts`. `render.ts` and `ink-shell.ts`
-  deleted. `terminal.ts` trimmed (removed `readSingleKey`, `clearScreen`).
-  `--ink-shell` flag removed. Ink is the default and only path.
-  `runCommentPrompt` kept temporarily for 1.6 annotation flow.
+**Exit criteria:** Raw ANSI path passes all parity checks on macOS. No React/Ink
+dependencies. Zero flicker. `tsc --noEmit` clean.
+✅ 1.1–1.7 complete. Remaining: 1.8 (manual parity verification).
 
-**Exit criteria:** Ink path passes all parity checks on macOS. No readline
-usage inside React components. `render.ts` and `ink-shell.ts` deleted.
-✅ 1.1–1.6, 1.8 complete. Remaining: 1.7 (parity verification on macOS).
+### Phase 2 — Navigation & features
 
-### Phase 2 — Navigation & features (built in Ink)
-
-All features land in the Ink architecture. No raw loop code to maintain.
+All features are built on the raw ANSI renderer (`render.ts` + `state.ts`).
 
 - [ ] **2.1 Shiki syntax highlighting**
   Integrate Shiki: `file → ANSI string[]` with language detection from
@@ -106,8 +96,8 @@ All features land in the Ink architecture. No raw loop code to maintain.
   jumps. New `BrowseAction` variants in reducer.
 
 - [ ] **2.3 Go-to-line**
-  `:N` or `Ctrl+G` → GOTO mode → number input → jump. Inline Ink component for
-  the input, mode transition in reducer.
+  `:N` or `Ctrl+G` → GOTO mode → number input → jump. Rendered inline in
+  `buildFrame`, mode transition in reducer.
 
 - [ ] **2.4 Line-range selection**
   `v` or `Shift+arrows` → SELECT mode. Visual highlight on selected range.
@@ -120,7 +110,7 @@ All features land in the Ink architecture. No raw loop code to maintain.
 
 - [ ] **2.6 Pre-seeded annotation interaction**
   `Tab` to focus expanded annotation → ANN_FOCUS mode. `a` approve, `d`
-  dismiss, `u` undo status, `r` reply (→ REPLY mode with Ink `TextInput`).
+  dismiss, `u` undo status, `r` reply (→ REPLY mode with inline text input).
   `Esc`/`Tab` exits focus.
 
 - [ ] **2.7 Search**
@@ -128,11 +118,11 @@ All features land in the Ink architecture. No raw loop code to maintain.
   to navigate matches. `Esc` clears.
 
 - [ ] **2.8 Terminal resize handling**
-  Listen for `SIGWINCH` (or Ink's `useStdout` dimensions), dispatch
-  `update_viewport` on resize.
+  Already wired (`stderr.on('resize', paint)` in `cli.ts`). Verify viewport
+  height recomputation and repaint on resize works correctly across terminals.
 
-**Exit criteria:** All navigation and annotation features from the spec work in
-Ink. Manual smoke test on macOS covers every keybinding in the Navigation table.
+**Exit criteria:** All navigation and annotation features from the spec work.
+Manual smoke test on macOS covers every keybinding in the Navigation table.
 
 ### Phase 3 — Diff mode
 
@@ -986,13 +976,13 @@ for selecting `approve` vs `deny` before emitting output.
 | ------------------- | ---------------------- | --------------------------------------------------------------------------- |
 | Language            | TypeScript             | Matches target user's stack, fast iteration                                 |
 | Runtime             | Node.js 20+            | LTS, stable                                                                 |
-| TUI framework       | Ink 5 (React for CLIs) | Declarative components, familiar React model, handles rendering loop        |
+| TUI rendering        | Raw ANSI (alternate screen buffer) | Flicker-free full-screen rendering. Replaced Ink 5 which caused unfixable clear→rewrite flicker. |
 | Syntax highlighting | Shiki                  | Best-in-class ANSI output, huge language/theme coverage, active maintenance |
 | Diff parsing        | `parse-diff`           | Lightweight, well-tested unified diff parser                                |
 | CLI args            | `citty`                | Clean API, auto-generated help, TypeScript-first                            |
 | Schema validation   | Zod                    | Validate input JSON, infer types from schemas                               |
 | Build (dev)         | `ts-node` (ESM loader) | Pure-JS TS execution, no native binaries — works on macOS and Linux without reinstall (`tsx`/`tsup` both vendor esbuild native binaries that break across platforms) |
-| Build (dist)        | `tsc` (planned)        | Plain `tsc --outDir dist` — pure-JS, no native binaries. Replaces `tsup` which vendors esbuild native binaries that break across platforms. See [Build Migration: `tsup → tsc`](#build-migration-tsup--tsc) for the full transition plan. **Status: JSX transform configured (`"jsx": "react-jsx"` in tsconfig), `tsc` build verified with `.tsx` components.** Swap `build` script to `build:tsc` when ready (Phase 4.4). |
+| Build (dist)        | `tsc` (planned)        | Plain `tsc --outDir dist` — pure-JS, no native binaries. Replaces `tsup` which vendors esbuild native binaries that break across platforms. See [Build Migration: `tsup → tsc`](#build-migration-tsup--tsc) for the full transition plan. **Status: no JSX/TSX in project (Ink removed), `tsc` build verified.** Swap `build` script to `build:tsc` when ready (Phase 4.4). |
 | Packaging (later)   | Bun compile (optional) | Follow-up optimization once behavior is stable                               |
 | Testing             | Vitest                 | Fast, TypeScript-native, familiar API                                       |
 
@@ -1000,15 +990,16 @@ for selecting `approve` vs `deny` before emitting output.
 
 ```json
 {
-  "ink": "^5.0.0",
-  "react": "^18.0.0",
+  "citty": "^0.2.0",
+  "remeda": "^2.33.0",
+  "zod": "^3.21.0",
   "shiki": "^1.0.0",
-  "parse-diff": "^0.11.0",
-  "citty": "^0.1.0",
-  "zod": "^3.23.0",
-  "tsup": "^8.0.0"
+  "parse-diff": "^0.11.0"
 }
 ```
+
+> `ink` and `react` were removed after the raw ANSI pivot (Phase 1.7).
+> TUI rendering uses no framework — just ANSI escape sequences and `process.stderr.write()`.
 
 ---
 
@@ -1039,7 +1030,7 @@ across macOS and Linux without reinstalling dependencies.
    - `"sourceMap": true`
    - `"outDir": "dist"`
    - Excludes test files (`"exclude": ["src/**/*.test.ts", "test/**"]`)
-   - If Ink migration introduces `.tsx` files: `"jsx": "react-jsx"` + `"jsxImportSource": "react"`
+   - No JSX config needed (Ink/React removed in Phase 1.7)
 
 2. **`package.json` scripts** — swap `build` to use `tsc`:
    ```jsonc
@@ -1065,19 +1056,18 @@ across macOS and Linux without reinstalling dependencies.
 6. **Shebang line** — `src/cli.ts` already has `#!/usr/bin/env node`, `tsc`
    preserves it in the output. Verify after first build.
 
-7. **Ink/JSX consideration** — if the Slice 2 Ink migration adds `.tsx` files,
-   `tsconfig.build.json` needs the JSX transform config. This is why the
-   migration is sequenced *after* the Ink migration settles — we'll know the
-   full set of file extensions and compiler flags needed.
+7. **No JSX consideration** — Ink/React were removed in Phase 1.7 (raw ANSI
+   pivot). No `.tsx` files remain in the project. `tsconfig.json` no longer
+   includes `jsx` config.
 
 ### Sequencing
 
 | Gate | Status |
 |------|--------|
-| Slice 1 manual regression passes | Pending (Step 2) |
-| Ink migration settles (determines if `.tsx` files exist) | Pending (Step 4) |
-| `tsconfig.build.json` created and `tsc` build verified | Not started |
-| `tsup` removed from `devDependencies` | Not started |
+| Phase 1.8 manual parity verification passes | Pending |
+| No `.tsx` files in project (Ink removed) | ✅ Done |
+| `tsconfig.build.json` created and `tsc` build verified | ✅ Done (`npm run build:tsc` works) |
+| `tsup` removed from `devDependencies` | Not started (still used by `build` script) |
 | `npm run build && node dist/cli.js --help` passes on macOS + Linux | Not started |
 
 ### Risks
@@ -1181,39 +1171,35 @@ quill/
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "outDir": "dist"
   },
-  "include": ["src"]
+  "include": ["src/**/*.ts"]
 }
 ```
 
+> No `jsx` config — Ink/React were removed in Phase 1.7.
+
 ---
 
-## Component Architecture
+## Module Architecture
 
-### Component tree
+> **Note:** The original plan described an Ink/React component tree with hooks.
+> After the raw ANSI pivot (Phase 1.7), the architecture is simpler: pure
+> functions, a state reducer, and a direct event loop. No React, no hooks.
+
+### Module structure
 
 ```
-<App>                           # root: loads file, parses input, manages mode
-  <Viewport>                   # scrollable container, cursor tracking
-    <SourceLine />             # repeated: gutter + line number + highlighted code
-    <AnnotationBlock />        # conditional: expanded annotation with thread
-      <Reply />                # nested: individual reply in thread
-      <TextInput />            # conditional: reply input when in REPLY mode
-    <AnnotationBlock />        # multiple annotations on same line stacked
-    <SourceLine />
-    ...
-  </Viewport>
-  <IntentPicker />             # overlay: shown in ANNOTATE mode (step 1)
-  <CategoryPicker />           # overlay: shown in ANNOTATE mode (step 2)
-  <DecisionPicker />           # overlay: shown in DECIDE mode
-  <TextInput />                # inline: shown in ANNOTATE mode (step 3)
-  <SearchBar />                # overlay: shown in SEARCH mode
-  <StatusBar />                # fixed bottom: always visible
-</App>
+src/
+├── cli.ts          # CLI definition (citty), arg parsing, alt screen buffer,
+│                   # raw-mode stdin dispatch loop, paint cycle
+├── state.ts        # BrowseState, BrowseAction, reduce() — pure reducer
+├── render.ts       # buildFrame(ctx) → string — pure ANSI frame builder
+├── keypress.ts     # parseKeypress(data) → Key — raw stdin parser
+├── schema.ts       # Zod schemas, types, normalize/parse/output helpers
+└── terminal.ts     # TTY I/O: piped stdin, /dev/tty fallback, cleanup
 ```
 
 ### Data flow
@@ -1222,75 +1208,33 @@ quill/
 CLI args + stdin
        │
        ▼
-  App (state owner)
+  cli.ts (event loop owner)
   ├── file content (string[])
-  ├── highlighted lines (ANSI string[]) ← Shiki
-  ├── diff alignment (DisplayRow[]) ← diff parser + aligner (diff mode only)
-  ├── annotations (AnnotationState[]) ← useAnnotations hook
-  ├── mode (Mode) ← useMode hook
-  ├── viewport (offset, cursor) ← useViewport hook
-  ├── selection (start, end) ← useSelection hook
-  ├── search (pattern, matches, index) ← useSearch hook
+  ├── state: BrowseState (let + reduce())
+  ├── annotationFlow: AnnotationFlowState | undefined
   │
-  ├── computes: displayLines = interleave(sourceLines, expandedAnnotations)
-  ├── computes: visibleSlice = displayLines.slice(offset, offset + termHeight)
+  ├── stdin 'data' event → parseKeypress() → dispatch action → reduce()
+  ├── after each reduce: buildFrame(ctx) → stderr.write(CURSOR_HOME + frame)
   │
-  └── on finish decision: assemble output JSON, write to stdout, exit 0
+  └── on finish: restore terminal, write JSON to stdout, exit
 ```
 
-### Key hook contracts
+### Key contracts
 
-**`useMode()`**
+**`reduce(state, action) → state`** (state.ts)
+- Pure function, no side effects
+- Handles: `move_cursor`, `set_mode`, `add_annotation`, `update_viewport`
+- Framework-agnostic — transferred 1:1 from React `useReducer`
 
-```typescript
-type Mode =
-  | 'browse'
-  | 'decide'
-  | 'select'
-  | 'annotate'
-  | 'search'
-  | 'goto'
-  | 'ann_focus'
-  | 'reply';
-// Returns: { mode, transition(to), canTransition(to) }
-// Guards invalid transitions (e.g., can't go from SEARCH to SELECT directly)
-```
+**`buildFrame(ctx) → string`** (render.ts)
+- Pure function: context in, ANSI string out
+- Composes: viewport lines, status bar, help bar, decision picker, annotation flow
+- Each row starts with `CLEAR_LINE` to prevent stale content
+- Pads to full terminal height
 
-**`useAnnotations(initial)`**
-
-```typescript
-// Returns: { annotations, addAnnotation, addReply, setStatus, clearStatus }
-// Manages annotation state, separates pre-seeded from user-created
-```
-
-**`useViewport(totalLines, termHeight)`**
-
-```typescript
-// Returns: { offset, cursor, scrollTo, moveCursor, jumpToLine }
-// Handles scroll-off, viewport clamping, expanded annotation height
-```
-
-**`useSelection()`**
-
-```typescript
-// Returns: { isSelecting, anchor, head, range, start, extend, confirm, cancel }
-// Range is always normalized: { startLine: min, endLine: max }
-```
-
-**`useSearch(lines)`**
-
-```typescript
-// Returns: { pattern, matches, currentIndex, search, next, prev, clear }
-// Matches are line indices. Viewport auto-scrolls to current match.
-```
-
-**`useKeymap(mode, handlers)`**
-
-```typescript
-// Maps raw key events to action handlers based on current mode
-// Supports dual bindings (arrow + vim) via lookup table
-// Returns: onKey handler to pass to Ink's useInput
-```
+**`parseKeypress(data) → Key`** (keypress.ts)
+- Parses raw stdin buffer into structured key event
+- Handles: arrows, escape, enter, backspace, Ctrl+C, printable chars
 
 ---
 

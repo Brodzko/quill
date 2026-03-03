@@ -5,5 +5,5 @@
     "sourceMap": true,
     "outDir": "dist"
   },
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "test/**"]
+  "exclude": ["src/**/*.test.ts", "test/**"]
 }
