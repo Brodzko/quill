@@ -100,6 +100,20 @@ const command = defineCommand({
         ? clampLine(focusedAnnotation.startLine, lineCount)
         : clampLine(lineArg ?? 1, lineCount);
 
+      // DEBUG — remove after parity verification
+      if (process.env['QUILL_DEBUG']) {
+        stderr.write(
+          [
+            `DEBUG raw args: ${JSON.stringify(args)}`,
+            `DEBUG lineArg=${lineArg} focusAnnotation=${focusAnnotationArg} annotationsPath=${annotationsPath}`,
+            `DEBUG lineCount=${lineCount} initialAnnotations=${initialAnnotations.length}`,
+            `DEBUG focusedAnnotation=${focusedAnnotation?.id ?? 'none'}`,
+            `DEBUG initialCursorLine=${initialCursorLine}`,
+            '',
+          ].join('\n')
+        );
+      }
+
       const terminalRows = stderr.rows ?? 24;
       const initialViewportHeight = getViewportHeight(terminalRows);
 
