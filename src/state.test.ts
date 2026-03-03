@@ -5,6 +5,7 @@ import {
   clampLine,
   computeViewportOffset,
   reduce,
+  selectionRange,
 } from './state.js';
 
 // ---------------------------------------------------------------------------
@@ -283,5 +284,153 @@ describe('reduce — update_viewport', () => {
     });
     const next = reduce(state, { type: 'update_viewport', viewportHeight: 10 });
     expect(next.viewportOffset).not.toBe(state.viewportOffset);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectionRange
+// ---------------------------------------------------------------------------
+
+describe('selectionRange', () => {
+  it('returns ordered range when anchor < active', () => {
+    expect(selectionRange({ anchor: 5, active: 10 })).toEqual({
+      startLine: 5,
+      endLine: 10,
+    });
+  });
+
+  it('returns ordered range when anchor > active', () => {
+    expect(selectionRange({ anchor: 10, active: 5 })).toEqual({
+      startLine: 5,
+      endLine: 10,
+    });
+  });
+
+  it('returns single-line range when anchor === active', () => {
+    expect(selectionRange({ anchor: 7, active: 7 })).toEqual({
+      startLine: 7,
+      endLine: 7,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — start_select
+// ---------------------------------------------------------------------------
+
+describe('reduce — start_select', () => {
+  it('enters select mode with anchor and active at cursor', () => {
+    const state = makeState({ cursorLine: 15 });
+    const next = reduce(state, { type: 'start_select' });
+    expect(next.mode).toBe('select');
+    expect(next.selection).toEqual({ anchor: 15, active: 15 });
+  });
+
+  it('does not change cursorLine', () => {
+    const state = makeState({ cursorLine: 15 });
+    const next = reduce(state, { type: 'start_select' });
+    expect(next.cursorLine).toBe(15);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — extend_select
+// ---------------------------------------------------------------------------
+
+describe('reduce — extend_select', () => {
+  it('moves active by delta', () => {
+    const state = makeState({
+      cursorLine: 10,
+      mode: 'select',
+      selection: { anchor: 10, active: 10 },
+    });
+    const next = reduce(state, { type: 'extend_select', delta: 3 });
+    expect(next.selection?.active).toBe(13);
+    expect(next.selection?.anchor).toBe(10);
+    expect(next.cursorLine).toBe(13);
+  });
+
+  it('extends upward with negative delta', () => {
+    const state = makeState({
+      cursorLine: 10,
+      mode: 'select',
+      selection: { anchor: 10, active: 10 },
+    });
+    const next = reduce(state, { type: 'extend_select', delta: -5 });
+    expect(next.selection?.active).toBe(5);
+    expect(next.selection?.anchor).toBe(10);
+    expect(next.cursorLine).toBe(5);
+  });
+
+  it('clamps active to line 1', () => {
+    const state = makeState({
+      cursorLine: 3,
+      mode: 'select',
+      selection: { anchor: 5, active: 3 },
+    });
+    const next = reduce(state, { type: 'extend_select', delta: -10 });
+    expect(next.selection?.active).toBe(1);
+    expect(next.cursorLine).toBe(1);
+  });
+
+  it('clamps active to lineCount', () => {
+    const state = makeState({
+      cursorLine: 98,
+      lineCount: 100,
+      mode: 'select',
+      selection: { anchor: 95, active: 98 },
+    });
+    const next = reduce(state, { type: 'extend_select', delta: 10 });
+    expect(next.selection?.active).toBe(100);
+    expect(next.cursorLine).toBe(100);
+  });
+
+  it('is a no-op when selection is undefined', () => {
+    const state = makeState({ cursorLine: 10 });
+    const next = reduce(state, { type: 'extend_select', delta: 5 });
+    expect(next).toBe(state);
+  });
+
+  it('recomputes viewport offset', () => {
+    const state = makeState({
+      cursorLine: 1,
+      viewportOffset: 0,
+      mode: 'select',
+      selection: { anchor: 1, active: 1 },
+    });
+    const next = reduce(state, { type: 'extend_select', delta: 50 });
+    expect(next.viewportOffset).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — confirm_select
+// ---------------------------------------------------------------------------
+
+describe('reduce — confirm_select', () => {
+  it('transitions to annotate mode, keeps selection', () => {
+    const state = makeState({
+      mode: 'select',
+      selection: { anchor: 5, active: 10 },
+    });
+    const next = reduce(state, { type: 'confirm_select' });
+    expect(next.mode).toBe('annotate');
+    expect(next.selection).toEqual({ anchor: 5, active: 10 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — cancel_select
+// ---------------------------------------------------------------------------
+
+describe('reduce — cancel_select', () => {
+  it('returns to browse mode and clears selection', () => {
+    const state = makeState({
+      mode: 'select',
+      selection: { anchor: 5, active: 10 },
+    });
+    const next = reduce(state, { type: 'cancel_select' });
+    expect(next.mode).toBe('browse');
+    expect(next.selection).toBeUndefined();
   });
 });

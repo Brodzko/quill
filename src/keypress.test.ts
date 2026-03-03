@@ -17,6 +17,7 @@ const expectKey = (
   // All other boolean fields should be false
   const boolFields: (keyof Key)[] = [
     'ctrl',
+    'shift',
     'escape',
     'return',
     'backspace',
@@ -58,6 +59,20 @@ describe('arrow keys', () => {
 
   it('parses down arrow', () => {
     expectKey('\x1b[B', { downArrow: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shift+Arrow keys
+// ---------------------------------------------------------------------------
+
+describe('shift+arrow keys', () => {
+  it('parses Shift+Up (\\x1b[1;2A)', () => {
+    expectKey('\x1b[1;2A', { upArrow: true, shift: true });
+  });
+
+  it('parses Shift+Down (\\x1b[1;2B)', () => {
+    expectKey('\x1b[1;2B', { downArrow: true, shift: true });
   });
 });
 

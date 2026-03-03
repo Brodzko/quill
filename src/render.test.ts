@@ -172,3 +172,72 @@ describe('buildFrame — annotation flow', () => {
     expect(plain).toContain('Intent');
   });
 });
+
+// ---------------------------------------------------------------------------
+// buildFrame — select mode
+// ---------------------------------------------------------------------------
+
+describe('buildFrame — select mode', () => {
+  it('shows SELECT in status bar', () => {
+    const state: BrowseState = {
+      lineCount: 20,
+      viewportHeight: 10,
+      cursorLine: 5,
+      viewportOffset: 0,
+      mode: 'select',
+      annotations: [],
+      selection: { anchor: 3, active: 5 },
+    };
+    const frame = buildFrame(makeCtx({ state }));
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('SELECT');
+  });
+
+  it('shows selection range in status bar', () => {
+    const state: BrowseState = {
+      lineCount: 20,
+      viewportHeight: 10,
+      cursorLine: 7,
+      viewportOffset: 0,
+      mode: 'select',
+      annotations: [],
+      selection: { anchor: 3, active: 7 },
+    };
+    const frame = buildFrame(makeCtx({ state }));
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('sel 3–7');
+    expect(plain).toContain('5 lns');
+  });
+
+  it('shows select help hints', () => {
+    const state: BrowseState = {
+      lineCount: 20,
+      viewportHeight: 10,
+      cursorLine: 5,
+      viewportOffset: 0,
+      mode: 'select',
+      annotations: [],
+      selection: { anchor: 5, active: 5 },
+    };
+    const frame = buildFrame(makeCtx({ state }));
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('extend');
+    expect(plain).toContain('Enter');
+    expect(plain).toContain('Esc');
+  });
+
+  it('applies selection background to selected lines', () => {
+    const state: BrowseState = {
+      lineCount: 20,
+      viewportHeight: 10,
+      cursorLine: 5,
+      viewportOffset: 0,
+      mode: 'select',
+      annotations: [],
+      selection: { anchor: 3, active: 5 },
+    };
+    const frame = buildFrame(makeCtx({ state }));
+    // Selection background is truecolor: \x1b[48;2;38;50;70m
+    expect(frame).toContain('\x1b[48;2;38;50;70m');
+  });
+});
