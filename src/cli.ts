@@ -15,6 +15,7 @@ import {
   handleSearchKey,
   handleSelectKey,
 } from './dispatch.js';
+import { visibleLength } from './ansi.js';
 import { type BundledTheme, DEFAULT_THEME, highlightCode } from './highlight.js';
 import { parseKeypress } from './keypress.js';
 import { type RenderContext, buildFrame, getViewportHeight } from './render.js';
@@ -110,6 +111,7 @@ const command = defineCommand({
         theme,
       });
       const lineCount = lines.length;
+      const maxLineWidth = lines.reduce((max, l) => Math.max(max, visibleLength(l)), 0);
       const initialAnnotations = normalizeInputAnnotations(envelope);
 
       const focusedAnnotation = focusAnnotationArg
@@ -142,6 +144,7 @@ const command = defineCommand({
 
       const initialState: BrowseState = {
         lineCount,
+        maxLineWidth,
         viewportHeight: initialViewportHeight,
         cursorLine: initialCursorLine,
         viewportOffset: computeViewportOffset({
@@ -150,6 +153,7 @@ const command = defineCommand({
           viewportHeight: initialViewportHeight,
           lineCount,
         }),
+        horizontalOffset: 0,
         mode: 'browse',
         annotations: initialAnnotations,
         expandedAnnotations: new Set(),
@@ -179,6 +183,19 @@ const command = defineCommand({
 
       // Row→line mapping from last render, used for mouse click → cursor
       let lastRowToLine: (number | undefined)[] = [];
+
+      // Coalesce rapid inputs (e.g. trackpad inertial scroll) into a single
+      // repaint per event-loop tick. State mutations apply immediately; only
+      // the expensive buildFrame + write is deferred.
+      let paintScheduled = false;
+      const schedulePaint = (): void => {
+        if (paintScheduled) return;
+        paintScheduled = true;
+        setImmediate(() => {
+          paintScheduled = false;
+          paint();
+        });
+      };
 
       const paint = (): void => {
         const rows = stderr.rows ?? 24;
@@ -273,7 +290,7 @@ const command = defineCommand({
           return;
         }
 
-        paint();
+        schedulePaint();
       };
 
       input.on('data', (data: string | Buffer) => {
@@ -293,7 +310,7 @@ const command = defineCommand({
             const targetLine = lastRowToLine[vpRow];
             if (targetLine !== undefined) {
               state = reduce(state, { type: 'set_cursor', line: targetLine });
-              paint();
+              schedulePaint();
             }
           }
           return;
