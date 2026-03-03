@@ -17,142 +17,174 @@ an agent, to a review system, or to yourself) actually useful in practice?
 
 ---
 
-## Implementation Slices (ordered)
+## What exists today (raw loop prototype)
 
-- **Slice 1 — Raw browse shell** ✓ complete
-  - Node CLI scaffold (citty for arg parsing, `Prettify<T>`, `AnnotationInput`
-    derived from `Annotation`), file loading, scrolling viewport with scroll-off,
-    stderr rendering, cursor navigation (`j`/`k`/arrows), annotation creation
-    via readline prompts, finish flow with decision picker (`approve`/`deny`),
-    JSON stdout exit contract, abort behavior.
-  - `BrowseState` + `BrowseAction` discriminated union + `reduce` function —
-    `useReducer`-compatible shape, ready for Ink migration.
-  - Module split: `schema.ts` (types/validation), `state.ts` (reducer/pure
-    state), `render.ts` (frame building), `terminal.ts` (TTY I/O),
-    `ink-shell.ts` (experimental Ink path), `cli.ts` (orchestration).
-  - Zod schemas and mode-key dispatch table landed as Slice 2 groundwork.
-  - Cross-platform dev runner: `ts-node` (ESM loader) instead of `tsx`/esbuild
-    native binaries. `tsup` build script remains blocked on same issue — replace
-    with plain `tsc` before shipping dist.
-- **Slice 2 — Ink migration + annotation creation UI**
-  - **Step 1: Slice 1 sign-off.** Manual regression on macOS + Linux (viewport,
-    annotations, JSON output, SIGINT). Gates all further work.
-  - **Step 2: Reducer cleanup.** Move `lineCount` into `BrowseState` as a
-    readonly field. Make `reduce` a standard `(state, action) => state` that
-    works with `useReducer` directly — no wrapper needed.
-  - **Step 3: Proper Ink migration.** Delete the current `ink-shell.ts` hybrid
-    (readline-inside-React is a liability). Rebuild:
-    - Port `buildFrame` rendering into Ink `<Text>`/`<Box>` components.
-    - Replace `runCommentPrompt` (readline) with Ink `<TextInput>` + inline
-      pickers for intent/category/comment.
-    - Wire `useReducer` directly (clean after Step 2).
-    - Keep raw loop as fallback until Ink parity confirmed, then flip default.
-  - **Step 4: Line-range selection + annotation creation flow.** Visual highlight
-    (`v` or `Shift+↑/↓`), SELECT mode, inline intent → category → comment pickers
-    rendered inside the TUI. This is the first feature that requires Ink to be
-    done well — validates the migration payoff.
-- **Slice 3 — Pre-seeded threads**
-  - Input parsing, expand/collapse, replies, approve/dismiss status handling.
-- **Slice 4 — Raw-mode polish**
-  - Search, go-to-line, status bar finalization, edge-case handling.
-- **Slice 5 (v0.5) — Diff mode**
-  - `--diff*` ingestion, parser/alignment/line mapping, annotation anchoring to
-    new-file line numbers.
+The raw loop prototype validated the core workflow (file → scroll → annotate →
+decide → JSON stdout). It is **not** the shipping architecture — Ink is. The
+prototype lives in these modules and will be deleted once Ink reaches parity:
 
-## Execution Plan (step-by-step)
+| File | Responsibility | Fate |
+|------|----------------|------|
+| `src/schema.ts` | Zod schemas, types, normalize/parse/output helpers | **Keep** — shared by both paths |
+| `src/state.ts` | `BrowseState`, `BrowseAction`, `reduce`, viewport math | **Keep** — `useReducer`-ready, used directly by Ink |
+| `src/render.ts` | `buildFrame` string concatenation, `lineMarker` | **Delete** — replaced by Ink components |
+| `src/terminal.ts` | TTY I/O: stdin reading, raw mode, readline prompts | **Trim** — keep `readStdinIfPiped`, `resolveInteractiveInput`; delete readline prompts, raw mode helpers |
+| `src/ink-shell.ts` | Experimental Ink path (readline-inside-React hybrid) | **Delete** — replaced by proper Ink components |
+| `src/cli.ts` | CLI definition, arg parsing, raw loop + Ink shell dispatch | **Rewrite** — keep citty definition, replace loop with Ink `render()` call |
 
-### Step 1 — Raw browse shell implementation ✅ done
+## Execution Plan
 
-Implemented across 6 modules in `src/`:
+### Phase 1 — Ink migration (current)
 
-| File | Responsibility |
-|------|----------------|
-| `src/schema.ts` | Types, Zod schemas, constant maps, normalize/parse/output helpers |
-| `src/state.ts` | `BrowseState`, `BrowseAction`, `reduce`, `clampLine`, `computeViewportOffset` |
-| `src/render.ts` | `buildFrame`, `lineMarker`, `getViewportHeight` |
-| `src/terminal.ts` | TTY I/O: stdin reading, raw mode, key reading, readline prompts |
-| `src/ink-shell.ts` | Experimental Ink path (to be replaced in Step 4) |
-| `src/cli.ts` | CLI definition, arg parsing, raw loop + Ink shell dispatch |
+Replace the raw loop with proper Ink components. All subsequent features are
+built in Ink — no double work.
 
-### Step 2 — Manual validation + Slice 1 sign-off (current, blocking)
+- [ ] **1.1 Delete `ink-shell.ts`**
+  Delete the readline-inside-React hybrid. It cannot be salvaged.
 
-Owner: human tester (interactive TTY validation cannot be reliably automated).
+- [ ] **1.2 Core Ink shell**
+  `src/components/App.tsx` — root component with `useReducer(reduce, initialState)`,
+  `useInput` key dispatch, renders child components. `cli.ts` calls Ink
+  `render(<App>)` instead of the raw `while (true)` loop.
 
-1. **Run on macOS**
-   - `npm run dev -- <file>`
-   - Verify viewport never overflows and scroll keeps cursor visible.
-   - Verify repeated annotation creation works (`n` flow multiple times).
-   - Verify `q -> a` and `q -> d` both emit valid JSON to stdout.
-   - Verify `Ctrl+C` aborts and terminal returns to usable state.
-2. **Run same checks on Linux**
-3. **Regression checks for resume/focus**
-   - `--line <n>` lands on expected line.
-   - `--focus-annotation <id>` lands on expected annotation when present.
-   - Missing focus id cleanly falls back to `--line`/top.
-4. **Capture failures as concrete bugs**
-   - Add each failure as a short checklist item before any further work.
+- [ ] **1.3 `Viewport` component**
+  `src/components/Viewport.tsx` — scrollable line container using `<Box>`/`<Text>`.
+  Line numbers, gutter markers, cursor highlight. Consumes `state.viewportOffset`,
+  `state.cursorLine`, `lines[]` from props/context.
 
-Exit criteria:
+- [ ] **1.4 `StatusBar` component**
+  `src/components/StatusBar.tsx` — fixed bottom bar showing mode, cursor
+  position, annotation count, file info.
 
-- All checks above pass on both platforms.
-- No scope creep into diff mode, Ink UI, or bundled dist workflow.
+- [ ] **1.5 `DecisionPicker` component**
+  `src/components/DecisionPicker.tsx` — inline approve/deny/esc overlay rendered
+  when `state.mode === 'decide'`.
 
-### Step 3 — Reducer cleanup (after Step 2 passes)
+- [ ] **1.6 Annotation creation flow**
+  Replace readline `runCommentPrompt` with Ink components:
+  - `src/components/IntentPicker.tsx` — single-keypress intent selector.
+  - `src/components/CategoryPicker.tsx` — single-keypress category selector
+    (Enter to skip).
+  - `src/components/CommentInput.tsx` — Ink `<TextInput>` for comment text.
+  Sequential sub-steps rendered inline, driven by local component state or a
+  sub-mode in the reducer.
 
-Move `lineCount` into `BrowseState` as a readonly field set at session init.
-Make `reduce` a standard `(state, action) => state` signature. Remove the
-wrapper lambda in `ink-shell.ts` and the manual `dispatch` wrapper in `cli.ts`.
+- [ ] **1.7 Raw loop parity**
+  Verify Ink path matches all raw loop behaviors:
+  - `j`/`k`/arrows scroll viewport with scroll-off.
+  - `n` → annotation creation flow → annotation appears in state.
+  - `q` → decision picker → `a`/`d` → JSON stdout → exit 0.
+  - `Ctrl+C` → exit 1, no output, terminal restored.
+  - `--line`, `--focus-annotation`, `--annotations`, piped stdin all work.
 
-Also pass `terminalRows` through state or action payload so the reducer has no
-implicit dependency on `process.stderr.rows`.
+- [ ] **1.8 Delete raw loop**
+  Remove the raw `while (true)` loop from `cli.ts`. Delete `src/render.ts`.
+  Trim `src/terminal.ts` (remove `readSingleKey`, `runCommentPrompt`,
+  `clearScreen`, raw mode helpers). Remove `--ink-shell` flag. Ink is the
+  default and only path.
 
-Exit criteria:
+**Exit criteria:** Ink path passes all parity checks on macOS. No readline
+usage inside React components. `render.ts` and `ink-shell.ts` deleted.
 
-- `reduce` has signature `(state: BrowseState, action: BrowseAction) => BrowseState`.
-- Works with `useReducer(reduce, initialState)` directly — no wrapping.
-- All diagnostics clean, manual smoke test passes.
+### Phase 2 — Navigation & features (built in Ink)
 
-### Step 4 — Proper Ink migration (main Slice 2 work)
+All features land in the Ink architecture. No raw loop code to maintain.
 
-1. Delete `src/ink-shell.ts` (the readline-inside-React hybrid).
-2. Create proper Ink components:
-   - `src/components/Viewport.tsx` — scrollable line container using `<Text>`/`<Box>`.
-   - `src/components/AnnotationPrompt.tsx` — inline intent/category/comment
-     pickers using Ink `<TextInput>`, replacing the readline `runCommentPrompt`.
-   - `src/components/DecisionPicker.tsx` — approve/deny overlay.
-   - `src/components/App.tsx` — root component wiring `useReducer` + `useInput`.
-3. Wire `useReducer(reduce, initialState)` directly (clean after Step 3).
-4. Keep raw loop in `cli.ts` as `--raw-loop` fallback during transition.
-5. Once Ink path matches all raw loop behaviors, flip default to Ink and remove
-   the raw loop.
+- [ ] **2.1 Shiki syntax highlighting**
+  Integrate Shiki: `file → ANSI string[]` with language detection from
+  extension, configurable theme (`--theme`, default `one-dark-pro`). Feed
+  highlighted lines into `Viewport`.
 
-Exit criteria:
+- [ ] **2.2 Extended navigation**
+  Half-page scroll (`PgUp`/`PgDn`, `Ctrl+U`/`Ctrl+D`), `gg`/`G`/`Home`/`End`
+  jumps. New `BrowseAction` variants in reducer.
 
-- Ink path passes the full Step 2 manual checklist.
-- No readline usage inside React components.
-- `--ink-shell` flag removed; Ink is the default.
+- [ ] **2.3 Go-to-line**
+  `:N` or `Ctrl+G` → GOTO mode → number input → jump. Inline Ink component for
+  the input, mode transition in reducer.
 
-### Step 5 — Line-range selection + annotation creation flow
+- [ ] **2.4 Line-range selection**
+  `v` or `Shift+arrows` → SELECT mode. Visual highlight on selected range.
+  `Enter` confirms → ANNOTATE mode. `Esc` cancels → BROWSE.
 
-1. Add `SELECT` mode: `v` or `Shift+↑/↓` to enter, arrow keys extend range,
-   visual highlight on selected lines, `Enter` to confirm, `Esc` to cancel.
-2. Add `ANNOTATE` mode: inline intent picker → category picker → text input,
-   all rendered as Ink components inside the TUI.
-3. New annotation created on confirm, mode returns to `BROWSE`.
+- [ ] **2.5 Inline annotation display**
+  Collapsed (`●`) and expanded (`▼`) annotation blocks rendered between source
+  lines in Viewport. `Enter` toggles expand/collapse. Block shows
+  source/intent/category/comment, styled per source (`agent` vs `user`).
 
-This is the first feature that requires Ink — validates the migration payoff.
+- [ ] **2.6 Pre-seeded annotation interaction**
+  `Tab` to focus expanded annotation → ANN_FOCUS mode. `a` approve, `d`
+  dismiss, `u` undo status, `r` reply (→ REPLY mode with Ink `TextInput`).
+  `Esc`/`Tab` exits focus.
 
-Exit criteria:
+- [ ] **2.7 Search**
+  `/` → SEARCH mode → pattern input → matches highlighted in viewport. `n`/`N`
+  to navigate matches. `Esc` clears.
 
-- Line-range selection works with both vim and arrow keybindings.
-- Annotation creation flow is fully inline (no readline, no terminal mode switching).
-- Created annotations appear in JSON output with correct line ranges.
+- [ ] **2.8 Terminal resize handling**
+  Listen for `SIGWINCH` (or Ink's `useStdout` dimensions), dispatch
+  `update_viewport` on resize.
+
+**Exit criteria:** All navigation and annotation features from the spec work in
+Ink. Manual smoke test on macOS covers every keybinding in the Navigation table.
+
+### Phase 3 — Diff mode
+
+- [ ] **3.1 Diff flag handling**
+  `--diff-ref`, `--staged`, `--unstaged`, `--diff <path|->` CLI flags. Shell
+  out to `git diff` for ref/staged/unstaged. Read file/stdin for `--diff`.
+
+- [ ] **3.2 Diff parser + alignment**
+  Parse unified diff (integrate `parse-diff` or hand-roll). Align old/new lines
+  side-by-side: paired context, removed (left only), added (right only),
+  modified (paired with background color).
+
+- [ ] **3.3 Side-by-side rendering**
+  Split terminal width, render old/new with Shiki highlighting + diff
+  background colors (red/green). Truncate long lines with `…`.
+
+- [ ] **3.4 Annotations anchor to new-file lines**
+  Build `displayRow → newFileLine` mapping. Selection and annotation creation
+  reference new-file line numbers. Status bar shows new-file line numbers.
+
+**Exit criteria:** `quill src/auth.ts --diff-ref main` renders a usable
+side-by-side diff with syntax highlighting and annotation support.
+
+### Phase 4 — Polish & ship
+
+- [ ] **4.1 Tests**
+  Vitest coverage for: Zod schemas (round-trip, malformed input), reducer
+  (all action types, edge cases), diff parser, alignment algorithm, line
+  mapping.
+
+- [ ] **4.2 Mouse scroll**
+  Terminal mouse event handling → viewport scroll.
+
+- [ ] **4.3 Edge cases**
+  Empty files, huge files (1M+ lines), very long lines, binary file detection
+  with clear error, files with no trailing newline.
+
+- [ ] **4.4 Build swap**
+  Replace `build` script with `tsc --project tsconfig.build.json`. Remove
+  `tsup` from devDependencies. Verify `npm run build && node dist/cli.js --help`
+  on macOS + Linux. See [Build Migration](#build-migration-tsup--tsc).
+
+- [ ] **4.5 Cross-platform verification**
+  Full manual test on macOS + Linux. `npm run dev` and `node dist/cli.js` both
+  work.
+
+- [ ] **4.6 README**
+  Usage examples, input/output contract summary, installation instructions.
+
+**Exit criteria:** All tests pass, builds on both platforms, README exists,
+no known P0 bugs.
 
 ---
 
 ## Table of Contents
 
-- [Implementation Slices (ordered)](#implementation-slices-ordered)
+- [What exists today (raw loop prototype)](#what-exists-today-raw-loop-prototype)
+- [Execution Plan](#execution-plan)
 - [Architecture](#architecture)
 - [CLI Interface](#cli-interface)
 - [Input Contract](#input-contract)
@@ -165,9 +197,11 @@ Exit criteria:
 - [Inline Annotation Display](#inline-annotation-display)
 - [Modes & State Machine](#modes--state-machine)
 - [Tech Stack](#tech-stack)
+- [Build Migration: `tsup → tsc`](#build-migration-tsup--tsc)
 - [Project Setup](#project-setup)
 - [Component Architecture](#component-architecture)
 - [Scope Cuts](#scope-cuts)
+- [Incremental Delivery Plan](#incremental-delivery-plan-review-friendly)
 - [Effort Estimate](#effort-estimate)
 - [Migration & Integration Path](#migration--integration-path)
 - [Relationship to Full Product](#relationship-to-full-product)
@@ -952,7 +986,7 @@ for selecting `approve` vs `deny` before emitting output.
 | CLI args            | `citty`                | Clean API, auto-generated help, TypeScript-first                            |
 | Schema validation   | Zod                    | Validate input JSON, infer types from schemas                               |
 | Build (dev)         | `ts-node` (ESM loader) | Pure-JS TS execution, no native binaries — works on macOS and Linux without reinstall (`tsx`/`tsup` both vendor esbuild native binaries that break across platforms) |
-| Build (dist)        | `tsup` (or esbuild)    | Bundle to fast-starting Node CLI (`dist/cli.js`) — **blocked**: `tsup` uses esbuild native binaries; same cross-platform issue as `tsx`. Must replace with `tsc --outDir dist` (or equivalent pure-JS bundler) before `npm run build` is usable in a cross-platform environment. Do not ship the dist build until this is resolved. |
+| Build (dist)        | `tsc` (planned)        | Plain `tsc --outDir dist` — pure-JS, no native binaries. Replaces `tsup` which vendors esbuild native binaries that break across platforms. See [Build Migration: `tsup → tsc`](#build-migration-tsup--tsc) for the full transition plan. **Status: blocked until Slice 2 Ink migration settles** (JSX transform config depends on whether `.tsx` files exist). |
 | Packaging (later)   | Bun compile (optional) | Follow-up optimization once behavior is stable                               |
 | Testing             | Vitest                 | Fast, TypeScript-native, familiar API                                       |
 
@@ -969,6 +1003,89 @@ for selecting `approve` vs `deny` before emitting output.
   "tsup": "^8.0.0"
 }
 ```
+
+---
+
+## Build Migration: `tsup → tsc`
+
+### Problem
+
+`tsup` wraps esbuild, which ships platform-specific native binaries. Running
+`npm run build` on a different OS/arch than the `npm install` platform fails
+with a binary mismatch. This is the same issue that forced us off `tsx` for dev
+(solved with `ts-node`). The build step must also be pure-JS to work reliably
+across macOS and Linux without reinstalling dependencies.
+
+### Target state
+
+| Concern | Current (broken) | Target |
+|---------|------------------|--------|
+| Dev runner | `ts-node` (ESM loader) ✓ | No change |
+| Build | `tsup src/cli.ts --format esm --target node20 --out-dir dist` ✗ | `tsc --project tsconfig.build.json` |
+| Output | Single bundled `dist/cli.js` | `dist/` tree mirroring `src/` (one `.js` per `.ts`) |
+| Start | `node dist/cli.js` | `node dist/cli.js` (unchanged) |
+| Native binaries | `esbuild` (via `tsup`) | None |
+
+### What the swap touches
+
+1. **`tsconfig.build.json`** (new) — extends `tsconfig.json`, adds:
+   - `"declaration": true` (optional, useful if publishing types)
+   - `"sourceMap": true`
+   - `"outDir": "dist"`
+   - Excludes test files (`"exclude": ["src/**/*.test.ts", "test/**"]`)
+   - If Ink migration introduces `.tsx` files: `"jsx": "react-jsx"` + `"jsxImportSource": "react"`
+
+2. **`package.json` scripts** — swap `build` to use `tsc`:
+   ```jsonc
+   // Before
+   "build": "tsup src/cli.ts --format esm --target node20 --out-dir dist",
+   // After
+   "build": "tsc --project tsconfig.build.json",
+   ```
+
+3. **`package.json` devDependencies** — remove `tsup` (and transitively `esbuild`):
+   ```bash
+   npm uninstall tsup
+   ```
+
+4. **`dist/` output shape changes** — `tsc` emits a file tree, not a single bundle:
+   - `dist/cli.js` (entry point, unchanged path)
+   - `dist/schema.js`, `dist/state.js`, `dist/render.js`, `dist/terminal.js`, etc.
+   - Imports in source already use `.js` extensions (`'./schema.js'`) which is
+     correct for NodeNext resolution — no rewriting needed.
+
+5. **`bin` field in `package.json`** — stays `"dist/cli.js"`, no change.
+
+6. **Shebang line** — `src/cli.ts` already has `#!/usr/bin/env node`, `tsc`
+   preserves it in the output. Verify after first build.
+
+7. **Ink/JSX consideration** — if the Slice 2 Ink migration adds `.tsx` files,
+   `tsconfig.build.json` needs the JSX transform config. This is why the
+   migration is sequenced *after* the Ink migration settles — we'll know the
+   full set of file extensions and compiler flags needed.
+
+### Sequencing
+
+| Gate | Status |
+|------|--------|
+| Slice 1 manual regression passes | Pending (Step 2) |
+| Ink migration settles (determines if `.tsx` files exist) | Pending (Step 4) |
+| `tsconfig.build.json` created and `tsc` build verified | Not started |
+| `tsup` removed from `devDependencies` | Not started |
+| `npm run build && node dist/cli.js --help` passes on macOS + Linux | Not started |
+
+### Risks
+
+- **No tree-shaking**: `tsc` doesn't tree-shake or bundle. The `dist/` output
+  will be slightly larger (multiple files, unused re-exports preserved). This is
+  acceptable for a CLI tool — startup time is dominated by Node.js boot, not
+  file count. If it becomes a problem, evaluate `rollup` (pure-JS bundler) as a
+  post-`tsc` step.
+- **Source maps in production**: `tsc` emits `.js.map` files. Harmless but adds
+  noise. Can be excluded from the npm package via `.npmignore` or `"files"` in
+  `package.json`.
+- **Import path correctness**: All imports must use `.js` extensions for
+  NodeNext. Currently true — verify with `grep -r "from './" src/ | grep -v ".js'"`.
 
 ---
 
@@ -1034,6 +1151,7 @@ quill/
 > ⚠️ **`build` is not cross-platform yet.** `tsup` wraps esbuild native binaries — running `npm run build` on a different OS/arch than the install platform will fail. Replace `tsup` with a pure-JS alternative (e.g. plain `tsc`) before shipping the dist build.
 
 ```json
+    "build:tsc": "tsc --project tsconfig.build.json",
     "start": "node dist/cli.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -1043,6 +1161,11 @@ quill/
   }
 }
 ```
+
+> ⚠️ **`build` currently uses `tsup` — do not use.** The `build:tsc` script is
+> the planned replacement (see [Build Migration](#build-migration-tsup--tsc)).
+> Once the migration is complete, `build:tsc` becomes `build` and `tsup` is
+> removed from `devDependencies`.
 
 ### tsconfig highlights
 
@@ -1189,24 +1312,19 @@ Explicitly **not** in v0. Tracked here for future versions.
 
 ## Incremental Delivery Plan (review-friendly)
 
-To support tight review loops, implementation proceeds in self-contained,
-runnable slices. Each slice is expected to run in a separate terminal tab and
-be iterated until explicit approval.
+Implementation proceeds in four phases. Each phase is a self-contained,
+reviewable milestone with clear exit criteria.
 
-1. **Slice 1 — Raw browse shell** ✓ complete
-   - Node CLI scaffold, scrolling viewport, cursor navigation, annotation
-     creation (readline prompts), `BrowseState`/`reduce` pattern, decision
-     picker, JSON stdout exit contract.
-2. **Slice 2 — Ink migration + annotation creation UI**
-   - Migrate to Ink/React, add Zod input validation, keybinding dispatch table,
-     line-range selection, inline annotation creation pickers.
-3. **Slice 3 — Pre-seeded threads**
-   - Input parsing, expand/collapse, replies, approve/dismiss status.
-4. **Slice 4 — Search + goto + polish**
-   - Search, go-to-line, status bar finalization, edge cases in raw mode.
-5. **Slice 5 (v0.5) — Diff mode**
-   - Diff ingestion (`--diff*`), parser/alignment/line mapping, annotate
-     against new-file line numbers.
+1. **Phase 1 — Ink migration** ← current
+   - Replace raw loop with proper Ink/React components. Delete prototype code.
+   - Parity gate: Ink path reproduces all raw loop behaviors before proceeding.
+2. **Phase 2 — Navigation & features**
+   - Shiki highlighting, extended nav, selection, annotation display/interaction,
+     search. All built in Ink — no porting.
+3. **Phase 3 — Diff mode**
+   - Diff ingestion, parser, side-by-side rendering, annotation anchoring.
+4. **Phase 4 — Polish & ship**
+   - Tests, edge cases, build swap (`tsup → tsc`), cross-platform, README.
 
 ---
 
