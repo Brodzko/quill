@@ -107,9 +107,19 @@ All features are built on the raw ANSI renderer (`render.ts` + `state.ts`).
   prompt showing digits + valid range. Reducer gains `set_cursor` action for
   absolute line jumps (shared with 2.2). Digits-only input; backspace supported.
 
-- [ ] **2.4 Line-range selection**
-  `v` or `Shift+arrows` → SELECT mode. Visual highlight on selected range.
-  `Enter` confirms → ANNOTATE mode. `Esc` cancels → BROWSE.
+- [x] **2.4 Line-range selection**
+  `v` → SELECT mode at cursor. `Shift+↑`/`↓` from BROWSE starts selection and
+  extends by one line. In SELECT: `j`/`k`/arrows/Shift+arrows extend,
+  `PgUp`/`PgDn`/`Ctrl+U`/`Ctrl+D` extend by half-page, `Enter` confirms →
+  ANNOTATE (annotation uses selection range), `Esc` cancels → BROWSE. Selection
+  state tracked as `anchor`/`active` in `BrowseState`; `selectionRange()` helper
+  returns ordered `startLine`/`endLine`. Visual highlight uses a muted blue
+  truecolor background (`SELECT_BG`). Status bar shows `sel N–M (K lns)`.
+  *Done: `state.ts` (4 new actions + `Selection` type + `selectionRange`),
+  `keypress.ts` (Shift+Up/Down parsing), `render.ts` (selection bg, mode
+  colors, help hints, status bar range), `cli.ts` (select mode dispatch,
+  Shift+arrow entry from browse, multi-line annotation wiring). 19 new tests
+  (state: 13, keypress: 2, render: 4). All 108 tests pass.*
 
 - [ ] **2.5 Inline annotation display**
   Collapsed (`●`) and expanded (`▼`) annotation blocks rendered between source
