@@ -10,6 +10,7 @@ export type Key = {
   /** The printable character, or empty string for control/special keys. */
   char: string;
   ctrl: boolean;
+  shift: boolean;
   escape: boolean;
   return: boolean;
   backspace: boolean;
@@ -24,6 +25,7 @@ export type Key = {
 const EMPTY_KEY: Key = {
   char: '',
   ctrl: false,
+  shift: false,
   escape: false,
   return: false,
   backspace: false,
@@ -39,6 +41,12 @@ export const parseKeypress = (data: Buffer | string): Key => {
   const raw = typeof data === 'string' ? data : data.toString('utf-8');
 
   // --- Escape sequences ---
+
+  // Shift+Arrows: \x1b[1;2A / \x1b[1;2B (xterm-style modifier encoding)
+  if (raw === '\x1b[1;2A')
+    return { ...EMPTY_KEY, upArrow: true, shift: true };
+  if (raw === '\x1b[1;2B')
+    return { ...EMPTY_KEY, downArrow: true, shift: true };
 
   // Arrows
   if (raw === '\x1b[A') return { ...EMPTY_KEY, upArrow: true };
