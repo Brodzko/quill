@@ -193,3 +193,96 @@ describe('createOutput', () => {
     expect(output.decision).toBe('deny');
   });
 });
+
+// ---------------------------------------------------------------------------
+// replies and status round-trip
+// ---------------------------------------------------------------------------
+
+describe('replies and status', () => {
+  it('normalizes annotations with replies', () => {
+    const envelope = tryParseInputEnvelope(
+      JSON.stringify({
+        annotations: [
+          {
+            startLine: 1,
+            endLine: 1,
+            intent: 'comment',
+            comment: 'test',
+            source: 'agent',
+            replies: [{ comment: 'agreed', source: 'user' }],
+          },
+        ],
+      })
+    );
+    const anns = normalizeInputAnnotations(envelope);
+    expect(anns).toHaveLength(1);
+    expect(anns[0]!.replies).toEqual([{ comment: 'agreed', source: 'user' }]);
+  });
+
+  it('normalizes annotations with status', () => {
+    const envelope = tryParseInputEnvelope(
+      JSON.stringify({
+        annotations: [
+          {
+            startLine: 1,
+            endLine: 1,
+            intent: 'comment',
+            comment: 'test',
+            source: 'agent',
+            status: 'approved',
+          },
+        ],
+      })
+    );
+    const anns = normalizeInputAnnotations(envelope);
+    expect(anns[0]!.status).toBe('approved');
+  });
+
+  it('defaults reply source to user when omitted', () => {
+    const envelope = tryParseInputEnvelope(
+      JSON.stringify({
+        annotations: [
+          {
+            startLine: 1,
+            endLine: 1,
+            intent: 'comment',
+            comment: 'test',
+            replies: [{ comment: 'reply text' }],
+          },
+        ],
+      })
+    );
+    const anns = normalizeInputAnnotations(envelope);
+    expect(anns[0]!.replies?.[0]?.source).toBe('user');
+  });
+
+  it('omits replies when empty array', () => {
+    const envelope = tryParseInputEnvelope(
+      JSON.stringify({
+        annotations: [
+          {
+            startLine: 1,
+            endLine: 1,
+            intent: 'comment',
+            comment: 'test',
+            replies: [],
+          },
+        ],
+      })
+    );
+    const anns = normalizeInputAnnotations(envelope);
+    expect(anns[0]!.replies).toBeUndefined();
+  });
+
+  it('omits status when not present', () => {
+    const envelope = tryParseInputEnvelope(
+      JSON.stringify({
+        annotations: [
+          { startLine: 1, endLine: 1, intent: 'comment', comment: 'test' },
+        ],
+      })
+    );
+    const anns = normalizeInputAnnotations(envelope);
+    expect(anns[0]!.status).toBeUndefined();
+  });
+});

@@ -15,6 +15,16 @@ export type KnownCategory =
 
 // --- Schemas ---
 
+const replySchema = z.object({
+  comment: z.string().min(1),
+  source: z.string().min(1),
+});
+
+const replyInputSchema = z.object({
+  comment: z.string().trim().min(1),
+  source: z.string().trim().min(1).optional(),
+});
+
 // Lenient input schema: id and source are optional (defaults applied during normalization).
 const annotationInputSchema = z
   .object({
@@ -25,6 +35,8 @@ const annotationInputSchema = z
     category: z.string().trim().min(1).optional(),
     comment: z.string().trim().min(1),
     source: z.string().trim().min(1).optional(),
+    status: z.enum(['approved', 'dismissed']).optional(),
+    replies: z.array(replyInputSchema.catch(undefined as never)).optional(),
   })
   .passthrough()
   .refine((a) => a.endLine >= a.startLine, {
@@ -39,6 +51,8 @@ const annotationSchema = z.object({
   category: z.string().min(1).optional(),
   comment: z.string().min(1),
   source: z.string().min(1),
+  status: z.enum(['approved', 'dismissed']).optional(),
+  replies: z.array(replySchema).optional(),
 });
 
 const inputEnvelopeSchema = z
@@ -54,8 +68,11 @@ const outputEnvelopeSchema = z.object({
   annotations: z.array(annotationSchema),
 });
 
+export type AnnotationStatus = z.infer<typeof annotationSchema>['status'];
+
 // --- Derived types ---
 
+export type Reply = z.infer<typeof replySchema>;
 export type Annotation = z.infer<typeof annotationSchema>;
 export type Decision = z.infer<typeof outputEnvelopeSchema>['decision'];
 export type OutputEnvelope = z.infer<typeof outputEnvelopeSchema>;
@@ -93,15 +110,24 @@ export const CATEGORY_BY_KEY = {
 
 const normalizeCandidate = (
   candidate: z.infer<typeof annotationInputSchema>
-): Annotation => ({
-  id: candidate.id ?? randomUUID(),
-  startLine: candidate.startLine,
-  endLine: candidate.endLine,
-  intent: candidate.intent,
-  category: candidate.category,
-  comment: candidate.comment,
-  source: candidate.source ?? 'agent',
-});
+): Annotation => {
+  const base: Annotation = {
+    id: candidate.id ?? randomUUID(),
+    startLine: candidate.startLine,
+    endLine: candidate.endLine,
+    intent: candidate.intent,
+    category: candidate.category,
+    comment: candidate.comment,
+    source: candidate.source ?? 'agent',
+  };
+  if (candidate.status) base.status = candidate.status;
+  const replies = (candidate.replies ?? []).filter(R.isNonNullish).map((r) => ({
+    comment: r.comment,
+    source: r.source ?? 'user',
+  }));
+  if (replies.length > 0) base.replies = replies;
+  return base;
+};
 
 export const normalizeInputAnnotations = (
   envelope: InputEnvelope | null
