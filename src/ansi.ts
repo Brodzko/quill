@@ -65,6 +65,30 @@ export const stripAnsi = (s: string): string => s.replace(ANSI_RE, '');
 export const visibleLength = (s: string): number => stripAnsi(s).length;
 
 /**
+ * Truncate an ANSI-styled string to `maxVisible` visible characters.
+ * Preserves ANSI sequences that appear before the cutoff, appends RESET.
+ * Returns the string unchanged if it fits within the limit.
+ */
+export const truncateAnsi = (s: string, maxVisible: number): string => {
+  let visible = 0;
+  let i = 0;
+  while (i < s.length && visible < maxVisible) {
+    // Skip ANSI escape sequences (they have zero visible width)
+    if (s[i] === '\x1b' && s[i + 1] === '[') {
+      const mIdx = s.indexOf('m', i + 2);
+      if (mIdx !== -1) {
+        i = mIdx + 1;
+        continue;
+      }
+    }
+    visible++;
+    i++;
+  }
+  if (i >= s.length) return s; // fits — no truncation needed
+  return `${s.slice(0, i)}${RESET}`;
+};
+
+/**
  * Wrap a string with a background color that extends to the full terminal width.
  *
  * Embedded RESET sequences (`\x1b[0m`) kill all attributes including background,

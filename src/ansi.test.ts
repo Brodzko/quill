@@ -8,6 +8,7 @@ import {
   dim,
   highlightSearchMatches,
   stripAnsi,
+  truncateAnsi,
   visibleLength,
 } from './ansi.js';
 
@@ -136,5 +137,41 @@ describe('formatting helpers', () => {
     expect(result).toContain('\x1b[32m');
     expect(result).toContain(BOLD);
     expect(result).toContain(RESET);
+  });
+});
+
+describe('truncateAnsi', () => {
+  it('returns string unchanged when shorter than limit', () => {
+    expect(truncateAnsi('hello', 10)).toBe('hello');
+  });
+
+  it('returns string unchanged when exactly at limit', () => {
+    expect(truncateAnsi('hello', 5)).toBe('hello');
+  });
+
+  it('truncates plain text at limit', () => {
+    expect(truncateAnsi('hello world', 5)).toBe(`hello${RESET}`);
+  });
+
+  it('preserves ANSI sequences before cutoff', () => {
+    const styled = `\x1b[32mhello\x1b[0m world`;
+    const result = truncateAnsi(styled, 5);
+    expect(result).toContain('\x1b[32m');
+    expect(stripAnsi(result)).toBe('hello');
+  });
+
+  it('truncates mid-styled text correctly', () => {
+    const styled = `\x1b[32mhello world\x1b[0m`;
+    const result = truncateAnsi(styled, 7);
+    expect(stripAnsi(result)).toBe('hello w');
+    expect(result).toContain('\x1b[32m');
+    expect(result.endsWith(RESET)).toBe(true);
+  });
+
+  it('handles zero-width ANSI sequences at truncation point', () => {
+    // "ab" + color change + "cd" → truncate at 2 should give "ab"
+    const styled = `ab\x1b[31mcd`;
+    const result = truncateAnsi(styled, 2);
+    expect(stripAnsi(result)).toBe('ab');
   });
 });
