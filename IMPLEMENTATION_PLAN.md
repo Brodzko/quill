@@ -51,6 +51,42 @@ an agent, to a review system, or to yourself) actually useful in practice?
   - `--diff*` ingestion, parser/alignment/line mapping, annotation anchoring to
     new-file line numbers.
 
+## Execution Plan (step-by-step)
+
+### Step 1 — Raw browse shell implementation ✅ done
+
+Implemented in `src/cli.ts` with supporting project scaffolding.
+
+### Step 2 — Manual validation + Slice 1 sign-off (current)
+
+Owner: human tester (interactive TTY validation cannot be reliably automated).
+
+1. **Run on macOS**
+   - `npm run dev -- <file>`
+   - Verify viewport never overflows and scroll keeps cursor visible.
+   - Verify repeated annotation creation works (`n` flow multiple times).
+   - Verify `q -> a` and `q -> d` both emit valid JSON to stdout.
+   - Verify `Ctrl+C` aborts and terminal returns to usable state.
+2. **Run same checks on Linux**
+3. **Regression checks for resume/focus**
+   - `--line <n>` lands on expected line.
+   - `--focus-annotation <id>` lands on expected annotation when present.
+   - Missing focus id cleanly falls back to `--line`/top.
+4. **Capture failures as concrete bugs**
+   - Add each failure as a short checklist item before any Slice 2 work.
+
+Exit criteria:
+
+- All checks above pass on both platforms.
+- No scope creep into diff mode, Ink UI, or bundled dist workflow.
+
+### Step 3 — Slice 2 kickoff (after Step 2 passes)
+
+1. Migrate raw render/input loop to Ink (`useReducer` shape already prepared).
+2. ✅ Add Zod schemas for input/output parsing (done in current raw CLI as pre-Ink groundwork).
+3. ✅ Replace key handling chain with mode-key dispatch table (done in current raw CLI as pre-Ink groundwork).
+4. Build inline in-TUI annotation flow (intent/category/comment) without readline interruptions.
+
 ---
 
 ## Table of Contents

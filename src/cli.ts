@@ -6,6 +6,7 @@ import { stderr, stdin, stdout } from 'process';
 import * as R from 'remeda';
 import { ReadStream as TtyReadStream } from 'tty';
 import { defineCommand, runMain } from 'citty';
+import { z } from 'zod';
 
 type Prettify<T> = { [K in keyof T]: T[K] } & {};
 
@@ -44,15 +45,25 @@ type Annotation = {
   source: string;
 };
 
-// AnnotationInput is Annotation with id and source optional (caller may omit them;
-// we generate stable values during normalization).
-type AnnotationInput = Prettify<
-  Omit<Annotation, 'id' | 'source'> & Partial<Pick<Annotation, 'id' | 'source'>>
->;
+const annotationInputSchema = z
+  .object({
+    id: z.string().trim().min(1).optional(),
+    startLine: z.coerce.number().int(),
+    endLine: z.coerce.number().int(),
+    intent: z.string().trim().min(1),
+    category: z.string().trim().min(1).optional(),
+    comment: z.string().trim().min(1),
+    source: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
 
-type InputEnvelope = {
-  annotations?: AnnotationInput[];
-};
+const inputEnvelopeSchema = z
+  .object({
+    annotations: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+
+type InputEnvelope = Prettify<z.output<typeof inputEnvelopeSchema>>;
 
 type OutputEnvelope = {
   file: string;
@@ -100,47 +111,29 @@ const readStdinIfPiped = async (): Promise<string | null> => {
   return payload.length > 0 ? payload : null;
 };
 
-const normalizeCandidate = (candidate: AnnotationInput): Annotation | null => {
-  const startLine = Number(candidate.startLine);
-  const endLine = Number(candidate.endLine);
-  const hasValidRange =
-    Number.isInteger(startLine) &&
-    Number.isInteger(endLine) &&
-    startLine >= 1 &&
-    endLine >= startLine;
+const normalizeCandidate = (candidate: unknown): Annotation | null => {
+  const parsedCandidate = annotationInputSchema.safeParse(candidate);
 
-  if (!hasValidRange) {
+  if (!parsedCandidate.success) {
     return null;
   }
 
-  const intent =
-    typeof candidate.intent === 'string' ? candidate.intent.trim() : '';
+  const { startLine, endLine, intent, category, comment, id, source } =
+    parsedCandidate.data;
 
-  if (intent.length === 0) {
+  if (startLine < 1 || endLine < startLine) {
     return null;
   }
 
-  const comment =
-    typeof candidate.comment === 'string' ? candidate.comment.trim() : '';
-
-  if (comment.length === 0) {
-    return null;
-  }
-
-  const category =
-    typeof candidate.category === 'string'
-      ? candidate.category.trim() || undefined
-      : undefined;
-
-  const id =
-    typeof candidate.id === 'string' && candidate.id.trim().length > 0
-      ? candidate.id.trim()
-      : randomUUID();
-
-  const source =
-    typeof candidate.source === 'string' ? candidate.source : 'agent';
-
-  return { id, startLine, endLine, intent, category, comment, source };
+  return {
+    id: id ?? randomUUID(),
+    startLine,
+    endLine,
+    intent,
+    category,
+    comment,
+    source: source ?? 'agent',
+  };
 };
 
 const normalizeInputAnnotations = (
@@ -421,7 +414,9 @@ const tryParseInputEnvelope = (
   }
 
   try {
-    return JSON.parse(rawJson) as InputEnvelope;
+    const parsedJson = JSON.parse(rawJson) as unknown;
+    const parsedEnvelope = inputEnvelopeSchema.safeParse(parsedJson);
+    return parsedEnvelope.success ? parsedEnvelope.data : null;
   } catch {
     return null;
   }
@@ -512,6 +507,66 @@ const command = defineCommand({
         state = reduce(state, action, lines.length);
       };
 
+      type KeyHandler = () => Promise<void> | void;
+
+      const browseHandlers: Record<string, KeyHandler> = {
+        k: () => dispatch({ type: 'move_cursor', delta: -1 }),
+        '\u001B[A': () => dispatch({ type: 'move_cursor', delta: -1 }),
+        j: () => dispatch({ type: 'move_cursor', delta: 1 }),
+        '\u001B[B': () => dispatch({ type: 'move_cursor', delta: 1 }),
+        n: async () => {
+          const draft = await runCommentPrompt(input);
+          if (!draft) {
+            return;
+          }
+
+          dispatch({
+            type: 'add_annotation',
+            annotation: {
+              id: randomUUID(),
+              startLine: state.cursorLine,
+              endLine: state.cursorLine,
+              intent: draft.intent,
+              category: draft.category,
+              comment: draft.comment,
+              source: 'user',
+            },
+          });
+        },
+        q: () => dispatch({ type: 'set_mode', mode: 'decide' }),
+      };
+
+      const decideHandlers: Record<string, KeyHandler> = {
+        a: () => {
+          const output = createOutput({
+            filePath,
+            decision: 'approve',
+            annotations: state.annotations,
+          });
+
+          clearScreen();
+          stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+          process.exit(0);
+        },
+        d: () => {
+          const output = createOutput({
+            filePath,
+            decision: 'deny',
+            annotations: state.annotations,
+          });
+
+          clearScreen();
+          stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+          process.exit(0);
+        },
+        '\u001B': () => dispatch({ type: 'set_mode', mode: 'browse' }),
+      };
+
+      const handlersByMode: Record<Mode, Record<string, KeyHandler>> = {
+        browse: browseHandlers,
+        decide: decideHandlers,
+      };
+
       while (true) {
         render({
           filePath,
@@ -527,63 +582,14 @@ const command = defineCommand({
           process.exit(1);
         }
 
-        if (state.mode === 'browse') {
-          if (key === 'k' || key === '\u001B[A') {
-            dispatch({ type: 'move_cursor', delta: -1 });
-            continue;
-          }
+        const modeHandlers = handlersByMode[state.mode];
+        const handleKey = modeHandlers[key];
 
-          if (key === 'j' || key === '\u001B[B') {
-            dispatch({ type: 'move_cursor', delta: 1 });
-            continue;
-          }
-
-          if (key === 'n') {
-            const draft = await runCommentPrompt(input);
-            if (!draft) {
-              continue;
-            }
-
-            dispatch({
-              type: 'add_annotation',
-              annotation: {
-                id: randomUUID(),
-                startLine: state.cursorLine,
-                endLine: state.cursorLine,
-                intent: draft.intent,
-                category: draft.category,
-                comment: draft.comment,
-                source: 'user',
-              },
-            });
-            continue;
-          }
-
-          if (key === 'q') {
-            dispatch({ type: 'set_mode', mode: 'decide' });
-          }
-
+        if (!handleKey) {
           continue;
         }
 
-        if (state.mode === 'decide') {
-          if (key === 'a' || key === 'd') {
-            const decision: Decision = key === 'a' ? 'approve' : 'deny';
-            const output = createOutput({
-              filePath,
-              decision,
-              annotations: state.annotations,
-            });
-
-            clearScreen();
-            stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-            process.exit(0);
-          }
-
-          if (key === '\u001B') {
-            dispatch({ type: 'set_mode', mode: 'browse' });
-          }
-        }
+        await handleKey();
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
