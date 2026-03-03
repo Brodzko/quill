@@ -22,10 +22,24 @@ export const CURSOR_BG = `${ESC}48;2;44;49;58m`;
 /** Selection range background — muted blue tint. */
 export const SELECT_BG = `${ESC}48;2;38;50;70m`;
 
+export const ITALIC = `${ESC}3m`;
+export const MAGENTA = `${ESC}35m`;
+export const WHITE = `${ESC}37m`;
+
+/** Muted annotation box border background. */
+export const ANN_BOX_BG = `${ESC}48;2;35;38;46m`;
+/** Annotation box border color — subtle gray. */
+export const ANN_BORDER = `${ESC}38;2;88;95;108m`;
+/** Agent source accent. */
+export const AGENT_ACCENT = `${ESC}38;2;130;140;160m`;
+/** User source accent. */
+export const USER_ACCENT = CYAN;
+
 // --- Formatting helpers ---
 
 export const bold = (s: string): string => `${BOLD}${s}${RESET}`;
 export const dim = (s: string): string => `${DIM}${s}${RESET}`;
+export const italic = (s: string): string => `${ITALIC}${s}${RESET}`;
 export const colorBold = (color: string, s: string): string =>
   `${color}${BOLD}${s}${RESET}`;
 

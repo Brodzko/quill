@@ -9,8 +9,10 @@ import type { Annotation } from './schema.js';
 import type {
   AnnotationFlowState,
   BrowseState,
+  EditFlowState,
   GotoFlowState,
   Mode,
+  ReplyFlowState,
   Selection,
 } from './state.js';
 import { selectionRange } from './state.js';
@@ -27,6 +29,7 @@ import {
   colorBold,
   dim,
 } from './ansi.js';
+import { annotationsOnLine, renderAnnotationBox } from './annotation-box.js';
 
 // --- Annotation flow rendering ---
 
@@ -35,25 +38,34 @@ import {
 const lineMarker = (
   lineNumber: number,
   annotations: readonly Annotation[],
+  expandedAnnotations: ReadonlySet<string>,
   focusAnnotation?: string
-): '◎' | '●' | ' ' => {
+): '▼' | '◎' | '●' | ' ' => {
+  const lineAnns = annotations.filter(
+    (a) => lineNumber >= a.startLine && lineNumber <= a.endLine
+  );
+  if (lineAnns.length === 0) return ' ';
+
+  // Check for expanded annotations on this line
+  const hasExpanded = lineAnns.some((a) => expandedAnnotations.has(a.id));
+  if (hasExpanded) return '▼';
+
   if (typeof focusAnnotation === 'string') {
-    const hasFocus = annotations.some(
-      (a) =>
-        a.id === focusAnnotation &&
-        lineNumber >= a.startLine &&
-        lineNumber <= a.endLine
-    );
+    const hasFocus = lineAnns.some((a) => a.id === focusAnnotation);
     if (hasFocus) return '◎';
   }
 
-  const hasAnnotation = annotations.some(
-    (a) => lineNumber >= a.startLine && lineNumber <= a.endLine
-  );
-  return hasAnnotation ? '●' : ' ';
+  return '●';
 };
 
 // --- Frame builders ---
+
+/**
+ * Build the gutter prefix for annotation box rows.
+ * Matches the width of ">{lineNum} {marker} " but blank.
+ */
+const gutterBlank = (gutterWidth: number): string =>
+  ' '.repeat(1 + gutterWidth + 1 + 1 + 1); // pointer + num + space + marker + space
 
 const renderViewport = (
   lines: string[],
@@ -65,13 +77,18 @@ const renderViewport = (
 ): string[] => {
   const gutterWidth = String(lines.length).length;
   const rows: string[] = [];
-
   const selRange = selection ? selectionRange(selection) : undefined;
+  const gutterPfx = gutterBlank(gutterWidth);
 
-  for (let i = 0; i < viewportHeight; i++) {
-    const lineIndex = state.viewportOffset + i;
+  // Max width for annotation boxes: cols minus gutter, capped at 80
+  const boxMaxWidth = Math.min(80, cols - gutterPfx.length);
+
+  let lineIndex = state.viewportOffset;
+
+  while (rows.length < viewportHeight) {
     if (lineIndex >= lines.length) {
       rows.push(`${CLEAR_LINE}~`);
+      lineIndex++;
       continue;
     }
 
@@ -85,15 +102,34 @@ const renderViewport = (
     const marker = lineMarker(
       lineNumber,
       state.annotations,
+      state.expandedAnnotations,
       focusAnnotation
     );
     const paddedNum = String(lineNumber).padStart(gutterWidth, ' ');
     const raw = `${pointer}${paddedNum} ${marker} ${lines[lineIndex]}`;
 
-    // Selection bg takes precedence over cursor bg; cursor line within
-    // selection gets the selection color for visual consistency.
     const bg = isSelected ? SELECT_BG : isCursor ? CURSOR_BG : undefined;
     rows.push(`${CLEAR_LINE}${bg ? bgLine(raw, bg, cols) : raw}`);
+
+    // Interleave expanded annotation boxes after the last line of each annotation's range
+    const expandedAnns = annotationsOnLine(state.annotations, lineNumber).filter(
+      (a) => state.expandedAnnotations.has(a.id) && a.endLine === lineNumber
+    );
+
+    for (const ann of expandedAnns) {
+      if (rows.length >= viewportHeight) break;
+      const boxRows = renderAnnotationBox(ann, {
+        maxWidth: boxMaxWidth,
+        gutterPrefix: gutterPfx,
+        isCursorLine: isCursor,
+      });
+      for (const boxRow of boxRows) {
+        if (rows.length >= viewportHeight) break;
+        rows.push(boxRow);
+      }
+    }
+
+    lineIndex++;
   }
 
   return rows;
@@ -105,6 +141,8 @@ const MODE_COLORS: Record<Mode, string> = {
   annotate: CYAN,
   goto: CYAN,
   select: YELLOW,
+  reply: CYAN,
+  edit: CYAN,
 };
 
 const renderStatusBar = (state: BrowseState, filePath: string): string => {
@@ -129,12 +167,14 @@ const renderStatusBar = (state: BrowseState, filePath: string): string => {
 
 const HELP_HINTS: Record<Mode, string> = {
   browse:
-    '[j/k ↑↓] move  [v Shift+↑↓] select  [PgUp/Dn Ctrl+U/D] half-page  [gg/G Home/End] jump  [:] goto  [n] annotate  [q] finish',
+    '[j/k ↑↓] move  [v Shift+↑↓] select  [Tab] toggle annotation  [PgUp/Dn Ctrl+U/D] half-page  [gg/G Home/End] jump  [:] goto  [n] annotate  [q] finish',
   decide: '[a] approve  [d] deny  [Esc] back',
   annotate: '[Esc] cancel',
   goto: '',
   select:
     '[j/k ↑↓ Shift+↑↓] extend  [Enter] annotate  [Esc] cancel',
+  reply: '[Enter] submit  [Esc] cancel',
+  edit: '[Enter] save  [Esc] cancel',
 };
 
 const renderHelpBar = (mode: Mode): string =>
@@ -180,6 +220,16 @@ const renderAnnotationFlow = (
 const renderGotoPrompt = (flow: GotoFlowState, lineCount: number): string =>
   `${CLEAR_LINE}${colorBold(CYAN, 'Go to line:')} ${flow.input}${dim('▎')}  ${dim(`(1–${lineCount})  [Enter] jump  [Esc] cancel`)}`;
 
+// --- Reply prompt ---
+
+const renderReplyPrompt = (flow: ReplyFlowState): string =>
+  `${CLEAR_LINE}${colorBold(CYAN, 'Reply:')} ${flow.comment}${dim('▎')}  ${dim('[Enter] submit  [Esc] cancel')}`;
+
+// --- Edit prompt ---
+
+const renderEditPrompt = (flow: EditFlowState): string =>
+  `${CLEAR_LINE}${colorBold(CYAN, 'Edit comment:')} ${flow.comment}${dim('▎')}  ${dim('[Enter] save  [Esc] cancel')}`;
+
 // --- Public API ---
 
 export type RenderContext = {
@@ -191,6 +241,8 @@ export type RenderContext = {
   focusAnnotation?: string;
   annotationFlow?: AnnotationFlowState;
   gotoFlow?: GotoFlowState;
+  replyFlow?: ReplyFlowState;
+  editFlow?: EditFlowState;
 };
 
 /** Number of chrome rows below the viewport (status + help + potential modal). */
@@ -240,6 +292,12 @@ export const buildFrame = (ctx: RenderContext): string => {
   }
   if (ctx.state.mode === 'goto' && ctx.gotoFlow) {
     frame.push(renderGotoPrompt(ctx.gotoFlow, ctx.state.lineCount));
+  }
+  if (ctx.state.mode === 'reply' && ctx.replyFlow) {
+    frame.push(renderReplyPrompt(ctx.replyFlow));
+  }
+  if (ctx.state.mode === 'edit' && ctx.editFlow) {
+    frame.push(renderEditPrompt(ctx.editFlow));
   }
 
   // Pad remaining terminal rows with cleared lines to avoid leftover content

@@ -18,6 +18,7 @@ const makeCtx = (overrides: Partial<RenderContext> = {}): RenderContext => {
     viewportOffset: 0,
     mode: 'browse',
     annotations: [],
+    expandedAnnotations: new Set(),
   };
   return {
     filePath: 'test.ts',
@@ -108,6 +109,7 @@ describe('buildFrame — decide mode', () => {
       viewportOffset: 0,
       mode: 'decide',
       annotations: [],
+      expandedAnnotations: new Set(),
     };
     const frame = buildFrame(makeCtx({ state }));
     const plain = stripAnsi(frame);
@@ -130,6 +132,7 @@ describe('buildFrame — goto mode', () => {
       viewportOffset: 0,
       mode: 'goto',
       annotations: [],
+      expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
       makeCtx({ state, gotoFlow: { input: '42' } })
@@ -154,6 +157,7 @@ describe('buildFrame — annotation flow', () => {
       viewportOffset: 0,
       mode: 'annotate',
       annotations: [],
+      expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
       makeCtx({
@@ -180,6 +184,7 @@ describe('buildFrame — select mode', () => {
       viewportOffset: 0,
       mode: 'select',
       annotations: [],
+      expandedAnnotations: new Set(),
       selection: { anchor: 3, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state }));
@@ -195,6 +200,7 @@ describe('buildFrame — select mode', () => {
       viewportOffset: 0,
       mode: 'select',
       annotations: [],
+      expandedAnnotations: new Set(),
       selection: { anchor: 3, active: 7 },
     };
     const frame = buildFrame(makeCtx({ state }));
@@ -211,6 +217,7 @@ describe('buildFrame — select mode', () => {
       viewportOffset: 0,
       mode: 'select',
       annotations: [],
+      expandedAnnotations: new Set(),
       selection: { anchor: 5, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state }));
@@ -228,6 +235,7 @@ describe('buildFrame — select mode', () => {
       viewportOffset: 0,
       mode: 'select',
       annotations: [],
+      expandedAnnotations: new Set(),
       selection: { anchor: 3, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state }));
@@ -257,6 +265,7 @@ describe('buildFrame — annotation markers', () => {
       viewportOffset: 0,
       mode: 'browse',
       annotations: [annotation],
+      expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
@@ -284,6 +293,7 @@ describe('buildFrame — annotation markers', () => {
       viewportOffset: 0,
       mode: 'browse',
       annotations: [annotation],
+      expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
       makeCtx({
@@ -305,6 +315,7 @@ describe('buildFrame — annotation markers', () => {
       viewportOffset: 0,
       mode: 'browse',
       annotations: [],
+      expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 5 }, (_, i) => `line ${i + 1}`) })
@@ -329,6 +340,7 @@ describe('buildFrame — viewport overflow', () => {
       viewportOffset: 0,
       mode: 'browse',
       annotations: [],
+      expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
       makeCtx({
@@ -347,6 +359,194 @@ describe('buildFrame — viewport overflow', () => {
 // buildFrame — annotation flow steps
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// buildFrame — expanded annotation box
+// ---------------------------------------------------------------------------
+
+describe('buildFrame — expanded annotation box', () => {
+  it('shows annotation box when expanded', () => {
+    const annotation: Annotation = {
+      id: 'a1',
+      startLine: 3,
+      endLine: 3,
+      intent: 'comment',
+      comment: 'This is a test comment.',
+      source: 'user',
+    };
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 10,
+      cursorLine: 3,
+      viewportOffset: 0,
+      mode: 'browse',
+      annotations: [annotation],
+      expandedAnnotations: new Set(['a1']),
+    };
+    const frame = buildFrame(
+      makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
+    );
+    const plain = stripAnsi(frame);
+    // Should contain the box border and comment
+    expect(plain).toContain('┌');
+    expect(plain).toContain('This is a test comment.');
+    expect(plain).toContain('└');
+  });
+
+  it('shows ▼ marker on line with expanded annotation', () => {
+    const annotation: Annotation = {
+      id: 'a1',
+      startLine: 3,
+      endLine: 3,
+      intent: 'comment',
+      comment: 'test',
+      source: 'user',
+    };
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 10,
+      cursorLine: 1,
+      viewportOffset: 0,
+      mode: 'browse',
+      annotations: [annotation],
+      expandedAnnotations: new Set(['a1']),
+    };
+    const frame = buildFrame(
+      makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
+    );
+    const plain = stripAnsi(frame);
+    const line3 = plain.split('\n').find((l) => l.includes('line 3'));
+    expect(line3).toContain('▼');
+  });
+
+  it('shows action hints when cursor is on annotation line', () => {
+    const annotation: Annotation = {
+      id: 'a1',
+      startLine: 3,
+      endLine: 3,
+      intent: 'comment',
+      comment: 'test',
+      source: 'user',
+    };
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 15,
+      cursorLine: 3,
+      viewportOffset: 0,
+      mode: 'browse',
+      annotations: [annotation],
+      expandedAnnotations: new Set(['a1']),
+    };
+    const frame = buildFrame(
+      makeCtx({
+        state,
+        lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`),
+        terminalRows: 20,
+      })
+    );
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('[r]eply');
+    expect(plain).toContain('[e]dit');
+  });
+
+  it('does not show annotation box when collapsed', () => {
+    const annotation: Annotation = {
+      id: 'a1',
+      startLine: 3,
+      endLine: 3,
+      intent: 'comment',
+      comment: 'This should not appear expanded.',
+      source: 'user',
+    };
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 10,
+      cursorLine: 1,
+      viewportOffset: 0,
+      mode: 'browse',
+      annotations: [annotation],
+      expandedAnnotations: new Set(),
+    };
+    const frame = buildFrame(
+      makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
+    );
+    const plain = stripAnsi(frame);
+    expect(plain).not.toContain('┌');
+    expect(plain).not.toContain('This should not appear expanded.');
+  });
+
+  it('annotation box reduces visible source lines', () => {
+    const annotation: Annotation = {
+      id: 'a1',
+      startLine: 2,
+      endLine: 2,
+      intent: 'comment',
+      comment: 'A comment that takes space.',
+      source: 'user',
+    };
+    const state: BrowseState = {
+      lineCount: 20,
+      viewportHeight: 10,
+      cursorLine: 2,
+      viewportOffset: 0,
+      mode: 'browse',
+      annotations: [annotation],
+      expandedAnnotations: new Set(['a1']),
+    };
+    const frame = buildFrame(
+      makeCtx({ state, lines: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`) })
+    );
+    const plain = stripAnsi(frame);
+    // With an expanded box, fewer source lines should be visible
+    // Line 10 should not be visible because the box takes space
+    const visibleLines = plain.split('\n').filter((l) => l.match(/line \d+/));
+    expect(visibleLines.length).toBeLessThan(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildFrame — reply/edit modes
+// ---------------------------------------------------------------------------
+
+describe('buildFrame — reply mode', () => {
+  it('shows reply prompt', () => {
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 5,
+      cursorLine: 5,
+      viewportOffset: 0,
+      mode: 'reply',
+      annotations: [],
+      expandedAnnotations: new Set(),
+    };
+    const frame = buildFrame(
+      makeCtx({ state, replyFlow: { annotationId: 'a1', comment: 'hello' } })
+    );
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('Reply:');
+    expect(plain).toContain('hello');
+  });
+});
+
+describe('buildFrame — edit mode', () => {
+  it('shows edit prompt', () => {
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 5,
+      cursorLine: 5,
+      viewportOffset: 0,
+      mode: 'edit',
+      annotations: [],
+      expandedAnnotations: new Set(),
+    };
+    const frame = buildFrame(
+      makeCtx({ state, editFlow: { annotationId: 'a1', comment: 'editing' } })
+    );
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('Edit comment:');
+    expect(plain).toContain('editing');
+  });
+});
+
 describe('buildFrame — annotation flow category step', () => {
   it('shows category picker with intent', () => {
     const state: BrowseState = {
@@ -356,6 +556,7 @@ describe('buildFrame — annotation flow category step', () => {
       viewportOffset: 0,
       mode: 'annotate',
       annotations: [],
+      expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
       makeCtx({
@@ -379,6 +580,7 @@ describe('buildFrame — annotation flow comment step', () => {
       viewportOffset: 0,
       mode: 'annotate',
       annotations: [],
+      expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
       makeCtx({
