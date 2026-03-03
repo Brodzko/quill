@@ -25,7 +25,29 @@ export type GotoFlowState = {
 
 export const INITIAL_GOTO_FLOW: GotoFlowState = { input: '' };
 
-export type Mode = 'browse' | 'decide' | 'annotate' | 'goto' | 'select';
+export type ReplyFlowState = {
+  /** The annotation id being replied to. */
+  readonly annotationId: string;
+  readonly comment: string;
+};
+
+export const INITIAL_REPLY_FLOW = (annotationId: string): ReplyFlowState => ({
+  annotationId,
+  comment: '',
+});
+
+export type EditFlowState = {
+  /** The annotation id being edited. */
+  readonly annotationId: string;
+  readonly comment: string;
+};
+
+export const INITIAL_EDIT_FLOW = (ann: { id: string; comment: string }): EditFlowState => ({
+  annotationId: ann.id,
+  comment: ann.comment,
+});
+
+export type Mode = 'browse' | 'decide' | 'annotate' | 'goto' | 'select' | 'reply' | 'edit';
 
 export type Selection = {
   /** The line where selection started (1-indexed). */
@@ -43,6 +65,8 @@ export type BrowseState = {
   readonly annotations: readonly Annotation[];
   /** Present only in 'select' mode. */
   readonly selection?: Selection;
+  /** Set of annotation ids that are currently expanded inline. */
+  readonly expandedAnnotations: ReadonlySet<string>;
 };
 
 // Standard useReducer-compatible signature: (state, action) => state.
@@ -55,7 +79,11 @@ export type BrowseAction =
   | { type: 'start_select' }
   | { type: 'extend_select'; delta: number }
   | { type: 'confirm_select' }
-  | { type: 'cancel_select' };
+  | { type: 'cancel_select' }
+  | { type: 'toggle_annotation'; annotationId: string }
+  | { type: 'delete_annotation'; annotationId: string }
+  | { type: 'update_annotation'; annotationId: string; changes: Partial<Pick<Annotation, 'comment' | 'status'>> }
+  | { type: 'add_reply'; annotationId: string; reply: { comment: string; source: string } };
 
 export const clampLine = (value: number, lineCount: number): number =>
   R.clamp(value, { min: 1, max: Math.max(1, lineCount) });
@@ -176,6 +204,42 @@ export const reduce = (state: BrowseState, action: BrowseAction): BrowseState =>
     }
     case 'cancel_select': {
       return { ...state, mode: 'browse', selection: undefined };
+    }
+    case 'toggle_annotation': {
+      const next = new Set(state.expandedAnnotations);
+      if (next.has(action.annotationId)) {
+        next.delete(action.annotationId);
+      } else {
+        next.add(action.annotationId);
+      }
+      return { ...state, expandedAnnotations: next };
+    }
+    case 'delete_annotation': {
+      const next = new Set(state.expandedAnnotations);
+      next.delete(action.annotationId);
+      return {
+        ...state,
+        annotations: state.annotations.filter((a) => a.id !== action.annotationId),
+        expandedAnnotations: next,
+      };
+    }
+    case 'update_annotation': {
+      return {
+        ...state,
+        annotations: state.annotations.map((a) =>
+          a.id === action.annotationId ? { ...a, ...action.changes } : a
+        ),
+      };
+    }
+    case 'add_reply': {
+      return {
+        ...state,
+        annotations: state.annotations.map((a) =>
+          a.id === action.annotationId
+            ? { ...a, replies: [...(a.replies ?? []), action.reply] }
+            : a
+        ),
+      };
     }
   }
 };

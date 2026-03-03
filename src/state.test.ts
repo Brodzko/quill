@@ -20,6 +20,7 @@ const makeState = (overrides: Partial<BrowseState> = {}): BrowseState => ({
   viewportOffset: 0,
   mode: 'browse',
   annotations: [],
+  expandedAnnotations: new Set(),
   ...overrides,
 });
 
@@ -490,5 +491,147 @@ describe('edge cases — zero-line file', () => {
     const state = makeState({ lineCount: 0, cursorLine: 1 });
     const next = reduce(state, { type: 'move_cursor', delta: 5 });
     expect(next.viewportOffset).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toggle_annotation
+// ---------------------------------------------------------------------------
+
+describe('toggle_annotation', () => {
+  it('expands a collapsed annotation', () => {
+    const state = makeState({ expandedAnnotations: new Set() });
+    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    expect(next.expandedAnnotations.has('a1')).toBe(true);
+  });
+
+  it('collapses an expanded annotation', () => {
+    const state = makeState({ expandedAnnotations: new Set(['a1']) });
+    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    expect(next.expandedAnnotations.has('a1')).toBe(false);
+  });
+
+  it('does not affect other expanded annotations', () => {
+    const state = makeState({ expandedAnnotations: new Set(['a1', 'a2']) });
+    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    expect(next.expandedAnnotations.has('a1')).toBe(false);
+    expect(next.expandedAnnotations.has('a2')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// delete_annotation
+// ---------------------------------------------------------------------------
+
+describe('delete_annotation', () => {
+  it('removes annotation from list', () => {
+    const ann = makeAnnotation({ id: 'a1' });
+    const state = makeState({ annotations: [ann] });
+    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    expect(next.annotations).toEqual([]);
+  });
+
+  it('removes from expanded set', () => {
+    const ann = makeAnnotation({ id: 'a1' });
+    const state = makeState({
+      annotations: [ann],
+      expandedAnnotations: new Set(['a1']),
+    });
+    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    expect(next.expandedAnnotations.has('a1')).toBe(false);
+  });
+
+  it('does not affect other annotations', () => {
+    const ann1 = makeAnnotation({ id: 'a1' });
+    const ann2 = makeAnnotation({ id: 'a2', startLine: 20, endLine: 22 });
+    const state = makeState({ annotations: [ann1, ann2] });
+    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    expect(next.annotations).toEqual([ann2]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// update_annotation
+// ---------------------------------------------------------------------------
+
+describe('update_annotation', () => {
+  it('updates comment', () => {
+    const ann = makeAnnotation({ id: 'a1', comment: 'old' });
+    const state = makeState({ annotations: [ann] });
+    const next = reduce(state, {
+      type: 'update_annotation',
+      annotationId: 'a1',
+      changes: { comment: 'new' },
+    });
+    expect(next.annotations[0]!.comment).toBe('new');
+  });
+
+  it('updates status', () => {
+    const ann = makeAnnotation({ id: 'a1' });
+    const state = makeState({ annotations: [ann] });
+    const next = reduce(state, {
+      type: 'update_annotation',
+      annotationId: 'a1',
+      changes: { status: 'approved' },
+    });
+    expect(next.annotations[0]!.status).toBe('approved');
+  });
+
+  it('does not affect other annotations', () => {
+    const ann1 = makeAnnotation({ id: 'a1', comment: 'one' });
+    const ann2 = makeAnnotation({ id: 'a2', comment: 'two', startLine: 20, endLine: 22 });
+    const state = makeState({ annotations: [ann1, ann2] });
+    const next = reduce(state, {
+      type: 'update_annotation',
+      annotationId: 'a1',
+      changes: { comment: 'updated' },
+    });
+    expect(next.annotations[1]!.comment).toBe('two');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// add_reply
+// ---------------------------------------------------------------------------
+
+describe('add_reply', () => {
+  it('adds reply to annotation', () => {
+    const ann = makeAnnotation({ id: 'a1' });
+    const state = makeState({ annotations: [ann] });
+    const next = reduce(state, {
+      type: 'add_reply',
+      annotationId: 'a1',
+      reply: { comment: 'my reply', source: 'user' },
+    });
+    expect(next.annotations[0]!.replies).toEqual([
+      { comment: 'my reply', source: 'user' },
+    ]);
+  });
+
+  it('appends to existing replies', () => {
+    const ann = makeAnnotation({
+      id: 'a1',
+      replies: [{ comment: 'first', source: 'agent' }],
+    });
+    const state = makeState({ annotations: [ann] });
+    const next = reduce(state, {
+      type: 'add_reply',
+      annotationId: 'a1',
+      reply: { comment: 'second', source: 'user' },
+    });
+    expect(next.annotations[0]!.replies).toHaveLength(2);
+    expect(next.annotations[0]!.replies?.[1]?.comment).toBe('second');
+  });
+
+  it('does not affect other annotations', () => {
+    const ann1 = makeAnnotation({ id: 'a1' });
+    const ann2 = makeAnnotation({ id: 'a2', startLine: 20, endLine: 22 });
+    const state = makeState({ annotations: [ann1, ann2] });
+    const next = reduce(state, {
+      type: 'add_reply',
+      annotationId: 'a1',
+      reply: { comment: 'reply', source: 'user' },
+    });
+    expect(next.annotations[1]!.replies).toBeUndefined();
   });
 });
