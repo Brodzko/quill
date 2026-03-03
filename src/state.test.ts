@@ -4,6 +4,7 @@ import {
   type BrowseState,
   clampLine,
   computeViewportOffset,
+  halfPage,
   reduce,
   selectionRange,
 } from './state.js';
@@ -432,5 +433,62 @@ describe('reduce — cancel_select', () => {
     const next = reduce(state, { type: 'cancel_select' });
     expect(next.mode).toBe('browse');
     expect(next.selection).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// halfPage
+// ---------------------------------------------------------------------------
+
+describe('halfPage', () => {
+  it('returns half the viewport height', () => {
+    expect(halfPage(20)).toBe(10);
+  });
+
+  it('floors odd viewport heights', () => {
+    expect(halfPage(21)).toBe(10);
+  });
+
+  it('returns minimum of 1 for very small viewports', () => {
+    expect(halfPage(1)).toBe(1);
+    expect(halfPage(0)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edge cases — single-line and zero-line files
+// ---------------------------------------------------------------------------
+
+describe('edge cases — single-line file', () => {
+  it('cursor stays at 1 when moving down', () => {
+    const state = makeState({ lineCount: 1, cursorLine: 1 });
+    const next = reduce(state, { type: 'move_cursor', delta: 1 });
+    expect(next.cursorLine).toBe(1);
+  });
+
+  it('cursor stays at 1 when moving up', () => {
+    const state = makeState({ lineCount: 1, cursorLine: 1 });
+    const next = reduce(state, { type: 'move_cursor', delta: -1 });
+    expect(next.cursorLine).toBe(1);
+  });
+
+  it('set_cursor clamps to 1', () => {
+    const state = makeState({ lineCount: 1, cursorLine: 1 });
+    const next = reduce(state, { type: 'set_cursor', line: 99 });
+    expect(next.cursorLine).toBe(1);
+  });
+});
+
+describe('edge cases — zero-line file', () => {
+  it('cursor is 1 (minimum)', () => {
+    const state = makeState({ lineCount: 0, cursorLine: 1 });
+    const next = reduce(state, { type: 'move_cursor', delta: 5 });
+    expect(next.cursorLine).toBe(1);
+  });
+
+  it('viewport offset is 0', () => {
+    const state = makeState({ lineCount: 0, cursorLine: 1 });
+    const next = reduce(state, { type: 'move_cursor', delta: 5 });
+    expect(next.viewportOffset).toBe(0);
   });
 });

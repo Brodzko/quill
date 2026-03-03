@@ -96,7 +96,7 @@ const EXT_TO_LANG: Record<string, BundledLanguage> = {
   '.prisma': 'prisma',
 };
 
-const detectLanguage = (filePath: string): BundledLanguage | null => {
+export const detectLanguage = (filePath: string): BundledLanguage | null => {
   const ext = extname(filePath).toLowerCase();
   const mapped = EXT_TO_LANG[ext];
   if (mapped) return mapped;

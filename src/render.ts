@@ -6,72 +6,35 @@
  */
 
 import type { Annotation } from './schema.js';
-import type { BrowseState, Mode, Selection } from './state.js';
+import type {
+  AnnotationFlowState,
+  BrowseState,
+  GotoFlowState,
+  Mode,
+  Selection,
+} from './state.js';
 import { selectionRange } from './state.js';
+import {
+  CLEAR_LINE,
+  CURSOR_BG,
+  CYAN,
+  GREEN,
+  RED,
+  SELECT_BG,
+  YELLOW,
+  bgLine,
+  bold,
+  colorBold,
+  dim,
+} from './ansi.js';
 
-// --- ANSI escape helpers ---
-
-const ESC = '\x1b[';
-const RESET = `${ESC}0m`;
-const BOLD = `${ESC}1m`;
-const DIM = `${ESC}2m`;
-const GREEN = `${ESC}32m`;
-const YELLOW = `${ESC}33m`;
-const CYAN = `${ESC}36m`;
-const RED = `${ESC}31m`;
-const CLEAR_LINE = `${ESC}2K`;
-
-/** Subtle highlight background — slightly lighter than one-dark-pro's #282C34. */
-const CURSOR_BG = `${ESC}48;2;44;49;58m`;
-
-/** Selection range background — muted blue tint. */
-const SELECT_BG = `${ESC}48;2;38;50;70m`;
-
-const bold = (s: string): string => `${BOLD}${s}${RESET}`;
-const dim = (s: string): string => `${DIM}${s}${RESET}`;
-const colorBold = (color: string, s: string): string =>
-  `${color}${BOLD}${s}${RESET}`;
-
-// --- ANSI-aware string helpers ---
-
-/** Strip ANSI escape sequences to compute visible character width. */
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
-const stripAnsi = (s: string): string => s.replace(ANSI_RE, '');
-const visibleLength = (s: string): number => stripAnsi(s).length;
-
-/**
- * Wrap a string with a background color that extends to the full terminal width.
- *
- * Embedded RESET sequences (`\x1b[0m`) kill all attributes including background,
- * so we re-inject the background after every reset to keep it continuous.
- */
-const bgLine = (s: string, bg: string, cols: number): string => {
-  const visible = visibleLength(s);
-  const padding = Math.max(0, cols - visible);
-  const patched = s.replaceAll(RESET, `${RESET}${bg}`);
-  return `${bg}${patched}${' '.repeat(padding)}${RESET}`;
-};
-
-// --- Annotation flow types ---
-
-export type AnnotationFlowState = {
-  step: 'intent' | 'category' | 'comment';
-  intent?: string;
-  category?: string;
-  comment: string;
-};
-
-export const INITIAL_ANNOTATION_FLOW: AnnotationFlowState = {
-  step: 'intent',
-  comment: '',
-};
+// --- Annotation flow rendering ---
 
 // --- Line marker ---
 
 const lineMarker = (
   lineNumber: number,
-  annotations: Annotation[],
+  annotations: readonly Annotation[],
   focusAnnotation?: string
 ): '◎' | '●' | ' ' => {
   if (typeof focusAnnotation === 'string') {
@@ -213,13 +176,6 @@ const renderAnnotationFlow = (
 };
 
 // --- Goto prompt ---
-
-export type GotoFlowState = {
-  /** Digits entered so far. */
-  input: string;
-};
-
-export const INITIAL_GOTO_FLOW: GotoFlowState = { input: '' };
 
 const renderGotoPrompt = (flow: GotoFlowState, lineCount: number): string =>
   `${CLEAR_LINE}${colorBold(CYAN, 'Go to line:')} ${flow.input}${dim('▎')}  ${dim(`(1–${lineCount})  [Enter] jump  [Esc] cancel`)}`;

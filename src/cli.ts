@@ -1,36 +1,32 @@
 #!/usr/bin/env node
-import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { stderr, stdout } from 'process';
 import * as R from 'remeda';
 import { defineCommand, runMain } from 'citty';
+import {
+  type DispatchResult,
+  handleAnnotateKey,
+  handleBrowseKey,
+  handleDecideKey,
+  handleGotoKey,
+  handleSelectKey,
+} from './dispatch.js';
 import { type BundledTheme, DEFAULT_THEME, highlightCode } from './highlight.js';
 import { parseKeypress } from './keypress.js';
+import { type RenderContext, buildFrame, getViewportHeight } from './render.js';
 import {
-  type AnnotationFlowState,
-  type GotoFlowState,
-  type RenderContext,
-  INITIAL_ANNOTATION_FLOW,
-  INITIAL_GOTO_FLOW,
-  buildFrame,
-  getViewportHeight,
-} from './render.js';
-import {
-  CATEGORY_BY_KEY,
-  INTENT_BY_KEY,
-  type KnownCategory,
-  type KnownIntent,
   type SessionResult,
   createOutput,
   normalizeInputAnnotations,
   tryParseInputEnvelope,
 } from './schema.js';
 import {
+  type AnnotationFlowState,
   type BrowseState,
+  type GotoFlowState,
   clampLine,
   computeViewportOffset,
   reduce,
-  selectionRange,
 } from './state.js';
 import {
   cleanupTerminal,
@@ -163,11 +159,6 @@ const command = defineCommand({
       let annotationFlow: AnnotationFlowState | undefined;
       let gotoFlow: GotoFlowState | undefined;
 
-      // gg detection: first `g` sets a 300ms timer; second `g` within window
-      // triggers jump-to-top. Timer expiry is a no-op (no single-g action).
-      let gPending = false;
-      let gTimer: ReturnType<typeof setTimeout> | undefined;
-
       const paint = (): void => {
         const rows = stderr.rows ?? 24;
         const cols = stderr.columns ?? 80;
@@ -218,330 +209,60 @@ const command = defineCommand({
       paint();
 
       // --- Keypress dispatch ---
+
+      // gg detection: first `g` sets a 300ms timer; second `g` within window
+      // triggers jump-to-top. Timer expiry is a no-op (no single-g action).
+      let gPending = false;
+      let gTimer: ReturnType<typeof setTimeout> | undefined;
+
+      const applyResult = (result: DispatchResult): void => {
+        state = result.state;
+        if ('annotationFlow' in result) annotationFlow = result.annotationFlow;
+        if ('gotoFlow' in result) gotoFlow = result.gotoFlow;
+
+        // Handle gg timer state from browse handler
+        if (result.gg) {
+          if (result.gg.pending) {
+            gPending = true;
+            gTimer = setTimeout(() => {
+              gPending = false;
+              gTimer = undefined;
+            }, 300);
+          } else {
+            clearTimeout(gTimer);
+            gPending = false;
+            gTimer = undefined;
+          }
+        }
+
+        if (result.exit) {
+          finish(result.exit);
+          return;
+        }
+
+        paint();
+      };
+
       input.on('data', (data: string | Buffer) => {
         const key = parseKeypress(data);
 
-        // --- Global: Ctrl+C ---
+        // Global: Ctrl+C
         if (key.ctrl && key.char === 'c') {
           finish({ type: 'abort' });
           return;
         }
 
-        // --- Annotate mode ---
+        // Dispatch to mode-specific handler
         if (state.mode === 'annotate' && annotationFlow) {
-          if (key.escape) {
-            annotationFlow = undefined;
-            state = { ...state, mode: 'browse', selection: undefined };
-            paint();
-            return;
-          }
-
-          if (annotationFlow.step === 'intent') {
-            const matched =
-              INTENT_BY_KEY[key.char as keyof typeof INTENT_BY_KEY];
-            if (matched) {
-              annotationFlow = {
-                ...annotationFlow,
-                step: 'category',
-                intent: matched,
-              };
-            }
-            paint();
-            return;
-          }
-
-          if (annotationFlow.step === 'category') {
-            if (key.return) {
-              annotationFlow = { ...annotationFlow, step: 'comment' };
-              paint();
-              return;
-            }
-            const matched =
-              CATEGORY_BY_KEY[key.char as keyof typeof CATEGORY_BY_KEY];
-            if (matched) {
-              annotationFlow = {
-                ...annotationFlow,
-                step: 'comment',
-                category: matched,
-              };
-            }
-            paint();
-            return;
-          }
-
-          if (annotationFlow.step === 'comment') {
-            if (key.return) {
-              const trimmed = annotationFlow.comment.trim();
-              if (
-                trimmed.length > 0 &&
-                annotationFlow.intent
-              ) {
-                const range = state.selection
-                  ? selectionRange(state.selection)
-                  : { startLine: state.cursorLine, endLine: state.cursorLine };
-                state = reduce(state, {
-                  type: 'add_annotation',
-                  annotation: {
-                    id: randomUUID(),
-                    ...range,
-                    intent: annotationFlow.intent as KnownIntent,
-                    category: annotationFlow.category as
-                      | KnownCategory
-                      | undefined,
-                    comment: trimmed,
-                    source: 'user',
-                  },
-                });
-                annotationFlow = undefined;
-                // Clear selection and return to browse
-                state = { ...state, mode: 'browse', selection: undefined };
-              }
-              paint();
-              return;
-            }
-            if (key.backspace) {
-              annotationFlow = {
-                ...annotationFlow,
-                comment: annotationFlow.comment.slice(0, -1),
-              };
-              paint();
-              return;
-            }
-            if (key.char && !key.ctrl) {
-              annotationFlow = {
-                ...annotationFlow,
-                comment: annotationFlow.comment + key.char,
-              };
-            }
-            paint();
-            return;
-          }
-
-          return;
-        }
-
-        // --- Goto mode ---
-        if (state.mode === 'goto' && gotoFlow) {
-          if (key.escape) {
-            gotoFlow = undefined;
-            state = reduce(state, { type: 'set_mode', mode: 'browse' });
-            paint();
-            return;
-          }
-          if (key.return) {
-            const target = parseInt(gotoFlow.input, 10);
-            gotoFlow = undefined;
-            state = reduce(state, { type: 'set_mode', mode: 'browse' });
-            if (!Number.isNaN(target) && target > 0) {
-              state = reduce(state, { type: 'set_cursor', line: target });
-            }
-            paint();
-            return;
-          }
-          if (key.backspace) {
-            gotoFlow = { input: gotoFlow.input.slice(0, -1) };
-            paint();
-            return;
-          }
-          // Accept digit characters only
-          if (key.char >= '0' && key.char <= '9') {
-            gotoFlow = { input: gotoFlow.input + key.char };
-            paint();
-            return;
-          }
-          // Ignore anything else in goto mode
-          return;
-        }
-
-        // --- Select mode ---
-        if (state.mode === 'select') {
-          if (key.escape) {
-            state = reduce(state, { type: 'cancel_select' });
-            paint();
-            return;
-          }
-
-          // Confirm selection → annotate
-          if (key.return) {
-            state = reduce(state, { type: 'confirm_select' });
-            annotationFlow = { ...INITIAL_ANNOTATION_FLOW };
-            paint();
-            return;
-          }
-
-          // Extend selection: j/k, arrows, Shift+arrows all extend
-          if (key.char === 'k' || key.upArrow) {
-            state = reduce(state, { type: 'extend_select', delta: -1 });
-            paint();
-            return;
-          }
-          if (key.char === 'j' || key.downArrow) {
-            state = reduce(state, { type: 'extend_select', delta: 1 });
-            paint();
-            return;
-          }
-
-          // Half-page extend
-          if (key.pageUp || (key.ctrl && key.char === 'u')) {
-            const halfPage = Math.max(1, Math.floor(state.viewportHeight / 2));
-            state = reduce(state, { type: 'extend_select', delta: -halfPage });
-            paint();
-            return;
-          }
-          if (key.pageDown || (key.ctrl && key.char === 'd')) {
-            const halfPage = Math.max(1, Math.floor(state.viewportHeight / 2));
-            state = reduce(state, { type: 'extend_select', delta: halfPage });
-            paint();
-            return;
-          }
-
-          // Ignore all other keys in select mode
-          return;
-        }
-
-        // --- Browse mode ---
-        if (state.mode === 'browse') {
-          // Shift+arrows → start selection and extend
-          if (key.shift && key.upArrow) {
-            state = reduce(state, { type: 'start_select' });
-            state = reduce(state, { type: 'extend_select', delta: -1 });
-            paint();
-            return;
-          }
-          if (key.shift && key.downArrow) {
-            state = reduce(state, { type: 'start_select' });
-            state = reduce(state, { type: 'extend_select', delta: 1 });
-            paint();
-            return;
-          }
-
-          // Single-line movement
-          if (key.char === 'k' || key.upArrow) {
-            state = reduce(state, { type: 'move_cursor', delta: -1 });
-            paint();
-            return;
-          }
-          if (key.char === 'j' || key.downArrow) {
-            state = reduce(state, { type: 'move_cursor', delta: 1 });
-            paint();
-            return;
-          }
-
-          // Half-page scroll: PgUp / Ctrl+U, PgDn / Ctrl+D
-          if (key.pageUp || (key.ctrl && key.char === 'u')) {
-            const halfPage = Math.max(1, Math.floor(state.viewportHeight / 2));
-            state = reduce(state, { type: 'move_cursor', delta: -halfPage });
-            paint();
-            return;
-          }
-          if (key.pageDown || (key.ctrl && key.char === 'd')) {
-            const halfPage = Math.max(1, Math.floor(state.viewportHeight / 2));
-            state = reduce(state, { type: 'move_cursor', delta: halfPage });
-            paint();
-            return;
-          }
-
-          // Jump to top: Home key or gg (two-key sequence)
-          if (key.home) {
-            state = reduce(state, { type: 'set_cursor', line: 1 });
-            paint();
-            return;
-          }
-
-          // Jump to bottom: End key or G
-          if (key.end) {
-            state = reduce(state, {
-              type: 'set_cursor',
-              line: state.lineCount,
-            });
-            paint();
-            return;
-          }
-
-          // gg — two-key sequence with 300ms timeout
-          if (key.char === 'g') {
-            if (gPending) {
-              // Second g within window → jump to top
-              clearTimeout(gTimer);
-              gPending = false;
-              gTimer = undefined;
-              state = reduce(state, { type: 'set_cursor', line: 1 });
-              paint();
-            } else {
-              // First g — start timer
-              gPending = true;
-              gTimer = setTimeout(() => {
-                gPending = false;
-                gTimer = undefined;
-              }, 300);
-            }
-            return;
-          }
-
-          // G — jump to bottom
-          if (key.char === 'G') {
-            state = reduce(state, {
-              type: 'set_cursor',
-              line: state.lineCount,
-            });
-            paint();
-            return;
-          }
-
-          // Goto line: `:` or Ctrl+G
-          if (key.char === ':' || (key.ctrl && key.char === 'g')) {
-            gotoFlow = { ...INITIAL_GOTO_FLOW };
-            state = reduce(state, { type: 'set_mode', mode: 'goto' });
-            paint();
-            return;
-          }
-
-          // Visual select: `v` starts selection at current line
-          if (key.char === 'v') {
-            state = reduce(state, { type: 'start_select' });
-            paint();
-            return;
-          }
-
-          // Annotate (single-line, no selection)
-          if (key.char === 'n') {
-            annotationFlow = { ...INITIAL_ANNOTATION_FLOW };
-            state = reduce(state, { type: 'set_mode', mode: 'annotate' });
-            paint();
-            return;
-          }
-
-          // Finish / decision picker
-          if (key.char === 'q') {
-            state = reduce(state, { type: 'set_mode', mode: 'decide' });
-            paint();
-            return;
-          }
-          return;
-        }
-
-        // --- Decide mode ---
-        if (state.mode === 'decide') {
-          if (key.char === 'a') {
-            finish({
-              type: 'finish',
-              decision: 'approve',
-              annotations: state.annotations,
-            });
-            return;
-          }
-          if (key.char === 'd') {
-            finish({
-              type: 'finish',
-              decision: 'deny',
-              annotations: state.annotations,
-            });
-            return;
-          }
-          if (key.escape) {
-            state = reduce(state, { type: 'set_mode', mode: 'browse' });
-            paint();
-          }
+          applyResult(handleAnnotateKey(key, state, annotationFlow));
+        } else if (state.mode === 'goto' && gotoFlow) {
+          applyResult(handleGotoKey(key, state, gotoFlow));
+        } else if (state.mode === 'select') {
+          applyResult(handleSelectKey(key, state));
+        } else if (state.mode === 'browse') {
+          applyResult(handleBrowseKey(key, state, gPending));
+        } else if (state.mode === 'decide') {
+          applyResult(handleDecideKey(key, state));
         }
       });
     } catch (error) {

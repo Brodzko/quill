@@ -62,7 +62,7 @@ export type OutputEnvelope = z.infer<typeof outputEnvelopeSchema>;
 export type InputEnvelope = Prettify<z.infer<typeof inputEnvelopeSchema>>;
 
 export type SessionResult =
-  | { type: 'finish'; decision: Decision; annotations: Annotation[] }
+  | { type: 'finish'; decision: Decision; annotations: readonly Annotation[] }
   | { type: 'abort' };
 
 export type AnnotationDraft = {
@@ -132,10 +132,10 @@ export const tryParseInputEnvelope = (
 export const createOutput = (params: {
   filePath: string;
   decision: Decision;
-  annotations: Annotation[];
+  annotations: readonly Annotation[];
 }): OutputEnvelope => ({
   file: params.filePath,
   mode: 'raw',
   decision: params.decision,
-  annotations: params.annotations,
+  annotations: [...params.annotations],
 });

@@ -1,6 +1,30 @@
 import * as R from 'remeda';
 import type { Annotation } from './schema.js';
 
+// --- Flow sub-states ---
+// These describe modal UI flows that overlay the main browse state.
+// They live here (not in render.ts) because they are state concerns
+// consumed by both the reducer/dispatch layer and the renderer.
+
+export type AnnotationFlowState = {
+  readonly step: 'intent' | 'category' | 'comment';
+  readonly intent?: string;
+  readonly category?: string;
+  readonly comment: string;
+};
+
+export const INITIAL_ANNOTATION_FLOW: AnnotationFlowState = {
+  step: 'intent',
+  comment: '',
+};
+
+export type GotoFlowState = {
+  /** Digits entered so far. */
+  readonly input: string;
+};
+
+export const INITIAL_GOTO_FLOW: GotoFlowState = { input: '' };
+
 export type Mode = 'browse' | 'decide' | 'annotate' | 'goto' | 'select';
 
 export type Selection = {
@@ -13,12 +37,12 @@ export type Selection = {
 export type BrowseState = {
   readonly lineCount: number;
   readonly viewportHeight: number;
-  cursorLine: number;
-  viewportOffset: number;
-  mode: Mode;
-  annotations: Annotation[];
+  readonly cursorLine: number;
+  readonly viewportOffset: number;
+  readonly mode: Mode;
+  readonly annotations: readonly Annotation[];
   /** Present only in 'select' mode. */
-  selection?: Selection;
+  readonly selection?: Selection;
 };
 
 // Standard useReducer-compatible signature: (state, action) => state.
@@ -43,6 +67,10 @@ export const selectionRange = (
   startLine: Math.min(sel.anchor, sel.active),
   endLine: Math.max(sel.anchor, sel.active),
 });
+
+/** Half the viewport height, minimum 1. Used for PgUp/PgDn/Ctrl+U/D. */
+export const halfPage = (viewportHeight: number): number =>
+  Math.max(1, Math.floor(viewportHeight / 2));
 
 const SCROLL_OFF = 3;
 

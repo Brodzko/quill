@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { stripAnsi } from './ansi.js';
+import type { Annotation } from './schema.js';
 import type { BrowseState } from './state.js';
 import {
   type RenderContext,
@@ -6,14 +8,6 @@ import {
   buildFrame,
   getViewportHeight,
 } from './render.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Strip ANSI escapes for easier assertion on visible text. */
-// eslint-disable-next-line no-control-regex
-const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
 
 const makeCtx = (overrides: Partial<RenderContext> = {}): RenderContext => {
   const lines = overrides.lines ?? Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
@@ -239,5 +233,167 @@ describe('buildFrame — select mode', () => {
     const frame = buildFrame(makeCtx({ state }));
     // Selection background is truecolor: \x1b[48;2;38;50;70m
     expect(frame).toContain('\x1b[48;2;38;50;70m');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildFrame — annotation markers
+// ---------------------------------------------------------------------------
+
+describe('buildFrame — annotation markers', () => {
+  it('shows ● on annotated lines', () => {
+    const annotation: Annotation = {
+      id: 'a1',
+      startLine: 3,
+      endLine: 3,
+      intent: 'comment',
+      comment: 'test',
+      source: 'user',
+    };
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 10,
+      cursorLine: 1,
+      viewportOffset: 0,
+      mode: 'browse',
+      annotations: [annotation],
+    };
+    const frame = buildFrame(
+      makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
+    );
+    const plain = stripAnsi(frame);
+    // Line 3 should have ● marker
+    const lines = plain.split('\n');
+    const line3 = lines.find((l) => l.includes('line 3'));
+    expect(line3).toContain('●');
+  });
+
+  it('shows ◎ for focused annotation', () => {
+    const annotation: Annotation = {
+      id: 'focus-ann',
+      startLine: 2,
+      endLine: 4,
+      intent: 'question',
+      comment: 'why?',
+      source: 'agent',
+    };
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 10,
+      cursorLine: 1,
+      viewportOffset: 0,
+      mode: 'browse',
+      annotations: [annotation],
+    };
+    const frame = buildFrame(
+      makeCtx({
+        state,
+        focusAnnotation: 'focus-ann',
+        lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`),
+      })
+    );
+    const plain = stripAnsi(frame);
+    const line3 = plain.split('\n').find((l) => l.includes('line 3'));
+    expect(line3).toContain('◎');
+  });
+
+  it('shows space marker on unannotated lines', () => {
+    const state: BrowseState = {
+      lineCount: 5,
+      viewportHeight: 5,
+      cursorLine: 1,
+      viewportOffset: 0,
+      mode: 'browse',
+      annotations: [],
+    };
+    const frame = buildFrame(
+      makeCtx({ state, lines: Array.from({ length: 5 }, (_, i) => `line ${i + 1}`) })
+    );
+    const plain = stripAnsi(frame);
+    // No ● or ◎ should appear
+    expect(plain).not.toContain('●');
+    expect(plain).not.toContain('◎');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildFrame — overflow / short file
+// ---------------------------------------------------------------------------
+
+describe('buildFrame — viewport overflow', () => {
+  it('shows ~ for lines past end of file', () => {
+    const state: BrowseState = {
+      lineCount: 3,
+      viewportHeight: 10,
+      cursorLine: 1,
+      viewportOffset: 0,
+      mode: 'browse',
+      annotations: [],
+    };
+    const frame = buildFrame(
+      makeCtx({
+        state,
+        lines: ['a', 'b', 'c'],
+        terminalRows: 15,
+      })
+    );
+    const plain = stripAnsi(frame);
+    // Should have ~ rows for empty viewport space
+    expect(plain).toContain('~');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildFrame — annotation flow steps
+// ---------------------------------------------------------------------------
+
+describe('buildFrame — annotation flow category step', () => {
+  it('shows category picker with intent', () => {
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 5,
+      cursorLine: 5,
+      viewportOffset: 0,
+      mode: 'annotate',
+      annotations: [],
+    };
+    const frame = buildFrame(
+      makeCtx({
+        state,
+        annotationFlow: { step: 'category', intent: 'instruct', comment: '' },
+      })
+    );
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('instruct');
+    expect(plain).toContain('Category');
+    expect(plain).toContain('[b]ug');
+  });
+});
+
+describe('buildFrame — annotation flow comment step', () => {
+  it('shows comment input with intent and category', () => {
+    const state: BrowseState = {
+      lineCount: 10,
+      viewportHeight: 5,
+      cursorLine: 5,
+      viewportOffset: 0,
+      mode: 'annotate',
+      annotations: [],
+    };
+    const frame = buildFrame(
+      makeCtx({
+        state,
+        annotationFlow: {
+          step: 'comment',
+          intent: 'question',
+          category: 'bug',
+          comment: 'hello',
+        },
+      })
+    );
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('question');
+    expect(plain).toContain('bug');
+    expect(plain).toContain('Comment: hello');
   });
 });
