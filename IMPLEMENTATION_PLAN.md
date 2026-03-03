@@ -165,7 +165,7 @@ All features are built on the raw ANSI renderer (`render.ts` + `state.ts`).
   wiring + sourceLines for matching). 30 new tests (state: 10, dispatch: 18,
   keypress: 2). All 407 tests pass.*
 
-- [x] **2.8 Terminal resize + mouse scroll**
+- [x] **2.8 Terminal resize + mouse + horizontal scroll**
   Resize was already wired (`stderr.on('resize', paint)` in `cli.ts`) — viewport
   height recomputes on resize and repaints. Added mouse scroll support: SGR and
   legacy X10 mouse wheel parsing in `keypress.ts`, mouse reporting
@@ -177,11 +177,28 @@ All features are built on the raw ANSI renderer (`render.ts` + `state.ts`).
   X10 left-click parsing → `mouseRow`/`mouseCol` on `Key`, row→line mapping
   from `renderViewport`, click handler in `cli.ts` sets cursor in
   browse/select modes). `buildFrame` now returns `FrameResult` with both
-  `frame` string and `rowToLine` mapping. 23 new tests (keypress: 7,
-  dispatch: 4, state: 6, ansi: 6). All 439 tests pass.
+  `frame` string and `rowToLine` mapping.
+
+  **Horizontal scrolling:** Added `horizontalOffset` and `maxLineWidth` to
+  `BrowseState`, `scroll_horizontal` reducer action capped at
+  `maxLineWidth + 20`. New `sliceAnsi(s, start, width)` helper skips visible
+  chars while preserving ANSI escape state. Render splits gutter from code
+  content — gutter stays fixed, only code scrolls. Search highlighting applied
+  before slicing so ANSI sequences compose correctly. Dim `←` indicator shown
+  when scrolled right. Key bindings: `h`/`l`/←/→ scroll ±4 chars, `0` resets.
+  Native trackpad horizontal scroll (SGR buttons 66/67) and Shift+wheel
+  (buttons 68/69) both supported.
+
+  **Paint coalescing:** `schedulePaint()` defers render via `setImmediate` so
+  rapid trackpad inertial scroll events (hundreds/sec) collapse into one
+  repaint per event-loop tick. Initial paint and resize remain synchronous.
+
+  All 469 tests pass (30 new: keypress 11, dispatch 10, state 6, ansi 8,
+  render adjusted for new state fields).
 
 **Exit criteria:** All navigation and annotation features from the spec work.
 Manual smoke test on macOS covers every keybinding in the Navigation table.
+✅ Phase 2 complete (2.1–2.8). All features verified on macOS. 469 tests pass.
 
 ### Phase 3 — Diff mode
 
@@ -207,13 +224,17 @@ side-by-side diff with syntax highlighting and annotation support.
 
 ### Phase 4 — Polish & ship
 
-- [ ] **4.1 Tests**
-  Vitest coverage for: Zod schemas (round-trip, malformed input), reducer
-  (all action types, edge cases), diff parser, alignment algorithm, line
-  mapping.
+- [x] **4.1 Tests** *(largely complete from Phases 1–2)*
+  469 tests covering: Zod schemas (round-trip, malformed input), reducer
+  (all action types, edge cases), keypress parsing (arrows, modifiers, mouse
+  events), dispatch (all modes), render (frame building, viewport, modals),
+  ANSI helpers (truncation, slicing, highlighting), annotation boxes, pickers,
+  text buffers. Remaining: diff parser, alignment algorithm, line mapping
+  (Phase 3 deliverables).
 
-- [ ] **4.2 Mouse scroll**
-  Terminal mouse event handling → viewport scroll.
+- [x] **4.2 Mouse scroll** *(completed in 2.8)*
+  Vertical scroll (wheel), horizontal scroll (trackpad native + Shift+wheel),
+  click-to-line, paint coalescing for smooth trackpad inertial scrolling.
 
 - [ ] **4.3 Edge cases**
   Empty files, huge files (1M+ lines), very long lines, binary file detection
