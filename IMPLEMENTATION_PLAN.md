@@ -27,22 +27,30 @@ an agent, to a review system, or to yourself) actually useful in practice?
     JSON stdout exit contract, abort behavior.
   - `BrowseState` + `BrowseAction` discriminated union + `reduce` function —
     `useReducer`-compatible shape, ready for Ink migration.
+  - Module split: `schema.ts` (types/validation), `state.ts` (reducer/pure
+    state), `render.ts` (frame building), `terminal.ts` (TTY I/O),
+    `ink-shell.ts` (experimental Ink path), `cli.ts` (orchestration).
+  - Zod schemas and mode-key dispatch table landed as Slice 2 groundwork.
   - Cross-platform dev runner: `ts-node` (ESM loader) instead of `tsx`/esbuild
     native binaries. `tsup` build script remains blocked on same issue — replace
     with plain `tsc` before shipping dist.
 - **Slice 2 — Ink migration + annotation creation UI**
-  - **Step 1 (prerequisite): migrate to Ink.** Port the browse loop to React
-    components and `useInput`. Do this before building any Slice 2 UI — selection
-    and inline annotation pickers are painful to build in raw Node. The existing
-    `BrowseState`/`reduce` shape maps directly to `useReducer`.
-  - **Step 2: Zod.** Replace `tryParseInputEnvelope` / `normalizeInputAnnotations`
-    with Zod schemas; derive types with `z.infer<>`.
-  - **Step 3: keybinding dispatch table.** `Record<Mode, Record<string, Handler>>`
-    to replace the raw `if/else` key chain. No library — fits naturally as an Ink
-    `useInput` handler.
-  - **Step 4: line-range selection + annotation creation flow.** Visual highlight
+  - **Step 1: Slice 1 sign-off.** Manual regression on macOS + Linux (viewport,
+    annotations, JSON output, SIGINT). Gates all further work.
+  - **Step 2: Reducer cleanup.** Move `lineCount` into `BrowseState` as a
+    readonly field. Make `reduce` a standard `(state, action) => state` that
+    works with `useReducer` directly — no wrapper needed.
+  - **Step 3: Proper Ink migration.** Delete the current `ink-shell.ts` hybrid
+    (readline-inside-React is a liability). Rebuild:
+    - Port `buildFrame` rendering into Ink `<Text>`/`<Box>` components.
+    - Replace `runCommentPrompt` (readline) with Ink `<TextInput>` + inline
+      pickers for intent/category/comment.
+    - Wire `useReducer` directly (clean after Step 2).
+    - Keep raw loop as fallback until Ink parity confirmed, then flip default.
+  - **Step 4: Line-range selection + annotation creation flow.** Visual highlight
     (`v` or `Shift+↑/↓`), SELECT mode, inline intent → category → comment pickers
-    rendered inside the TUI (no more readline interruption).
+    rendered inside the TUI. This is the first feature that requires Ink to be
+    done well — validates the migration payoff.
 - **Slice 3 — Pre-seeded threads**
   - Input parsing, expand/collapse, replies, approve/dismiss status handling.
 - **Slice 4 — Raw-mode polish**
@@ -55,9 +63,18 @@ an agent, to a review system, or to yourself) actually useful in practice?
 
 ### Step 1 — Raw browse shell implementation ✅ done
 
-Implemented in `src/cli.ts` with supporting project scaffolding.
+Implemented across 6 modules in `src/`:
 
-### Step 2 — Manual validation + Slice 1 sign-off (current)
+| File | Responsibility |
+|------|----------------|
+| `src/schema.ts` | Types, Zod schemas, constant maps, normalize/parse/output helpers |
+| `src/state.ts` | `BrowseState`, `BrowseAction`, `reduce`, `clampLine`, `computeViewportOffset` |
+| `src/render.ts` | `buildFrame`, `lineMarker`, `getViewportHeight` |
+| `src/terminal.ts` | TTY I/O: stdin reading, raw mode, key reading, readline prompts |
+| `src/ink-shell.ts` | Experimental Ink path (to be replaced in Step 4) |
+| `src/cli.ts` | CLI definition, arg parsing, raw loop + Ink shell dispatch |
+
+### Step 2 — Manual validation + Slice 1 sign-off (current, blocking)
 
 Owner: human tester (interactive TTY validation cannot be reliably automated).
 
@@ -73,19 +90,63 @@ Owner: human tester (interactive TTY validation cannot be reliably automated).
    - `--focus-annotation <id>` lands on expected annotation when present.
    - Missing focus id cleanly falls back to `--line`/top.
 4. **Capture failures as concrete bugs**
-   - Add each failure as a short checklist item before any Slice 2 work.
+   - Add each failure as a short checklist item before any further work.
 
 Exit criteria:
 
 - All checks above pass on both platforms.
 - No scope creep into diff mode, Ink UI, or bundled dist workflow.
 
-### Step 3 — Slice 2 kickoff (after Step 2 passes)
+### Step 3 — Reducer cleanup (after Step 2 passes)
 
-1. Migrate raw render/input loop to Ink (`useReducer` shape already prepared).
-2. ✅ Add Zod schemas for input/output parsing (done in current raw CLI as pre-Ink groundwork).
-3. ✅ Replace key handling chain with mode-key dispatch table (done in current raw CLI as pre-Ink groundwork).
-4. Build inline in-TUI annotation flow (intent/category/comment) without readline interruptions.
+Move `lineCount` into `BrowseState` as a readonly field set at session init.
+Make `reduce` a standard `(state, action) => state` signature. Remove the
+wrapper lambda in `ink-shell.ts` and the manual `dispatch` wrapper in `cli.ts`.
+
+Also pass `terminalRows` through state or action payload so the reducer has no
+implicit dependency on `process.stderr.rows`.
+
+Exit criteria:
+
+- `reduce` has signature `(state: BrowseState, action: BrowseAction) => BrowseState`.
+- Works with `useReducer(reduce, initialState)` directly — no wrapping.
+- All diagnostics clean, manual smoke test passes.
+
+### Step 4 — Proper Ink migration (main Slice 2 work)
+
+1. Delete `src/ink-shell.ts` (the readline-inside-React hybrid).
+2. Create proper Ink components:
+   - `src/components/Viewport.tsx` — scrollable line container using `<Text>`/`<Box>`.
+   - `src/components/AnnotationPrompt.tsx` — inline intent/category/comment
+     pickers using Ink `<TextInput>`, replacing the readline `runCommentPrompt`.
+   - `src/components/DecisionPicker.tsx` — approve/deny overlay.
+   - `src/components/App.tsx` — root component wiring `useReducer` + `useInput`.
+3. Wire `useReducer(reduce, initialState)` directly (clean after Step 3).
+4. Keep raw loop in `cli.ts` as `--raw-loop` fallback during transition.
+5. Once Ink path matches all raw loop behaviors, flip default to Ink and remove
+   the raw loop.
+
+Exit criteria:
+
+- Ink path passes the full Step 2 manual checklist.
+- No readline usage inside React components.
+- `--ink-shell` flag removed; Ink is the default.
+
+### Step 5 — Line-range selection + annotation creation flow
+
+1. Add `SELECT` mode: `v` or `Shift+↑/↓` to enter, arrow keys extend range,
+   visual highlight on selected lines, `Enter` to confirm, `Esc` to cancel.
+2. Add `ANNOTATE` mode: inline intent picker → category picker → text input,
+   all rendered as Ink components inside the TUI.
+3. New annotation created on confirm, mode returns to `BROWSE`.
+
+This is the first feature that requires Ink — validates the migration payoff.
+
+Exit criteria:
+
+- Line-range selection works with both vim and arrow keybindings.
+- Annotation creation flow is fully inline (no readline, no terminal mode switching).
+- Created annotations appear in JSON output with correct line ranges.
 
 ---
 
