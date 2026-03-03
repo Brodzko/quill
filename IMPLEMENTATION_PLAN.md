@@ -25,12 +25,17 @@ prototype lives in these modules and will be deleted once Ink reaches parity:
 
 | File | Responsibility | Fate |
 |------|----------------|------|
-| `src/schema.ts` | Zod schemas, types, normalize/parse/output helpers | **Keep** — shared by both paths |
-| `src/state.ts` | `BrowseState`, `BrowseAction`, `reduce`, viewport math | **Keep** — `useReducer`-ready, used directly by Ink |
-| `src/render.ts` | `buildFrame` string concatenation, `lineMarker` | **Delete** — replaced by Ink components |
-| `src/terminal.ts` | TTY I/O: stdin reading, raw mode, readline prompts | **Trim** — keep `readStdinIfPiped`, `resolveInteractiveInput`; delete readline prompts, raw mode helpers |
-| `src/ink-shell.ts` | Experimental Ink path (readline-inside-React hybrid) | **Delete** — replaced by proper Ink components |
-| `src/cli.ts` | CLI definition, arg parsing, raw loop + Ink shell dispatch | **Rewrite** — keep citty definition, replace loop with Ink `render()` call |
+| `src/schema.ts` | Zod schemas, types, normalize/parse/output helpers | **Keep** — shared by all paths |
+| `src/state.ts` | `BrowseState`, `BrowseAction`, `reduce`, viewport math | **Keep** — used directly by Ink `useReducer` |
+| `src/render.ts` | ~~`buildFrame` string concatenation, `lineMarker`~~ | **Deleted** — replaced by Ink components |
+| `src/terminal.ts` | TTY I/O: stdin reading, `/dev/tty` fallback, annotation readline prompt | **Trimmed** — kept `readStdinIfPiped`, `resolveInteractiveInput`, `cleanupTerminal`, `runCommentPrompt` (temporary until 1.6) |
+| `src/ink-shell.ts` | ~~Experimental Ink path (readline-inside-React hybrid)~~ | **Deleted** — replaced by proper Ink components |
+| `src/cli.ts` | CLI definition, arg parsing, Ink `render(<App>)` | **Rewritten** — raw loop + `--ink-shell` flag removed; Ink is the only path |
+| `src/components/App.tsx` | Root Ink component: `useReducer`, `useInput`, mode dispatch | **New** |
+| `src/components/Viewport.tsx` | Scrollable line container with gutter markers | **New** |
+| `src/components/StatusBar.tsx` | Mode, cursor position, annotation count, file info | **New** |
+| `src/components/DecisionPicker.tsx` | Approve/deny/esc overlay in decide mode | **New** |
+| `src/components/HelpBar.tsx` | Mode-aware keybinding hints | **New** |
 
 ## Execution Plan
 
@@ -39,35 +44,35 @@ prototype lives in these modules and will be deleted once Ink reaches parity:
 Replace the raw loop with proper Ink components. All subsequent features are
 built in Ink — no double work.
 
-- [ ] **1.1 Delete `ink-shell.ts`**
-  Delete the readline-inside-React hybrid. It cannot be salvaged.
+- [x] **1.1 Delete `ink-shell.ts`**
+  Deleted the readline-inside-React hybrid.
 
-- [ ] **1.2 Core Ink shell**
+- [x] **1.2 Core Ink shell**
   `src/components/App.tsx` — root component with `useReducer(reduce, initialState)`,
-  `useInput` key dispatch, renders child components. `cli.ts` calls Ink
-  `render(<App>)` instead of the raw `while (true)` loop.
+  `useInput` key dispatch (mode-aware, `isActive` gate for prompt), renders child
+  components. `cli.ts` calls Ink `render(<App>)` as the only execution path.
+  Raw `while (true)` loop and `--ink-shell` flag removed.
 
-- [ ] **1.3 `Viewport` component**
+- [x] **1.3 `Viewport` component**
   `src/components/Viewport.tsx` — scrollable line container using `<Box>`/`<Text>`.
-  Line numbers, gutter markers, cursor highlight. Consumes `state.viewportOffset`,
-  `state.cursorLine`, `lines[]` from props/context.
+  Line numbers, gutter markers (`●`/`◎`/` `), cursor highlight via `inverse`.
+  Dynamic gutter width based on line count.
 
-- [ ] **1.4 `StatusBar` component**
-  `src/components/StatusBar.tsx` — fixed bottom bar showing mode, cursor
-  position, annotation count, file info.
+- [x] **1.4 `StatusBar` component**
+  `src/components/StatusBar.tsx` — mode (colored), cursor position, annotation
+  count, file path. Also added `HelpBar.tsx` for mode-aware keybinding hints.
 
-- [ ] **1.5 `DecisionPicker` component**
-  `src/components/DecisionPicker.tsx` — inline approve/deny/esc overlay rendered
+- [x] **1.5 `DecisionPicker` component**
+  `src/components/DecisionPicker.tsx` — colored approve/deny/esc overlay rendered
   when `state.mode === 'decide'`.
 
-- [ ] **1.6 Annotation creation flow**
-  Replace readline `runCommentPrompt` with Ink components:
-  - `src/components/IntentPicker.tsx` — single-keypress intent selector.
-  - `src/components/CategoryPicker.tsx` — single-keypress category selector
-    (Enter to skip).
-  - `src/components/CommentInput.tsx` — Ink `<TextInput>` for comment text.
-  Sequential sub-steps rendered inline, driven by local component state or a
-  sub-mode in the reducer.
+- [x] **1.6 Annotation creation flow**
+  Replaced readline `runCommentPrompt` with `src/components/AnnotationFlow.tsx` —
+  a single Ink component managing three sub-steps (intent → category → comment)
+  via local `useState`. `useInput` handles all keypresses natively in Ink.
+  `runCommentPrompt`, readline, and `askQuestion` removed from `terminal.ts`.
+  `'annotate'` added to `Mode` type in reducer; `App.tsx` uses
+  `isActive: state.mode !== 'annotate'` to gate its own key dispatch.
 
 - [ ] **1.7 Raw loop parity**
   Verify Ink path matches all raw loop behaviors:
@@ -77,14 +82,15 @@ built in Ink — no double work.
   - `Ctrl+C` → exit 1, no output, terminal restored.
   - `--line`, `--focus-annotation`, `--annotations`, piped stdin all work.
 
-- [ ] **1.8 Delete raw loop**
-  Remove the raw `while (true)` loop from `cli.ts`. Delete `src/render.ts`.
-  Trim `src/terminal.ts` (remove `readSingleKey`, `runCommentPrompt`,
-  `clearScreen`, raw mode helpers). Remove `--ink-shell` flag. Ink is the
-  default and only path.
+- [x] **1.8 Delete raw loop**
+  Raw `while (true)` loop removed from `cli.ts`. `render.ts` and `ink-shell.ts`
+  deleted. `terminal.ts` trimmed (removed `readSingleKey`, `clearScreen`).
+  `--ink-shell` flag removed. Ink is the default and only path.
+  `runCommentPrompt` kept temporarily for 1.6 annotation flow.
 
 **Exit criteria:** Ink path passes all parity checks on macOS. No readline
 usage inside React components. `render.ts` and `ink-shell.ts` deleted.
+✅ 1.1–1.6, 1.8 complete. Remaining: 1.7 (parity verification on macOS).
 
 ### Phase 2 — Navigation & features (built in Ink)
 
@@ -986,7 +992,7 @@ for selecting `approve` vs `deny` before emitting output.
 | CLI args            | `citty`                | Clean API, auto-generated help, TypeScript-first                            |
 | Schema validation   | Zod                    | Validate input JSON, infer types from schemas                               |
 | Build (dev)         | `ts-node` (ESM loader) | Pure-JS TS execution, no native binaries — works on macOS and Linux without reinstall (`tsx`/`tsup` both vendor esbuild native binaries that break across platforms) |
-| Build (dist)        | `tsc` (planned)        | Plain `tsc --outDir dist` — pure-JS, no native binaries. Replaces `tsup` which vendors esbuild native binaries that break across platforms. See [Build Migration: `tsup → tsc`](#build-migration-tsup--tsc) for the full transition plan. **Status: blocked until Slice 2 Ink migration settles** (JSX transform config depends on whether `.tsx` files exist). |
+| Build (dist)        | `tsc` (planned)        | Plain `tsc --outDir dist` — pure-JS, no native binaries. Replaces `tsup` which vendors esbuild native binaries that break across platforms. See [Build Migration: `tsup → tsc`](#build-migration-tsup--tsc) for the full transition plan. **Status: JSX transform configured (`"jsx": "react-jsx"` in tsconfig), `tsc` build verified with `.tsx` components.** Swap `build` script to `build:tsc` when ready (Phase 4.4). |
 | Packaging (later)   | Bun compile (optional) | Follow-up optimization once behavior is stable                               |
 | Testing             | Vitest                 | Fast, TypeScript-native, familiar API                                       |
 
