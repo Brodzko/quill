@@ -30,6 +30,7 @@ import {
   clampLine,
   computeViewportOffset,
   reduce,
+  selectionRange,
 } from './state.js';
 import {
   cleanupTerminal,
@@ -230,7 +231,7 @@ const command = defineCommand({
         if (state.mode === 'annotate' && annotationFlow) {
           if (key.escape) {
             annotationFlow = undefined;
-            state = reduce(state, { type: 'set_mode', mode: 'browse' });
+            state = { ...state, mode: 'browse', selection: undefined };
             paint();
             return;
           }
@@ -275,12 +276,14 @@ const command = defineCommand({
                 trimmed.length > 0 &&
                 annotationFlow.intent
               ) {
+                const range = state.selection
+                  ? selectionRange(state.selection)
+                  : { startLine: state.cursorLine, endLine: state.cursorLine };
                 state = reduce(state, {
                   type: 'add_annotation',
                   annotation: {
                     id: randomUUID(),
-                    startLine: state.cursorLine,
-                    endLine: state.cursorLine,
+                    ...range,
                     intent: annotationFlow.intent as KnownIntent,
                     category: annotationFlow.category as
                       | KnownCategory
@@ -290,7 +293,8 @@ const command = defineCommand({
                   },
                 });
                 annotationFlow = undefined;
-                state = reduce(state, { type: 'set_mode', mode: 'browse' });
+                // Clear selection and return to browse
+                state = { ...state, mode: 'browse', selection: undefined };
               }
               paint();
               return;
@@ -349,8 +353,68 @@ const command = defineCommand({
           return;
         }
 
+        // --- Select mode ---
+        if (state.mode === 'select') {
+          if (key.escape) {
+            state = reduce(state, { type: 'cancel_select' });
+            paint();
+            return;
+          }
+
+          // Confirm selection → annotate
+          if (key.return) {
+            state = reduce(state, { type: 'confirm_select' });
+            annotationFlow = { ...INITIAL_ANNOTATION_FLOW };
+            paint();
+            return;
+          }
+
+          // Extend selection: j/k, arrows, Shift+arrows all extend
+          if (key.char === 'k' || key.upArrow) {
+            state = reduce(state, { type: 'extend_select', delta: -1 });
+            paint();
+            return;
+          }
+          if (key.char === 'j' || key.downArrow) {
+            state = reduce(state, { type: 'extend_select', delta: 1 });
+            paint();
+            return;
+          }
+
+          // Half-page extend
+          if (key.pageUp || (key.ctrl && key.char === 'u')) {
+            const halfPage = Math.max(1, Math.floor(state.viewportHeight / 2));
+            state = reduce(state, { type: 'extend_select', delta: -halfPage });
+            paint();
+            return;
+          }
+          if (key.pageDown || (key.ctrl && key.char === 'd')) {
+            const halfPage = Math.max(1, Math.floor(state.viewportHeight / 2));
+            state = reduce(state, { type: 'extend_select', delta: halfPage });
+            paint();
+            return;
+          }
+
+          // Ignore all other keys in select mode
+          return;
+        }
+
         // --- Browse mode ---
         if (state.mode === 'browse') {
+          // Shift+arrows → start selection and extend
+          if (key.shift && key.upArrow) {
+            state = reduce(state, { type: 'start_select' });
+            state = reduce(state, { type: 'extend_select', delta: -1 });
+            paint();
+            return;
+          }
+          if (key.shift && key.downArrow) {
+            state = reduce(state, { type: 'start_select' });
+            state = reduce(state, { type: 'extend_select', delta: 1 });
+            paint();
+            return;
+          }
+
           // Single-line movement
           if (key.char === 'k' || key.upArrow) {
             state = reduce(state, { type: 'move_cursor', delta: -1 });
@@ -432,7 +496,14 @@ const command = defineCommand({
             return;
           }
 
-          // Annotate
+          // Visual select: `v` starts selection at current line
+          if (key.char === 'v') {
+            state = reduce(state, { type: 'start_select' });
+            paint();
+            return;
+          }
+
+          // Annotate (single-line, no selection)
           if (key.char === 'n') {
             annotationFlow = { ...INITIAL_ANNOTATION_FLOW };
             state = reduce(state, { type: 'set_mode', mode: 'annotate' });
