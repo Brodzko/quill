@@ -166,7 +166,7 @@ export const renderAnnotationBox = (
 
   if (isCursorLine) {
     statusParts.push(
-      `${DIM}[r]eply  [e]dit  [x] delete${RESET}`
+      `${DIM}[r]eply  [w] edit  [x] delete  [c] toggle${RESET}`
     );
   }
 

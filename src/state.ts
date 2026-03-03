@@ -5,9 +5,9 @@ import { createBuffer } from './text-buffer.js';
 import type { PickerState } from './picker.js';
 import {
   createPicker,
-  INTENT_OPTIONS,
-  CATEGORY_OPTIONS,
+  CONFIRM_OPTIONS,
   DECISION_OPTIONS,
+  INTENT_OPTIONS,
 } from './picker.js';
 
 // --- Flow sub-states ---
@@ -66,7 +66,21 @@ export const INITIAL_DECIDE_FLOW: DecideFlowState = {
   picker: createPicker(DECISION_OPTIONS),
 };
 
-export type Mode = 'browse' | 'decide' | 'annotate' | 'goto' | 'select' | 'reply' | 'edit';
+export type ConfirmFlowState = {
+  /** Describes the action to confirm. */
+  readonly action: 'delete_annotation';
+  /** The annotation id to act on. */
+  readonly annotationId: string;
+  readonly picker: PickerState;
+};
+
+export const INITIAL_CONFIRM_FLOW = (annotationId: string): ConfirmFlowState => ({
+  action: 'delete_annotation',
+  annotationId,
+  picker: createPicker(CONFIRM_OPTIONS),
+});
+
+export type Mode = 'browse' | 'decide' | 'annotate' | 'goto' | 'select' | 'reply' | 'edit' | 'confirm';
 
 // Re-export TextBuffer for consumers
 export type { TextBuffer } from './text-buffer.js';

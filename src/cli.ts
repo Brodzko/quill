@@ -7,6 +7,7 @@ import {
   type DispatchResult,
   handleAnnotateKey,
   handleBrowseKey,
+  handleConfirmKey,
   handleDecideKey,
   handleEditKey,
   handleGotoKey,
@@ -25,6 +26,7 @@ import {
 import {
   type AnnotationFlowState,
   type BrowseState,
+  type ConfirmFlowState,
   type DecideFlowState,
   type EditFlowState,
   type GotoFlowState,
@@ -167,6 +169,7 @@ const command = defineCommand({
       let replyFlow: ReplyFlowState | undefined;
       let editFlow: EditFlowState | undefined;
       let decideFlow: DecideFlowState | undefined;
+      let confirmFlow: ConfirmFlowState | undefined;
 
       const paint = (): void => {
         const rows = stderr.rows ?? 24;
@@ -190,6 +193,7 @@ const command = defineCommand({
           replyFlow,
           editFlow,
           decideFlow,
+          confirmFlow,
         };
 
         stderr.write(`${CURSOR_HOME}${buildFrame(ctx)}`);
@@ -234,6 +238,7 @@ const command = defineCommand({
         if ('replyFlow' in result) replyFlow = result.replyFlow;
         if ('editFlow' in result) editFlow = result.editFlow;
         if ('decideFlow' in result) decideFlow = result.decideFlow;
+        if ('confirmFlow' in result) confirmFlow = result.confirmFlow;
 
         // Handle gg timer state from browse handler
         if (result.gg) {
@@ -268,7 +273,9 @@ const command = defineCommand({
         }
 
         // Dispatch to mode-specific handler
-        if (state.mode === 'annotate' && annotationFlow) {
+        if (state.mode === 'confirm' && confirmFlow) {
+          applyResult(handleConfirmKey(key, state, confirmFlow));
+        } else if (state.mode === 'annotate' && annotationFlow) {
           applyResult(handleAnnotateKey(key, state, annotationFlow));
         } else if (state.mode === 'goto' && gotoFlow) {
           applyResult(handleGotoKey(key, state, gotoFlow));

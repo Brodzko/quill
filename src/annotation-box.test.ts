@@ -161,7 +161,7 @@ describe('renderAnnotationBox', () => {
     });
     const plain = rows.map(stripAnsi).join('\n');
     expect(plain).toContain('[r]eply');
-    expect(plain).toContain('[e]dit');
+    expect(plain).toContain('[w] edit');
     expect(plain).toContain('[x] delete');
   });
 

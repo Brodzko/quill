@@ -9,6 +9,7 @@ import type { Annotation } from './schema.js';
 import type {
   AnnotationFlowState,
   BrowseState,
+  ConfirmFlowState,
   DecideFlowState,
   EditFlowState,
   GotoFlowState,
@@ -140,6 +141,7 @@ const MODE_COLORS: Record<Mode, string> = {
   select: YELLOW,
   reply: CYAN,
   edit: CYAN,
+  confirm: RED,
 };
 
 const renderStatusBar = (state: BrowseState, filePath: string): string => {
@@ -164,16 +166,23 @@ const renderStatusBar = (state: BrowseState, filePath: string): string => {
 
 // --- Help bar (browse/select only) ---
 
-const HELP_HINTS: Record<string, string> = {
-  browse:
-    '[j/k ↑↓] move  [v Shift+↑↓] select  [Tab] toggle annotation  [PgUp/Dn Ctrl+U/D] half-page  [gg/G Home/End] jump  [:] goto  [n] annotate  [q] finish',
-  select:
-    '[j/k ↑↓ Shift+↑↓] extend  [Enter] annotate  [Esc] cancel',
-};
+const BROWSE_HELP =
+  '[j/k ↑↓] move  [v Shift+↑↓] select  [Tab/S-Tab] annotations  [PgUp/Dn Ctrl+U/D] half-page  [gg/G Home/End] jump  [:] goto  [n] annotate  [q] finish';
+const BROWSE_EXPANDED_HELP =
+  '[j/k ↑↓] move  [Tab/S-Tab] next/prev  [r]eply  [w] edit  [x] delete  [c] toggle  [C] toggle all  [n] new  [q] finish';
+const SELECT_HELP =
+  '[j/k ↑↓ Shift+↑↓] extend  [Enter] annotate  [Esc] cancel';
 
-const renderHelpBar = (mode: Mode): string => {
-  const hints = HELP_HINTS[mode];
-  return hints ? `${CLEAR_LINE}${dim(hints)}` : CLEAR_LINE;
+const renderHelpBar = (state: BrowseState): string => {
+  if (state.mode === 'select') return `${CLEAR_LINE}${dim(SELECT_HELP)}`;
+  if (state.mode === 'browse') {
+    // Show annotation-specific hints when on an expanded annotation line
+    const hasExpanded = annotationsOnLine(state.annotations, state.cursorLine)
+      .some((a) => state.expandedAnnotations.has(a.id));
+    const hints = hasExpanded ? BROWSE_EXPANDED_HELP : BROWSE_HELP;
+    return `${CLEAR_LINE}${dim(hints)}`;
+  }
+  return CLEAR_LINE;
 };
 
 // --- Annotation flow modal ---
@@ -268,6 +277,24 @@ const renderDecisionModal = (
   });
 };
 
+// --- Confirm modal ---
+
+const renderConfirmModal = (
+  flow: ConfirmFlowState,
+  annotations: readonly Annotation[],
+  cols: number
+): string[] => {
+  const ann = annotations.find((a) => a.id === flow.annotationId);
+  const label = ann
+    ? `Delete annotation on L${ann.startLine}${ann.endLine !== ann.startLine ? `–${ann.endLine}` : ''}?`
+    : 'Delete annotation?';
+  return renderPicker(flow.picker, {
+    label,
+    cols,
+    hints: `${DIM}↑↓ move · Enter confirm · Esc cancel${RESET}`,
+  });
+};
+
 // --- Reply / Edit modals ---
 
 const renderReplyModal = (flow: ReplyFlowState, cols: number): string[] => {
@@ -299,17 +326,19 @@ export type RenderContext = {
   replyFlow?: ReplyFlowState;
   editFlow?: EditFlowState;
   decideFlow?: DecideFlowState;
+  confirmFlow?: ConfirmFlowState;
 };
 
 /** Compute modal height for a given render context. */
 const modalHeight = (ctx: RenderContext): number => {
   if (ctx.state.mode === 'annotate' && ctx.annotationFlow) {
     if (ctx.annotationFlow.step === 'intent') return 7; // picker: 4 options + 3 chrome
-    if (ctx.annotationFlow.step === 'category') return 9; // picker: 6 options + 3 chrome
+    if (ctx.annotationFlow.step === 'category') return 10; // picker: 7 options + 3 chrome
     // comment textbox
     const hasContext = !!(ctx.annotationFlow.intent);
     return 9 + (hasContext ? 1 : 0); // textbox: 6 rows + 3 chrome + context
   }
+  if (ctx.state.mode === 'confirm' && ctx.confirmFlow) return 5; // 2 options + 3 chrome
   if (ctx.state.mode === 'decide' && ctx.decideFlow) return 5; // 2 options + 3 chrome
   if (ctx.state.mode === 'goto' && ctx.gotoFlow) return 4;
   if (ctx.state.mode === 'reply' && ctx.replyFlow) return 7; // 4 rows + 3 chrome
@@ -360,7 +389,7 @@ export const buildFrame = (ctx: RenderContext): string => {
 
   // Help bar (browse/select only)
   if (!hasModal) {
-    frame.push(renderHelpBar(ctx.state.mode));
+    frame.push(renderHelpBar(ctx.state));
   }
 
   // Modal overlays
@@ -371,6 +400,11 @@ export const buildFrame = (ctx: RenderContext): string => {
         ctx.state.cursorLine,
         ctx.terminalCols
       )
+    );
+  }
+  if (ctx.state.mode === 'confirm' && ctx.confirmFlow) {
+    frame.push(
+      ...renderConfirmModal(ctx.confirmFlow, ctx.state.annotations, ctx.terminalCols)
     );
   }
   if (ctx.state.mode === 'decide' && ctx.decideFlow) {

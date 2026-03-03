@@ -94,7 +94,7 @@ describe('renderPicker', () => {
     });
     const plain = rows.map(stripAnsi);
     expect(plain[0]).toContain('Enter to skip');
-    expect(rows).toHaveLength(9); // border + 6 options + hints + border
+    expect(rows).toHaveLength(10); // border + 7 options + hints + border
   });
 
   it('renders decision picker', () => {

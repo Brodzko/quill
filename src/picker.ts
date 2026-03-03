@@ -152,15 +152,21 @@ export const INTENT_OPTIONS: readonly PickerOption[] = [
 ];
 
 export const CATEGORY_OPTIONS: readonly PickerOption[] = [
+  { id: '', label: '(none)', shortcut: ' ', hint: 'skip category' },
   { id: 'bug', label: 'bug', shortcut: 'b', hint: 'correctness issue' },
   { id: 'security', label: 'security', shortcut: 's', hint: 'security concern' },
   { id: 'performance', label: 'performance', shortcut: 'f', hint: 'perf issue' },
   { id: 'design', label: 'design', shortcut: 'd', hint: 'architecture / structure' },
   { id: 'style', label: 'style', shortcut: 't', hint: 'naming, formatting' },
-  { id: 'nitpick', label: 'nitpick', shortcut: 'k', hint: 'minor, non-blocking' },
+  { id: 'nitpick', label: 'nitpick', shortcut: 'n', hint: 'minor, non-blocking' },
 ];
 
 export const DECISION_OPTIONS: readonly PickerOption[] = [
   { id: 'approve', label: 'approve', shortcut: 'a' },
   { id: 'deny', label: 'deny', shortcut: 'd' },
+];
+
+export const CONFIRM_OPTIONS: readonly PickerOption[] = [
+  { id: 'no', label: 'no', shortcut: 'n' },
+  { id: 'yes', label: 'yes', shortcut: 'y' },
 ];

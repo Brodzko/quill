@@ -7,16 +7,19 @@
  */
 
 import { randomUUID } from 'crypto';
+import * as R from 'remeda';
 import type { Key } from './keypress.js';
 import type { KnownCategory, KnownIntent, SessionResult } from './schema.js';
 import {
   type AnnotationFlowState,
   type BrowseState,
+  type ConfirmFlowState,
   type DecideFlowState,
   type EditFlowState,
   type GotoFlowState,
   type ReplyFlowState,
   INITIAL_ANNOTATION_FLOW,
+  INITIAL_CONFIRM_FLOW,
   INITIAL_DECIDE_FLOW,
   INITIAL_EDIT_FLOW,
   INITIAL_GOTO_FLOW,
@@ -59,6 +62,7 @@ export type DispatchResult = {
   readonly replyFlow?: ReplyFlowState;
   readonly editFlow?: EditFlowState;
   readonly decideFlow?: DecideFlowState;
+  readonly confirmFlow?: ConfirmFlowState;
   /** When set, the CLI should call `finish()` with this result. */
   readonly exit?: SessionResult;
   /** When set, controls the gg two-key sequence timer state. */
@@ -210,7 +214,7 @@ export const handleAnnotateKey = (
         annotationFlow: {
           ...flow,
           step: 'comment',
-          category: selected?.id,
+          category: selected?.id || undefined,
         },
       };
     }
@@ -223,7 +227,7 @@ export const handleAnnotateKey = (
         annotationFlow: {
           ...flow,
           step: 'comment',
-          category: matched.id,
+          category: matched.id || undefined,
         },
       };
     }
@@ -337,6 +341,68 @@ export const handleSelectKey = (
   return { state };
 };
 
+// --- Annotation jump helper ---
+
+/**
+ * Jump to the next (direction=1) or previous (direction=-1) annotation line,
+ * cycling through all annotated lines. Auto-expands annotations on the target
+ * line and auto-collapses annotations on the departure line.
+ */
+const jumpToNextAnnotation = (
+  state: BrowseState,
+  direction: 1 | -1
+): DispatchResult => {
+  if (state.annotations.length === 0) return { state };
+
+  // Collect unique annotation end-lines (where boxes render), sorted
+  const annotatedLines = R.pipe(
+    state.annotations,
+    R.map((a) => a.endLine),
+    R.unique(),
+    R.sort((a, b) => a - b),
+  );
+
+  if (annotatedLines.length === 0) return { state };
+
+  // Find next line in direction, wrapping
+  const currentLine = state.cursorLine;
+  let targetLine: number;
+
+  if (direction === 1) {
+    const next = annotatedLines.find((l) => l > currentLine);
+    targetLine = next ?? annotatedLines[0]!;
+  } else {
+    const prev = R.pipe(
+      annotatedLines,
+      R.filter((l) => l < currentLine),
+      R.last(),
+    );
+    targetLine = prev ?? annotatedLines[annotatedLines.length - 1]!;
+  }
+
+  // Collapse annotations on the current line
+  let s = state;
+  const currentAnns = annotationsOnLine(s.annotations, currentLine);
+  for (const ann of currentAnns) {
+    if (s.expandedAnnotations.has(ann.id)) {
+      s = reduce(s, { type: 'toggle_annotation', annotationId: ann.id });
+    }
+  }
+
+  // Move cursor
+  s = reduce(s, { type: 'set_cursor', line: targetLine });
+
+  // Expand annotations on the target line
+  const targetAnns = annotationsOnLine(s.annotations, targetLine);
+  for (const ann of targetAnns) {
+    if (!s.expandedAnnotations.has(ann.id)) {
+      s = reduce(s, { type: 'toggle_annotation', annotationId: ann.id });
+    }
+  }
+
+  return { state: s };
+};
+
 // --- Browse mode ---
 
 export const handleBrowseKey = (
@@ -415,8 +481,13 @@ export const handleBrowseKey = (
     return { state: reduce(state, { type: 'start_select' }) };
   }
 
-  // Tab — toggle annotation expand/collapse on cursor line
+  // Tab / Shift+Tab — cycle through annotation lines
   if (key.tab) {
+    return jumpToNextAnnotation(state, key.shift ? -1 : 1);
+  }
+
+  // c — toggle annotations on cursor line (expand if collapsed, collapse if expanded)
+  if (key.char === 'c') {
     const annsOnLine = annotationsOnLine(state.annotations, state.cursorLine);
     if (annsOnLine.length > 0) {
       let s = state;
@@ -426,6 +497,22 @@ export const handleBrowseKey = (
       return { state: s };
     }
     return { state };
+  }
+
+  // C — toggle all: collapse all if any expanded, expand all if none expanded
+  if (key.char === 'C') {
+    if (state.annotations.length === 0) return { state };
+    if (state.expandedAnnotations.size > 0) {
+      return {
+        state: { ...state, expandedAnnotations: new Set<string>() },
+      };
+    }
+    return {
+      state: {
+        ...state,
+        expandedAnnotations: new Set(state.annotations.map((a) => a.id)),
+      },
+    };
   }
 
   // r — reply to expanded annotation on cursor line
@@ -440,8 +527,8 @@ export const handleBrowseKey = (
     }
   }
 
-  // e — edit expanded annotation on cursor line
-  if (key.char === 'e') {
+  // w — edit (rewrite) expanded annotation on cursor line
+  if (key.char === 'w') {
     const target = annotationsOnLine(state.annotations, state.cursorLine)
       .find((a) => state.expandedAnnotations.has(a.id));
     if (target) {
@@ -452,13 +539,14 @@ export const handleBrowseKey = (
     }
   }
 
-  // x — delete expanded annotation on cursor line
+  // x — confirm delete of expanded annotation on cursor line
   if (key.char === 'x') {
     const target = annotationsOnLine(state.annotations, state.cursorLine)
       .find((a) => state.expandedAnnotations.has(a.id));
     if (target) {
       return {
-        state: reduce(state, { type: 'delete_annotation', annotationId: target.id }),
+        state: reduce(state, { type: 'set_mode', mode: 'confirm' }),
+        confirmFlow: INITIAL_CONFIRM_FLOW(target.id),
       };
     }
   }
@@ -560,6 +648,74 @@ export const handleEditKey = (
   }
 
   return { state, editFlow: flow };
+};
+
+// --- Confirm mode ---
+
+export const handleConfirmKey = (
+  key: Key,
+  state: BrowseState,
+  flow: ConfirmFlowState
+): DispatchResult => {
+  if (key.escape) {
+    return {
+      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
+      confirmFlow: undefined,
+    };
+  }
+
+  // Arrow navigation
+  if (key.upArrow || key.char === 'k') {
+    return {
+      state,
+      confirmFlow: { ...flow, picker: moveHighlight(flow.picker, -1) },
+    };
+  }
+  if (key.downArrow || key.char === 'j') {
+    return {
+      state,
+      confirmFlow: { ...flow, picker: moveHighlight(flow.picker, 1) },
+    };
+  }
+
+  // Enter confirms highlighted
+  if (key.return) {
+    const selected = getHighlighted(flow.picker);
+    if (selected?.id === 'yes') {
+      return {
+        state: reduce(
+          reduce(state, { type: 'delete_annotation', annotationId: flow.annotationId }),
+          { type: 'set_mode', mode: 'browse' }
+        ),
+        confirmFlow: undefined,
+      };
+    }
+    // "no" or default — cancel
+    return {
+      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
+      confirmFlow: undefined,
+    };
+  }
+
+  // Direct shortcut
+  const matched = findByShortcut(flow.picker, key.char);
+  if (matched?.id === 'yes') {
+    return {
+      state: reduce(
+        reduce(state, { type: 'delete_annotation', annotationId: flow.annotationId }),
+        { type: 'set_mode', mode: 'browse' }
+      ),
+      confirmFlow: undefined,
+    };
+  }
+  if (matched?.id === 'no') {
+    return {
+      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
+      confirmFlow: undefined,
+    };
+  }
+
+  return { state, confirmFlow: flow };
 };
 
 // --- Decide mode ---

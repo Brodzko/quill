@@ -161,6 +161,10 @@ describe('special keys', () => {
     expectKey('\t', { tab: true, char: '\t' });
   });
 
+  it('parses Shift+Tab (backtab)', () => {
+    expectKey('\x1b[Z', { tab: true, shift: true });
+  });
+
   it('parses Enter (\\r)', () => {
     expectKey('\r', { return: true });
   });

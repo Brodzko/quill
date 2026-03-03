@@ -444,7 +444,7 @@ describe('buildFrame — expanded annotation box', () => {
     );
     const plain = stripAnsi(frame);
     expect(plain).toContain('[r]eply');
-    expect(plain).toContain('[e]dit');
+    expect(plain).toContain('[w] edit');
   });
 
   it('does not show annotation box when collapsed', () => {

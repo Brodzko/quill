@@ -136,6 +136,9 @@ export const parseKeypress = (data: Buffer | string): Key => {
   // Ctrl+U (0x15)
   if (raw === '\x15') return { ...EMPTY_KEY, char: 'u', ctrl: true };
 
+  // Shift+Tab (reverse tab / backtab)
+  if (raw === '\x1b[Z') return { ...EMPTY_KEY, tab: true, shift: true };
+
   // Tab
   if (raw === '\t') return { ...EMPTY_KEY, tab: true, char: '\t' };
 

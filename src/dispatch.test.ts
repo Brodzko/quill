@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   handleAnnotateKey,
   handleBrowseKey,
+  handleConfirmKey,
   handleDecideKey,
   handleEditKey,
   handleGotoKey,
@@ -12,6 +13,7 @@ import type { Key } from './keypress.js';
 import type {
   AnnotationFlowState,
   BrowseState,
+  ConfirmFlowState,
   DecideFlowState,
   EditFlowState,
   GotoFlowState,
@@ -19,6 +21,7 @@ import type {
 } from './state.js';
 import {
   INITIAL_ANNOTATION_FLOW,
+  INITIAL_CONFIRM_FLOW,
   INITIAL_DECIDE_FLOW,
 } from './state.js';
 import { createBuffer, getText } from './text-buffer.js';
@@ -357,11 +360,11 @@ describe('handleAnnotateKey', () => {
       expect(result.annotationFlow?.step).toBe('comment');
     });
 
-    it('Enter confirms highlighted or skips → advances to comment', () => {
+    it('Enter on default (none) skips category → advances to comment', () => {
       const result = handleAnnotateKey(key({ return: true }), state, flow);
       expect(result.annotationFlow?.step).toBe('comment');
-      // Default highlight is bug (index 0)
-      expect(result.annotationFlow?.category).toBe('bug');
+      // Default highlight is (none) at index 0 — category should be undefined
+      expect(result.annotationFlow?.category).toBeUndefined();
     });
 
     it('s selects security', () => {
@@ -531,20 +534,77 @@ describe('handleBrowseKey — annotation interaction', () => {
     expandedAnnotations: new Set(['ann-1']),
   });
 
-  it('Tab toggles annotation expansion on cursor line', () => {
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), stateWithAnn, false);
+  it('Tab jumps to annotation line and expands', () => {
+    const state = makeState({ cursorLine: 5, annotations: [annotation] });
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    expect(result.state.cursorLine).toBe(10);
     expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
   });
 
-  it('Tab collapses already-expanded annotation', () => {
+  it('Tab on annotation line jumps to next (wraps to same if only one)', () => {
     const result = handleBrowseKey(key({ tab: true, char: '\t' }), stateWithExpanded, false);
+    // Only one annotation — wraps. Collapses current, re-expands same.
+    expect(result.state.cursorLine).toBe(10);
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
+  });
+
+  it('Tab cycles through multiple annotations', () => {
+    const ann2 = { ...annotation, id: 'ann-2', startLine: 20, endLine: 20 };
+    const state = makeState({
+      cursorLine: 10,
+      annotations: [annotation, ann2],
+      expandedAnnotations: new Set(['ann-1']),
+    });
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    expect(result.state.cursorLine).toBe(20);
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(false);
+    expect(result.state.expandedAnnotations.has('ann-2')).toBe(true);
+  });
+
+  it('Tab with no annotations is no-op', () => {
+    const state = makeState({ cursorLine: 5, annotations: [] });
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    expect(result.state).toEqual(state);
+  });
+
+  it('c toggles: collapses expanded annotation on cursor line', () => {
+    const result = handleBrowseKey(key({ char: 'c' }), stateWithExpanded, false);
     expect(result.state.expandedAnnotations.has('ann-1')).toBe(false);
   });
 
-  it('Tab on unannotated line is no-op', () => {
+  it('c toggles: expands collapsed annotation on cursor line', () => {
+    const result = handleBrowseKey(key({ char: 'c' }), stateWithAnn, false);
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
+  });
+
+  it('c on unannotated line is no-op', () => {
     const state = makeState({ cursorLine: 5, annotations: [annotation] });
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
-    expect(result.state).toEqual(state);
+    const result = handleBrowseKey(key({ char: 'c' }), state, false);
+    expect(result.state.expandedAnnotations.size).toBe(0);
+  });
+
+  it('C toggles all: collapses when any expanded', () => {
+    const ann2 = { ...annotation, id: 'ann-2', startLine: 20, endLine: 20 };
+    const state = makeState({
+      cursorLine: 10,
+      annotations: [annotation, ann2],
+      expandedAnnotations: new Set(['ann-1', 'ann-2']),
+    });
+    const result = handleBrowseKey(key({ char: 'C' }), state, false);
+    expect(result.state.expandedAnnotations.size).toBe(0);
+  });
+
+  it('C toggles all: expands all when none expanded', () => {
+    const ann2 = { ...annotation, id: 'ann-2', startLine: 20, endLine: 20 };
+    const state = makeState({
+      cursorLine: 10,
+      annotations: [annotation, ann2],
+      expandedAnnotations: new Set(),
+    });
+    const result = handleBrowseKey(key({ char: 'C' }), state, false);
+    expect(result.state.expandedAnnotations.size).toBe(2);
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
+    expect(result.state.expandedAnnotations.has('ann-2')).toBe(true);
   });
 
   it('r on expanded annotation enters reply mode', () => {
@@ -560,23 +620,27 @@ describe('handleBrowseKey — annotation interaction', () => {
     expect(result.replyFlow).toBeUndefined();
   });
 
-  it('e on expanded annotation enters edit mode', () => {
-    const result = handleBrowseKey(key({ char: 'e' }), stateWithExpanded, false);
+  it('w on expanded annotation enters edit mode', () => {
+    const result = handleBrowseKey(key({ char: 'w' }), stateWithExpanded, false);
     expect(result.state.mode).toBe('edit');
     expect(result.editFlow).toBeDefined();
     expect(result.editFlow?.annotationId).toBe('ann-1');
     expect(getText(result.editFlow!.comment)).toBe('test comment');
   });
 
-  it('x on expanded annotation deletes it', () => {
+  it('x on expanded annotation enters confirm mode', () => {
     const result = handleBrowseKey(key({ char: 'x' }), stateWithExpanded, false);
-    expect(result.state.annotations).toEqual([]);
-    expect(result.state.expandedAnnotations.has('ann-1')).toBe(false);
+    expect(result.state.mode).toBe('confirm');
+    expect(result.confirmFlow).toBeDefined();
+    expect(result.confirmFlow?.annotationId).toBe('ann-1');
+    // Annotation is NOT deleted yet
+    expect(result.state.annotations).toHaveLength(1);
   });
 
-  it('x on collapsed annotation does not delete', () => {
+  it('x on collapsed annotation does not enter confirm', () => {
     const result = handleBrowseKey(key({ char: 'x' }), stateWithAnn, false);
-    expect(result.state.annotations).toHaveLength(1);
+    expect(result.state.mode).toBe('browse');
+    expect(result.confirmFlow).toBeUndefined();
   });
 });
 
@@ -702,5 +766,65 @@ describe('handleEditKey', () => {
     expect(result.editFlow).toBeUndefined();
     const ann = result.state.annotations.find((a) => a.id === 'ann-1');
     expect(ann?.comment).toBe('original comment');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleConfirmKey
+// ---------------------------------------------------------------------------
+
+describe('handleConfirmKey', () => {
+  const annotation = {
+    id: 'ann-1',
+    startLine: 10,
+    endLine: 10,
+    intent: 'comment',
+    comment: 'test comment',
+    source: 'agent',
+  };
+  const state = makeState({
+    mode: 'confirm',
+    annotations: [annotation],
+    expandedAnnotations: new Set(['ann-1']),
+  });
+  const flow: ConfirmFlowState = INITIAL_CONFIRM_FLOW('ann-1');
+
+  it('y shortcut confirms delete', () => {
+    const result = handleConfirmKey(key({ char: 'y' }), state, flow);
+    expect(result.state.mode).toBe('browse');
+    expect(result.state.annotations).toEqual([]);
+    expect(result.confirmFlow).toBeUndefined();
+  });
+
+  it('n shortcut cancels delete', () => {
+    const result = handleConfirmKey(key({ char: 'n' }), state, flow);
+    expect(result.state.mode).toBe('browse');
+    expect(result.state.annotations).toHaveLength(1);
+    expect(result.confirmFlow).toBeUndefined();
+  });
+
+  it('Enter on default (no) cancels delete', () => {
+    const result = handleConfirmKey(key({ return: true }), state, flow);
+    expect(result.state.mode).toBe('browse');
+    expect(result.state.annotations).toHaveLength(1);
+  });
+
+  it('arrow down + Enter on yes deletes', () => {
+    const moved = handleConfirmKey(key({ downArrow: true }), state, flow);
+    const result = handleConfirmKey(key({ return: true }), state, moved.confirmFlow!);
+    expect(result.state.annotations).toEqual([]);
+  });
+
+  it('Escape cancels without deleting', () => {
+    const result = handleConfirmKey(key({ escape: true }), state, flow);
+    expect(result.state.mode).toBe('browse');
+    expect(result.state.annotations).toHaveLength(1);
+    expect(result.confirmFlow).toBeUndefined();
+  });
+
+  it('unknown key is no-op', () => {
+    const result = handleConfirmKey(key({ char: 'z' }), state, flow);
+    expect(result.state.mode).toBe('confirm');
+    expect(result.confirmFlow).toBeDefined();
   });
 });
