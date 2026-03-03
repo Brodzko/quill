@@ -18,12 +18,15 @@ const expectKey = (
   const boolFields: (keyof Key)[] = [
     'ctrl',
     'shift',
+    'alt',
     'escape',
     'return',
     'backspace',
     'tab',
     'upArrow',
     'downArrow',
+    'leftArrow',
+    'rightArrow',
     'pageUp',
     'pageDown',
     'home',
@@ -183,6 +186,94 @@ describe('buffer input', () => {
   it('parses a Buffer the same as a string', () => {
     const key = parseKeypress(Buffer.from('\x1b[A'));
     expect(key.upArrow).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unknown sequences
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Left/Right arrows
+// ---------------------------------------------------------------------------
+
+describe('left/right arrows', () => {
+  it('parses left arrow', () => {
+    expectKey('\x1b[D', { leftArrow: true });
+  });
+
+  it('parses right arrow', () => {
+    expectKey('\x1b[C', { rightArrow: true });
+  });
+
+  it('parses Shift+Left', () => {
+    expectKey('\x1b[1;2D', { leftArrow: true, shift: true });
+  });
+
+  it('parses Shift+Right', () => {
+    expectKey('\x1b[1;2C', { rightArrow: true, shift: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Alt/Option key combos (macOS navigation)
+// ---------------------------------------------------------------------------
+
+describe('alt/option key combos', () => {
+  it('parses Alt+Left (xterm: \\x1b[1;3D)', () => {
+    expectKey('\x1b[1;3D', { leftArrow: true, alt: true });
+  });
+
+  it('parses Alt+Right (xterm: \\x1b[1;3C)', () => {
+    expectKey('\x1b[1;3C', { rightArrow: true, alt: true });
+  });
+
+  it('parses Alt+Left (readline: ESC b)', () => {
+    expectKey('\x1bb', { leftArrow: true, alt: true });
+  });
+
+  it('parses Alt+Right (readline: ESC f)', () => {
+    expectKey('\x1bf', { rightArrow: true, alt: true });
+  });
+
+  it('parses Alt+Backspace (ESC DEL)', () => {
+    expectKey('\x1b\x7f', { backspace: true, alt: true });
+  });
+
+  it('parses Alt+Enter (ESC CR)', () => {
+    expectKey('\x1b\r', { return: true, alt: true });
+  });
+
+  it('parses Ctrl+Left (\\x1b[1;5D)', () => {
+    expectKey('\x1b[1;5D', { leftArrow: true, ctrl: true });
+  });
+
+  it('parses Ctrl+Right (\\x1b[1;5C)', () => {
+    expectKey('\x1b[1;5C', { rightArrow: true, ctrl: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ctrl+A / Ctrl+E (line start/end)
+// ---------------------------------------------------------------------------
+
+describe('ctrl+a / ctrl+e', () => {
+  it('parses Ctrl+A (0x01)', () => {
+    expectKey('\x01', { char: 'a', ctrl: true });
+  });
+
+  it('parses Ctrl+E (0x05)', () => {
+    expectKey('\x05', { char: 'e', ctrl: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shift+Enter (CSI u protocol)
+// ---------------------------------------------------------------------------
+
+describe('shift+enter', () => {
+  it('parses Shift+Enter (CSI u: \\x1b[13;2u)', () => {
+    expectKey('\x1b[13;2u', { return: true, shift: true });
   });
 });
 

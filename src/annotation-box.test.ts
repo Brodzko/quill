@@ -36,6 +36,23 @@ describe('wordWrap', () => {
   it('returns text as-is when maxWidth <= 0', () => {
     expect(wordWrap('hello', 0)).toEqual(['hello']);
   });
+
+  it('preserves explicit newlines', () => {
+    expect(wordWrap('line one\nline two', 80)).toEqual(['line one', 'line two']);
+  });
+
+  it('preserves empty lines from consecutive newlines', () => {
+    expect(wordWrap('first\n\nthird', 80)).toEqual(['first', '', 'third']);
+  });
+
+  it('wraps within paragraphs while preserving newlines', () => {
+    const result = wordWrap('short\nthis is a longer paragraph that should wrap', 20);
+    expect(result[0]).toBe('short');
+    expect(result.length).toBeGreaterThan(2);
+    for (const line of result) {
+      expect(line.length).toBeLessThanOrEqual(20);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -190,5 +207,31 @@ describe('renderAnnotationBox', () => {
     expect(plain).toContain('└');
     expect(plain).toContain('┘');
     expect(plain).toContain('│');
+  });
+
+  it('aligns top/bottom borders with content row widths', () => {
+    const rows = renderAnnotationBox(makeAnnotation(), opts);
+    const stripped = rows.map((r) => stripAnsi(r));
+    const widths = stripped.map((r) => r.length);
+    // All rows should have the same visible width
+    const first = widths[0];
+    for (const w of widths) {
+      expect(w).toBe(first);
+    }
+  });
+
+  it('preserves newlines in comment text', () => {
+    const ann = makeAnnotation({ comment: 'Line one\nLine two\n\nLine four' });
+    const rows = renderAnnotationBox(ann, opts);
+    const plain = rows.map(stripAnsi);
+    // Should have separate rows for each line, including the empty one
+    const contentRows = plain.filter((r) => r.includes('│')).map((r) => r.trim());
+    expect(contentRows.some((r) => r.includes('Line one'))).toBe(true);
+    expect(contentRows.some((r) => r.includes('Line two'))).toBe(true);
+    expect(contentRows.some((r) => r.includes('Line four'))).toBe(true);
+    // The empty line between "Line two" and "Line four"
+    const lineOneIdx = contentRows.findIndex((r) => r.includes('Line two'));
+    const lineFourIdx = contentRows.findIndex((r) => r.includes('Line four'));
+    expect(lineFourIdx - lineOneIdx).toBe(2); // one empty row in between
   });
 });

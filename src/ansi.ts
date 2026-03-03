@@ -26,6 +26,10 @@ export const ITALIC = `${ESC}3m`;
 export const MAGENTA = `${ESC}35m`;
 export const WHITE = `${ESC}37m`;
 
+/** Reverse video (for cursor display). */
+export const REVERSE = `${ESC}7m`;
+export const REVERSE_OFF = `${ESC}27m`;
+
 /** Muted annotation box border background. */
 export const ANN_BOX_BG = `${ESC}48;2;35;38;46m`;
 /** Annotation box border color — subtle gray. */

@@ -12,10 +12,12 @@ import type { KnownCategory, KnownIntent, SessionResult } from './schema.js';
 import {
   type AnnotationFlowState,
   type BrowseState,
+  type DecideFlowState,
   type EditFlowState,
   type GotoFlowState,
   type ReplyFlowState,
   INITIAL_ANNOTATION_FLOW,
+  INITIAL_DECIDE_FLOW,
   INITIAL_EDIT_FLOW,
   INITIAL_GOTO_FLOW,
   INITIAL_REPLY_FLOW,
@@ -24,6 +26,29 @@ import {
   selectionRange,
 } from './state.js';
 import { annotationsOnLine } from './annotation-box.js';
+import {
+  createPicker,
+  findByShortcut,
+  getHighlighted,
+  moveHighlight,
+  CATEGORY_OPTIONS,
+} from './picker.js';
+import {
+  deleteBack,
+  deleteToLineStart,
+  deleteWordBack,
+  getText,
+  insertChar,
+  insertNewline,
+  moveDown,
+  moveLeft,
+  moveLineEnd,
+  moveLineStart,
+  moveRight,
+  moveUp,
+  moveWordLeft,
+  moveWordRight,
+} from './text-buffer.js';
 
 // --- Result type ---
 
@@ -33,6 +58,7 @@ export type DispatchResult = {
   readonly gotoFlow?: GotoFlowState;
   readonly replyFlow?: ReplyFlowState;
   readonly editFlow?: EditFlowState;
+  readonly decideFlow?: DecideFlowState;
   /** When set, the CLI should call `finish()` with this result. */
   readonly exit?: SessionResult;
   /** When set, controls the gg two-key sequence timer state. */
@@ -41,6 +67,59 @@ export type DispatchResult = {
 
 export type GgState = {
   readonly pending: boolean;
+};
+
+// --- Shared textbox key handler ---
+
+/**
+ * Apply macOS-style text editing keys to a TextBuffer.
+ * Returns the updated buffer, or undefined if the key wasn't a text editing key.
+ */
+import type { TextBuffer } from './text-buffer.js';
+
+const applyTextKey = (key: Key, buf: TextBuffer): TextBuffer | undefined => {
+  // Newline: Shift+Enter or Alt+Enter
+  if (key.return && (key.shift || key.alt)) {
+    return insertNewline(buf);
+  }
+
+  // Word delete: Alt+Backspace
+  if (key.backspace && key.alt) {
+    return deleteWordBack(buf);
+  }
+
+  // Delete to line start: Ctrl+U
+  if (key.ctrl && key.char === 'u') {
+    return deleteToLineStart(buf);
+  }
+
+  // Backspace
+  if (key.backspace) {
+    return deleteBack(buf);
+  }
+
+  // Word navigation: Alt+Arrow or Ctrl+Arrow
+  if ((key.alt || key.ctrl) && key.leftArrow) return moveWordLeft(buf);
+  if ((key.alt || key.ctrl) && key.rightArrow) return moveWordRight(buf);
+
+  // Line start/end: Ctrl+A / Ctrl+E or Home / End
+  if (key.ctrl && key.char === 'a') return moveLineStart(buf);
+  if (key.ctrl && key.char === 'e') return moveLineEnd(buf);
+  if (key.home) return moveLineStart(buf);
+  if (key.end) return moveLineEnd(buf);
+
+  // Arrow navigation
+  if (key.leftArrow) return moveLeft(buf);
+  if (key.rightArrow) return moveRight(buf);
+  if (key.upArrow) return moveUp(buf);
+  if (key.downArrow) return moveDown(buf);
+
+  // Printable character
+  if (key.char && !key.ctrl && !key.alt) {
+    return insertChar(buf, key.char);
+  }
+
+  return undefined;
 };
 
 // --- Annotate mode ---
@@ -57,46 +136,105 @@ export const handleAnnotateKey = (
     };
   }
 
+  // --- Intent picker step ---
   if (flow.step === 'intent') {
-    const INTENT_MAP: Record<string, KnownIntent> = {
-      i: 'instruct',
-      q: 'question',
-      c: 'comment',
-      p: 'praise',
-    };
-    const matched = INTENT_MAP[key.char];
-    return {
-      state,
-      annotationFlow: matched
-        ? { ...flow, step: 'category', intent: matched }
-        : flow,
-    };
-  }
-
-  if (flow.step === 'category') {
-    if (key.return) {
-      return { state, annotationFlow: { ...flow, step: 'comment' } };
+    // Arrow navigation
+    if (key.upArrow || key.char === 'k') {
+      return {
+        state,
+        annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) },
+      };
     }
-    const CATEGORY_MAP: Record<string, KnownCategory> = {
-      b: 'bug',
-      s: 'security',
-      f: 'performance',
-      d: 'design',
-      t: 'style',
-      k: 'nitpick',
-    };
-    const matched = CATEGORY_MAP[key.char];
-    return {
-      state,
-      annotationFlow: matched
-        ? { ...flow, step: 'comment', category: matched }
-        : flow,
-    };
+    if (key.downArrow || key.char === 'j') {
+      return {
+        state,
+        annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) },
+      };
+    }
+
+    // Enter confirms highlighted
+    if (key.return) {
+      const selected = getHighlighted(flow.picker);
+      if (selected) {
+        return {
+          state,
+          annotationFlow: {
+            ...flow,
+            step: 'category',
+            intent: selected.id,
+            picker: createPicker(CATEGORY_OPTIONS),
+          },
+        };
+      }
+      return { state, annotationFlow: flow };
+    }
+
+    // Direct shortcut
+    const matched = findByShortcut(flow.picker, key.char);
+    if (matched) {
+      return {
+        state,
+        annotationFlow: {
+          ...flow,
+          step: 'category',
+          intent: matched.id,
+          picker: createPicker(CATEGORY_OPTIONS),
+        },
+      };
+    }
+
+    return { state, annotationFlow: flow };
   }
 
-  // comment step
-  if (key.return) {
-    const trimmed = flow.comment.trim();
+  // --- Category picker step ---
+  if (flow.step === 'category') {
+    // Arrow navigation
+    if (key.upArrow || key.char === 'k') {
+      return {
+        state,
+        annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) },
+      };
+    }
+    if (key.downArrow || key.char === 'j') {
+      return {
+        state,
+        annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) },
+      };
+    }
+
+    // Enter confirms highlighted or skips
+    if (key.return) {
+      const selected = getHighlighted(flow.picker);
+      return {
+        state,
+        annotationFlow: {
+          ...flow,
+          step: 'comment',
+          category: selected?.id,
+        },
+      };
+    }
+
+    // Direct shortcut
+    const matched = findByShortcut(flow.picker, key.char);
+    if (matched) {
+      return {
+        state,
+        annotationFlow: {
+          ...flow,
+          step: 'comment',
+          category: matched.id,
+        },
+      };
+    }
+
+    return { state, annotationFlow: flow };
+  }
+
+  // --- Comment textbox step ---
+  // Enter submits
+  if (key.return && !key.shift && !key.alt) {
+    const trimmed = getText(flow.comment).trim();
     if (trimmed.length > 0 && flow.intent) {
       const range = state.selection
         ? selectionRange(state.selection)
@@ -120,18 +258,10 @@ export const handleAnnotateKey = (
     return { state, annotationFlow: flow };
   }
 
-  if (key.backspace) {
-    return {
-      state,
-      annotationFlow: { ...flow, comment: flow.comment.slice(0, -1) },
-    };
-  }
-
-  if (key.char && !key.ctrl) {
-    return {
-      state,
-      annotationFlow: { ...flow, comment: flow.comment + key.char },
-    };
+  // Text editing keys
+  const updatedBuf = applyTextKey(key, flow.comment);
+  if (updatedBuf) {
+    return { state, annotationFlow: { ...flow, comment: updatedBuf } };
   }
 
   return { state, annotationFlow: flow };
@@ -289,7 +419,6 @@ export const handleBrowseKey = (
   if (key.tab) {
     const annsOnLine = annotationsOnLine(state.annotations, state.cursorLine);
     if (annsOnLine.length > 0) {
-      // Toggle all annotations on this line
       let s = state;
       for (const ann of annsOnLine) {
         s = reduce(s, { type: 'toggle_annotation', annotationId: ann.id });
@@ -344,7 +473,10 @@ export const handleBrowseKey = (
 
   // Finish / decision picker
   if (key.char === 'q') {
-    return { state: reduce(state, { type: 'set_mode', mode: 'decide' }) };
+    return {
+      state: reduce(state, { type: 'set_mode', mode: 'decide' }),
+      decideFlow: { ...INITIAL_DECIDE_FLOW },
+    };
   }
 
   return { state };
@@ -364,8 +496,9 @@ export const handleReplyKey = (
     };
   }
 
-  if (key.return) {
-    const trimmed = flow.comment.trim();
+  // Enter submits (not Shift+Enter / Alt+Enter)
+  if (key.return && !key.shift && !key.alt) {
+    const trimmed = getText(flow.comment).trim();
     if (trimmed.length > 0) {
       const nextState = reduce(state, {
         type: 'add_reply',
@@ -380,18 +513,10 @@ export const handleReplyKey = (
     return { state, replyFlow: flow };
   }
 
-  if (key.backspace) {
-    return {
-      state,
-      replyFlow: { ...flow, comment: flow.comment.slice(0, -1) },
-    };
-  }
-
-  if (key.char && !key.ctrl) {
-    return {
-      state,
-      replyFlow: { ...flow, comment: flow.comment + key.char },
-    };
+  // Text editing keys
+  const updatedBuf = applyTextKey(key, flow.comment);
+  if (updatedBuf) {
+    return { state, replyFlow: { ...flow, comment: updatedBuf } };
   }
 
   return { state, replyFlow: flow };
@@ -411,8 +536,9 @@ export const handleEditKey = (
     };
   }
 
-  if (key.return) {
-    const trimmed = flow.comment.trim();
+  // Enter saves (not Shift+Enter / Alt+Enter)
+  if (key.return && !key.shift && !key.alt) {
+    const trimmed = getText(flow.comment).trim();
     if (trimmed.length > 0) {
       const nextState = reduce(state, {
         type: 'update_annotation',
@@ -427,18 +553,10 @@ export const handleEditKey = (
     return { state, editFlow: flow };
   }
 
-  if (key.backspace) {
-    return {
-      state,
-      editFlow: { ...flow, comment: flow.comment.slice(0, -1) },
-    };
-  }
-
-  if (key.char && !key.ctrl) {
-    return {
-      state,
-      editFlow: { ...flow, comment: flow.comment + key.char },
-    };
+  // Text editing keys
+  const updatedBuf = applyTextKey(key, flow.comment);
+  if (updatedBuf) {
+    return { state, editFlow: { ...flow, comment: updatedBuf } };
   }
 
   return { state, editFlow: flow };
@@ -448,30 +566,60 @@ export const handleEditKey = (
 
 export const handleDecideKey = (
   key: Key,
-  state: BrowseState
+  state: BrowseState,
+  flow: DecideFlowState
 ): DispatchResult => {
-  if (key.char === 'a') {
-    return {
-      state,
-      exit: {
-        type: 'finish',
-        decision: 'approve',
-        annotations: state.annotations,
-      },
-    };
-  }
-  if (key.char === 'd') {
-    return {
-      state,
-      exit: {
-        type: 'finish',
-        decision: 'deny',
-        annotations: state.annotations,
-      },
-    };
-  }
   if (key.escape) {
-    return { state: reduce(state, { type: 'set_mode', mode: 'browse' }) };
+    return {
+      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
+      decideFlow: undefined,
+    };
   }
-  return { state };
+
+  // Arrow navigation
+  if (key.upArrow || key.char === 'k') {
+    return {
+      state,
+      decideFlow: { picker: moveHighlight(flow.picker, -1) },
+    };
+  }
+  if (key.downArrow || key.char === 'j') {
+    return {
+      state,
+      decideFlow: { picker: moveHighlight(flow.picker, 1) },
+    };
+  }
+
+  // Enter confirms highlighted
+  if (key.return) {
+    const selected = getHighlighted(flow.picker);
+    if (selected) {
+      const decision = selected.id as 'approve' | 'deny';
+      return {
+        state,
+        exit: {
+          type: 'finish',
+          decision,
+          annotations: state.annotations,
+        },
+      };
+    }
+    return { state, decideFlow: flow };
+  }
+
+  // Direct shortcut
+  const matched = findByShortcut(flow.picker, key.char);
+  if (matched) {
+    const decision = matched.id as 'approve' | 'deny';
+    return {
+      state,
+      exit: {
+        type: 'finish',
+        decision,
+        annotations: state.annotations,
+      },
+    };
+  }
+
+  return { state, decideFlow: flow };
 };

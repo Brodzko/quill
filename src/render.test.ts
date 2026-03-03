@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { stripAnsi } from './ansi.js';
 import type { Annotation } from './schema.js';
 import type { BrowseState } from './state.js';
+import { INITIAL_ANNOTATION_FLOW, INITIAL_DECIDE_FLOW } from './state.js';
+import { createBuffer } from './text-buffer.js';
+import { createPicker, CATEGORY_OPTIONS } from './picker.js';
 import {
   type RenderContext,
   VIEWPORT_CHROME_LINES,
@@ -36,9 +39,9 @@ const makeCtx = (overrides: Partial<RenderContext> = {}): RenderContext => {
 
 describe('getViewportHeight', () => {
   it('computes viewport height from terminal rows', () => {
-    // terminalRows - CHROME_LINES - 1 (title row)
+    // FIXED_CHROME = 2 (title + status), help bar = 1 → 3 total
     const vh = getViewportHeight(24);
-    expect(vh).toBe(24 - VIEWPORT_CHROME_LINES - 1);
+    expect(vh).toBe(24 - 2 - 1); // 21
   });
 
   it('enforces minimum of 3', () => {
@@ -84,7 +87,6 @@ describe('buildFrame', () => {
   it('shows cursor pointer on current line', () => {
     const frame = buildFrame(makeCtx());
     const plain = stripAnsi(frame);
-    // The cursor line (1) should have a '>' pointer
     expect(plain).toContain('>');
   });
 
@@ -111,9 +113,12 @@ describe('buildFrame — decide mode', () => {
       annotations: [],
       expandedAnnotations: new Set(),
     };
-    const frame = buildFrame(makeCtx({ state }));
+    const frame = buildFrame(makeCtx({
+      state,
+      decideFlow: { ...INITIAL_DECIDE_FLOW },
+    }));
     const plain = stripAnsi(frame);
-    expect(plain).toContain('Decision required');
+    expect(plain).toContain('Decision');
     expect(plain).toContain('approve');
     expect(plain).toContain('deny');
   });
@@ -138,7 +143,7 @@ describe('buildFrame — goto mode', () => {
       makeCtx({ state, gotoFlow: { input: '42' } })
     );
     const plain = stripAnsi(frame);
-    expect(plain).toContain('Go to line:');
+    expect(plain).toContain('Go to line');
     expect(plain).toContain('42');
     expect(plain).toContain('1–100');
   });
@@ -149,7 +154,7 @@ describe('buildFrame — goto mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildFrame — annotation flow', () => {
-  it('shows annotation prompt in annotate mode', () => {
+  it('shows intent picker in annotate mode', () => {
     const state: BrowseState = {
       lineCount: 10,
       viewportHeight: 5,
@@ -162,12 +167,15 @@ describe('buildFrame — annotation flow', () => {
     const frame = buildFrame(
       makeCtx({
         state,
-        annotationFlow: { step: 'intent', comment: '' },
+        annotationFlow: { ...INITIAL_ANNOTATION_FLOW },
       })
     );
     const plain = stripAnsi(frame);
-    expect(plain).toContain('Annotate line 5');
     expect(plain).toContain('Intent');
+    expect(plain).toContain('instruct');
+    expect(plain).toContain('question');
+    expect(plain).toContain('comment');
+    expect(plain).toContain('praise');
   });
 });
 
@@ -239,7 +247,6 @@ describe('buildFrame — select mode', () => {
       selection: { anchor: 3, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state }));
-    // Selection background is truecolor: \x1b[48;2;38;50;70m
     expect(frame).toContain('\x1b[48;2;38;50;70m');
   });
 });
@@ -271,7 +278,6 @@ describe('buildFrame — annotation markers', () => {
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
     );
     const plain = stripAnsi(frame);
-    // Line 3 should have ● marker
     const lines = plain.split('\n');
     const line3 = lines.find((l) => l.includes('line 3'));
     expect(line3).toContain('●');
@@ -321,14 +327,13 @@ describe('buildFrame — annotation markers', () => {
       makeCtx({ state, lines: Array.from({ length: 5 }, (_, i) => `line ${i + 1}`) })
     );
     const plain = stripAnsi(frame);
-    // No ● or ◎ should appear
     expect(plain).not.toContain('●');
     expect(plain).not.toContain('◎');
   });
 });
 
 // ---------------------------------------------------------------------------
-// buildFrame — overflow / short file
+// buildFrame — viewport overflow
 // ---------------------------------------------------------------------------
 
 describe('buildFrame — viewport overflow', () => {
@@ -350,14 +355,9 @@ describe('buildFrame — viewport overflow', () => {
       })
     );
     const plain = stripAnsi(frame);
-    // Should have ~ rows for empty viewport space
     expect(plain).toContain('~');
   });
 });
-
-// ---------------------------------------------------------------------------
-// buildFrame — annotation flow steps
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // buildFrame — expanded annotation box
@@ -386,7 +386,6 @@ describe('buildFrame — expanded annotation box', () => {
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
     );
     const plain = stripAnsi(frame);
-    // Should contain the box border and comment
     expect(plain).toContain('┌');
     expect(plain).toContain('This is a test comment.');
     expect(plain).toContain('└');
@@ -470,7 +469,6 @@ describe('buildFrame — expanded annotation box', () => {
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
     );
     const plain = stripAnsi(frame);
-    expect(plain).not.toContain('┌');
     expect(plain).not.toContain('This should not appear expanded.');
   });
 
@@ -496,8 +494,6 @@ describe('buildFrame — expanded annotation box', () => {
       makeCtx({ state, lines: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`) })
     );
     const plain = stripAnsi(frame);
-    // With an expanded box, fewer source lines should be visible
-    // Line 10 should not be visible because the box takes space
     const visibleLines = plain.split('\n').filter((l) => l.match(/line \d+/));
     expect(visibleLines.length).toBeLessThan(10);
   });
@@ -508,7 +504,7 @@ describe('buildFrame — expanded annotation box', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildFrame — reply mode', () => {
-  it('shows reply prompt', () => {
+  it('shows reply textbox', () => {
     const state: BrowseState = {
       lineCount: 10,
       viewportHeight: 5,
@@ -519,16 +515,19 @@ describe('buildFrame — reply mode', () => {
       expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
-      makeCtx({ state, replyFlow: { annotationId: 'a1', comment: 'hello' } })
+      makeCtx({
+        state,
+        replyFlow: { annotationId: 'a1', comment: createBuffer('hello') },
+      })
     );
     const plain = stripAnsi(frame);
-    expect(plain).toContain('Reply:');
+    expect(plain).toContain('Reply');
     expect(plain).toContain('hello');
   });
 });
 
 describe('buildFrame — edit mode', () => {
-  it('shows edit prompt', () => {
+  it('shows edit textbox', () => {
     const state: BrowseState = {
       lineCount: 10,
       viewportHeight: 5,
@@ -539,10 +538,13 @@ describe('buildFrame — edit mode', () => {
       expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
-      makeCtx({ state, editFlow: { annotationId: 'a1', comment: 'editing' } })
+      makeCtx({
+        state,
+        editFlow: { annotationId: 'a1', comment: createBuffer('editing') },
+      })
     );
     const plain = stripAnsi(frame);
-    expect(plain).toContain('Edit comment:');
+    expect(plain).toContain('Edit comment');
     expect(plain).toContain('editing');
   });
 });
@@ -561,18 +563,22 @@ describe('buildFrame — annotation flow category step', () => {
     const frame = buildFrame(
       makeCtx({
         state,
-        annotationFlow: { step: 'category', intent: 'instruct', comment: '' },
+        annotationFlow: {
+          step: 'category',
+          intent: 'instruct',
+          comment: createBuffer(),
+          picker: createPicker(CATEGORY_OPTIONS),
+        },
       })
     );
     const plain = stripAnsi(frame);
-    expect(plain).toContain('instruct');
     expect(plain).toContain('Category');
-    expect(plain).toContain('[b]ug');
+    expect(plain).toContain('bug');
   });
 });
 
 describe('buildFrame — annotation flow comment step', () => {
-  it('shows comment input with intent and category', () => {
+  it('shows comment textbox with intent and category context', () => {
     const state: BrowseState = {
       lineCount: 10,
       viewportHeight: 5,
@@ -589,13 +595,14 @@ describe('buildFrame — annotation flow comment step', () => {
           step: 'comment',
           intent: 'question',
           category: 'bug',
-          comment: 'hello',
+          comment: createBuffer('hello'),
+          picker: createPicker([]),
         },
       })
     );
     const plain = stripAnsi(frame);
     expect(plain).toContain('question');
     expect(plain).toContain('bug');
-    expect(plain).toContain('Comment: hello');
+    expect(plain).toContain('hello');
   });
 });

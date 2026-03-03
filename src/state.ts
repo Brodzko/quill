@@ -1,5 +1,14 @@
 import * as R from 'remeda';
 import type { Annotation } from './schema.js';
+import type { TextBuffer } from './text-buffer.js';
+import { createBuffer } from './text-buffer.js';
+import type { PickerState } from './picker.js';
+import {
+  createPicker,
+  INTENT_OPTIONS,
+  CATEGORY_OPTIONS,
+  DECISION_OPTIONS,
+} from './picker.js';
 
 // --- Flow sub-states ---
 // These describe modal UI flows that overlay the main browse state.
@@ -10,12 +19,14 @@ export type AnnotationFlowState = {
   readonly step: 'intent' | 'category' | 'comment';
   readonly intent?: string;
   readonly category?: string;
-  readonly comment: string;
+  readonly comment: TextBuffer;
+  readonly picker: PickerState;
 };
 
 export const INITIAL_ANNOTATION_FLOW: AnnotationFlowState = {
   step: 'intent',
-  comment: '',
+  comment: createBuffer(),
+  picker: createPicker(INTENT_OPTIONS),
 };
 
 export type GotoFlowState = {
@@ -28,26 +39,37 @@ export const INITIAL_GOTO_FLOW: GotoFlowState = { input: '' };
 export type ReplyFlowState = {
   /** The annotation id being replied to. */
   readonly annotationId: string;
-  readonly comment: string;
+  readonly comment: TextBuffer;
 };
 
 export const INITIAL_REPLY_FLOW = (annotationId: string): ReplyFlowState => ({
   annotationId,
-  comment: '',
+  comment: createBuffer(),
 });
 
 export type EditFlowState = {
   /** The annotation id being edited. */
   readonly annotationId: string;
-  readonly comment: string;
+  readonly comment: TextBuffer;
 };
 
 export const INITIAL_EDIT_FLOW = (ann: { id: string; comment: string }): EditFlowState => ({
   annotationId: ann.id,
-  comment: ann.comment,
+  comment: createBuffer(ann.comment),
 });
 
+export type DecideFlowState = {
+  readonly picker: PickerState;
+};
+
+export const INITIAL_DECIDE_FLOW: DecideFlowState = {
+  picker: createPicker(DECISION_OPTIONS),
+};
+
 export type Mode = 'browse' | 'decide' | 'annotate' | 'goto' | 'select' | 'reply' | 'edit';
+
+// Re-export TextBuffer for consumers
+export type { TextBuffer } from './text-buffer.js';
 
 export type Selection = {
   /** The line where selection started (1-indexed). */

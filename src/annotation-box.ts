@@ -33,10 +33,9 @@ const BOX = {
 
 // --- Helpers ---
 
-/** Word-wrap a string to fit within `maxWidth` visible characters. */
-export const wordWrap = (text: string, maxWidth: number): string[] => {
-  if (maxWidth <= 0) return [text];
-  const words = text.split(/\s+/);
+/** Word-wrap a single paragraph (no newlines) to fit within `maxWidth`. */
+const wrapParagraph = (text: string, maxWidth: number): string[] => {
+  const words = text.split(/[ \t]+/);
   const lines: string[] = [];
   let current = '';
 
@@ -53,6 +52,16 @@ export const wordWrap = (text: string, maxWidth: number): string[] => {
   if (current.length > 0) lines.push(current);
   if (lines.length === 0) lines.push('');
   return lines;
+};
+
+/**
+ * Word-wrap a string to fit within `maxWidth` visible characters.
+ * Preserves explicit newlines — each `\n` produces a line break.
+ */
+export const wordWrap = (text: string, maxWidth: number): string[] => {
+  if (maxWidth <= 0) return [text];
+  const paragraphs = text.split('\n');
+  return paragraphs.flatMap((p) => wrapParagraph(p, maxWidth));
 };
 
 /** Pad or truncate `text` to exactly `width` visible chars. */
@@ -112,7 +121,7 @@ export const renderAnnotationBox = (
   }
   const headerText = headerParts.join(' ');
   const headerVisLen = visibleLength(headerText);
-  const fillLen = Math.max(0, innerWidth - headerVisLen - 3); // 3 = "─ " + " "
+  const fillLen = Math.max(0, innerWidth - headerVisLen - 1);
   const topBorder = `${ANN_BORDER}${BOX.topLeft}${BOX.horizontal} ${headerText} ${ANN_BORDER}${BOX.horizontal.repeat(fillLen)}${BOX.topRight}${RESET}`;
   rows.push(`${CLEAR_LINE}${gutterPrefix}${topBorder}`);
 

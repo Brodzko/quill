@@ -9,6 +9,7 @@ import type { Annotation } from './schema.js';
 import type {
   AnnotationFlowState,
   BrowseState,
+  DecideFlowState,
   EditFlowState,
   GotoFlowState,
   Mode,
@@ -20,8 +21,10 @@ import {
   CLEAR_LINE,
   CURSOR_BG,
   CYAN,
+  DIM,
   GREEN,
   RED,
+  RESET,
   SELECT_BG,
   YELLOW,
   bgLine,
@@ -30,8 +33,8 @@ import {
   dim,
 } from './ansi.js';
 import { annotationsOnLine, renderAnnotationBox } from './annotation-box.js';
-
-// --- Annotation flow rendering ---
+import { renderPicker } from './picker.js';
+import { renderTextbox } from './textbox.js';
 
 // --- Line marker ---
 
@@ -46,7 +49,6 @@ const lineMarker = (
   );
   if (lineAnns.length === 0) return ' ';
 
-  // Check for expanded annotations on this line
   const hasExpanded = lineAnns.some((a) => expandedAnnotations.has(a.id));
   if (hasExpanded) return '▼';
 
@@ -60,12 +62,8 @@ const lineMarker = (
 
 // --- Frame builders ---
 
-/**
- * Build the gutter prefix for annotation box rows.
- * Matches the width of ">{lineNum} {marker} " but blank.
- */
 const gutterBlank = (gutterWidth: number): string =>
-  ' '.repeat(1 + gutterWidth + 1 + 1 + 1); // pointer + num + space + marker + space
+  ' '.repeat(1 + gutterWidth + 1 + 1 + 1);
 
 const renderViewport = (
   lines: string[],
@@ -79,8 +77,6 @@ const renderViewport = (
   const rows: string[] = [];
   const selRange = selection ? selectionRange(selection) : undefined;
   const gutterPfx = gutterBlank(gutterWidth);
-
-  // Max width for annotation boxes: cols minus gutter, capped at 80
   const boxMaxWidth = Math.min(80, cols - gutterPfx.length);
 
   let lineIndex = state.viewportOffset;
@@ -111,7 +107,6 @@ const renderViewport = (
     const bg = isSelected ? SELECT_BG : isCursor ? CURSOR_BG : undefined;
     rows.push(`${CLEAR_LINE}${bg ? bgLine(raw, bg, cols) : raw}`);
 
-    // Interleave expanded annotation boxes after the last line of each annotation's range
     const expandedAnns = annotationsOnLine(state.annotations, lineNumber).filter(
       (a) => state.expandedAnnotations.has(a.id) && a.endLine === lineNumber
     );
@@ -134,6 +129,8 @@ const renderViewport = (
 
   return rows;
 };
+
+// --- Status bar ---
 
 const MODE_COLORS: Record<Mode, string> = {
   browse: GREEN,
@@ -165,70 +162,128 @@ const renderStatusBar = (state: BrowseState, filePath: string): string => {
   return `${CLEAR_LINE}${modeTag}${info}`;
 };
 
-const HELP_HINTS: Record<Mode, string> = {
+// --- Help bar (browse/select only) ---
+
+const HELP_HINTS: Record<string, string> = {
   browse:
     '[j/k ↑↓] move  [v Shift+↑↓] select  [Tab] toggle annotation  [PgUp/Dn Ctrl+U/D] half-page  [gg/G Home/End] jump  [:] goto  [n] annotate  [q] finish',
-  decide: '[a] approve  [d] deny  [Esc] back',
-  annotate: '[Esc] cancel',
-  goto: '',
   select:
     '[j/k ↑↓ Shift+↑↓] extend  [Enter] annotate  [Esc] cancel',
-  reply: '[Enter] submit  [Esc] cancel',
-  edit: '[Enter] save  [Esc] cancel',
 };
 
-const renderHelpBar = (mode: Mode): string =>
-  `${CLEAR_LINE}${dim(HELP_HINTS[mode])}`;
+const renderHelpBar = (mode: Mode): string => {
+  const hints = HELP_HINTS[mode];
+  return hints ? `${CLEAR_LINE}${dim(hints)}` : CLEAR_LINE;
+};
 
-const renderDecisionPicker = (): string[] => [
-  CLEAR_LINE,
-  `${CLEAR_LINE}${colorBold(YELLOW, 'Decision required:')}`,
-  `${CLEAR_LINE}  ${colorBold(GREEN, '[a]')} approve  ${colorBold(RED, '[d]')} deny  ${dim('[Esc]')} back`,
-];
+// --- Annotation flow modal ---
 
-const renderAnnotationFlow = (
+const renderAnnotationModal = (
+  flow: AnnotationFlowState,
   cursorLine: number,
-  flow: AnnotationFlowState
+  cols: number
 ): string[] => {
-  const rows: string[] = [
-    CLEAR_LINE,
-    `${CLEAR_LINE}${colorBold(CYAN, `Annotate line ${cursorLine}`)}`,
-  ];
-
   if (flow.step === 'intent') {
-    rows.push(
-      `${CLEAR_LINE}Intent: ${bold('[i]')}nstruct  ${bold('[q]')}uestion  ${bold('[c]')}omment  ${bold('[p]')}raise  ${dim('[Esc] cancel')}`
-    );
-  } else if (flow.step === 'category') {
-    rows.push(`${CLEAR_LINE}${dim(`Intent: ${flow.intent}`)}`);
-    rows.push(
-      `${CLEAR_LINE}Category: ${bold('[b]')}ug  ${bold('[s]')}ecurity  per${bold('[f]')}ormance  ${bold('[d]')}esign  s${bold('[t]')}yle  nit pic${bold('[k]')}  ${dim('[Enter] skip  [Esc] cancel')}`
-    );
-  } else {
-    rows.push(
-      `${CLEAR_LINE}${dim(`Intent: ${flow.intent}${flow.category ? `  Category: ${flow.category}` : ''}`)}`
-    );
-    rows.push(`${CLEAR_LINE}Comment: ${flow.comment}${dim('▎')}`);
-    rows.push(`${CLEAR_LINE}${dim('[Enter] submit  [Esc] cancel')}`);
+    return renderPicker(flow.picker, {
+      label: 'Intent',
+      cols,
+    });
   }
+
+  if (flow.step === 'category') {
+    return renderPicker(flow.picker, {
+      label: 'Category',
+      labelHint: 'Enter to skip',
+      cols,
+      hints: `${DIM}↑↓ move · Enter select/skip · Esc cancel${RESET}`,
+    });
+  }
+
+  // Comment step — textbox
+  const contextParts: string[] = [];
+  if (flow.intent) contextParts.push(`Intent: ${flow.intent}`);
+  if (flow.category) contextParts.push(`Category: ${flow.category}`);
+
+  return renderTextbox(flow.comment, {
+    label: `Annotate line ${cursorLine}`,
+    cols,
+    context: contextParts.length > 0 ? contextParts.join(' · ') : undefined,
+  });
+};
+
+// --- Goto modal ---
+
+const renderGotoModal = (
+  flow: GotoFlowState,
+  lineCount: number,
+  cols: number
+): string[] => {
+  // Simple bordered prompt matching the picker style
+  const label = `Go to line (1–${lineCount})`;
+  const content = flow.input.length > 0 ? flow.input : '';
+  const cursor = `\x1b[7m \x1b[27m`; // reverse video space
+  const inner = `${content}${cursor}`;
+
+  const maxW = Math.min(60, cols - 2);
+  const innerWidth = Math.max(20, maxW - 4);
+  const border = `\x1b[38;2;88;95;108m`; // ANN_BORDER
+  const fillLen = Math.max(0, innerWidth - label.length - 1);
+
+  const rows: string[] = [];
+  rows.push(
+    `${CLEAR_LINE}${border}┌─ ${label} ${border}${'─'.repeat(fillLen)}┐${RESET}`
+  );
+
+  const pad = (s: string, w: number) => {
+    const vis = s.replace(/\x1b\[[0-9;]*m/g, '').length;
+    return vis < w ? `${s}${' '.repeat(w - vis)}` : s;
+  };
+
+  rows.push(
+    `${CLEAR_LINE}${border}│${RESET}${pad(` ${inner} `, innerWidth + 2)}${border}│${RESET}`
+  );
+
+  const hints = `${DIM}Enter jump · Esc cancel${RESET}`;
+  rows.push(
+    `${CLEAR_LINE}${border}│${RESET}${pad(` ${hints} `, innerWidth + 2)}${border}│${RESET}`
+  );
+
+  rows.push(
+    `${CLEAR_LINE}${border}└${'─'.repeat(innerWidth + 2)}┘${RESET}`
+  );
 
   return rows;
 };
 
-// --- Goto prompt ---
+// --- Decision modal ---
 
-const renderGotoPrompt = (flow: GotoFlowState, lineCount: number): string =>
-  `${CLEAR_LINE}${colorBold(CYAN, 'Go to line:')} ${flow.input}${dim('▎')}  ${dim(`(1–${lineCount})  [Enter] jump  [Esc] cancel`)}`;
+const renderDecisionModal = (
+  flow: DecideFlowState,
+  cols: number
+): string[] => {
+  return renderPicker(flow.picker, {
+    label: 'Decision',
+    cols,
+    hints: `${DIM}↑↓ move · Enter select · Esc cancel${RESET}`,
+  });
+};
 
-// --- Reply prompt ---
+// --- Reply / Edit modals ---
 
-const renderReplyPrompt = (flow: ReplyFlowState): string =>
-  `${CLEAR_LINE}${colorBold(CYAN, 'Reply:')} ${flow.comment}${dim('▎')}  ${dim('[Enter] submit  [Esc] cancel')}`;
+const renderReplyModal = (flow: ReplyFlowState, cols: number): string[] => {
+  return renderTextbox(flow.comment, {
+    label: 'Reply',
+    cols,
+    visibleRows: 4,
+  });
+};
 
-// --- Edit prompt ---
-
-const renderEditPrompt = (flow: EditFlowState): string =>
-  `${CLEAR_LINE}${colorBold(CYAN, 'Edit comment:')} ${flow.comment}${dim('▎')}  ${dim('[Enter] save  [Esc] cancel')}`;
+const renderEditModal = (flow: EditFlowState, cols: number): string[] => {
+  return renderTextbox(flow.comment, {
+    label: 'Edit comment',
+    cols,
+  });
+};
 
 // --- Public API ---
 
@@ -243,10 +298,27 @@ export type RenderContext = {
   gotoFlow?: GotoFlowState;
   replyFlow?: ReplyFlowState;
   editFlow?: EditFlowState;
+  decideFlow?: DecideFlowState;
 };
 
-/** Number of chrome rows below the viewport (status + help + potential modal). */
-export const VIEWPORT_CHROME_LINES = 3; // title + status + help
+/** Compute modal height for a given render context. */
+const modalHeight = (ctx: RenderContext): number => {
+  if (ctx.state.mode === 'annotate' && ctx.annotationFlow) {
+    if (ctx.annotationFlow.step === 'intent') return 7; // picker: 4 options + 3 chrome
+    if (ctx.annotationFlow.step === 'category') return 9; // picker: 6 options + 3 chrome
+    // comment textbox
+    const hasContext = !!(ctx.annotationFlow.intent);
+    return 9 + (hasContext ? 1 : 0); // textbox: 6 rows + 3 chrome + context
+  }
+  if (ctx.state.mode === 'decide' && ctx.decideFlow) return 5; // 2 options + 3 chrome
+  if (ctx.state.mode === 'goto' && ctx.gotoFlow) return 4;
+  if (ctx.state.mode === 'reply' && ctx.replyFlow) return 7; // 4 rows + 3 chrome
+  if (ctx.state.mode === 'edit' && ctx.editFlow) return 9; // 6 rows + 3 chrome
+  return 0;
+};
+
+/** Number of fixed chrome lines (title + status). */
+const FIXED_CHROME = 2;
 
 /**
  * Build a complete terminal frame as a single string.
@@ -255,9 +327,15 @@ export const VIEWPORT_CHROME_LINES = 3; // title + status + help
  * overwrites the previous one in-place — no clearing required.
  */
 export const buildFrame = (ctx: RenderContext): string => {
+  const mH = modalHeight(ctx);
+  const hasModal = mH > 0;
+
+  // Help bar only in browse/select modes (when no modal is showing)
+  const helpBarHeight = hasModal ? 0 : 1;
+
   const viewportHeight = Math.max(
     3,
-    ctx.terminalRows - VIEWPORT_CHROME_LINES - 1 // -1 for title row
+    ctx.terminalRows - FIXED_CHROME - helpBarHeight - mH
   );
 
   const frame: string[] = [];
@@ -277,30 +355,40 @@ export const buildFrame = (ctx: RenderContext): string => {
     )
   );
 
-  // Status + Help
+  // Status bar
   frame.push(renderStatusBar(ctx.state, ctx.filePath));
-  frame.push(renderHelpBar(ctx.state.mode));
+
+  // Help bar (browse/select only)
+  if (!hasModal) {
+    frame.push(renderHelpBar(ctx.state.mode));
+  }
 
   // Modal overlays
-  if (ctx.state.mode === 'decide') {
-    frame.push(...renderDecisionPicker());
-  }
   if (ctx.state.mode === 'annotate' && ctx.annotationFlow) {
     frame.push(
-      ...renderAnnotationFlow(ctx.state.cursorLine, ctx.annotationFlow)
+      ...renderAnnotationModal(
+        ctx.annotationFlow,
+        ctx.state.cursorLine,
+        ctx.terminalCols
+      )
     );
   }
+  if (ctx.state.mode === 'decide' && ctx.decideFlow) {
+    frame.push(...renderDecisionModal(ctx.decideFlow, ctx.terminalCols));
+  }
   if (ctx.state.mode === 'goto' && ctx.gotoFlow) {
-    frame.push(renderGotoPrompt(ctx.gotoFlow, ctx.state.lineCount));
+    frame.push(
+      ...renderGotoModal(ctx.gotoFlow, ctx.state.lineCount, ctx.terminalCols)
+    );
   }
   if (ctx.state.mode === 'reply' && ctx.replyFlow) {
-    frame.push(renderReplyPrompt(ctx.replyFlow));
+    frame.push(...renderReplyModal(ctx.replyFlow, ctx.terminalCols));
   }
   if (ctx.state.mode === 'edit' && ctx.editFlow) {
-    frame.push(renderEditPrompt(ctx.editFlow));
+    frame.push(...renderEditModal(ctx.editFlow, ctx.terminalCols));
   }
 
-  // Pad remaining terminal rows with cleared lines to avoid leftover content
+  // Pad remaining terminal rows
   while (frame.length < ctx.terminalRows) {
     frame.push(CLEAR_LINE);
   }
@@ -308,6 +396,9 @@ export const buildFrame = (ctx: RenderContext): string => {
   return frame.join('\n');
 };
 
-/** Compute the viewport height for a given terminal height. */
+/** Compute the viewport height for a given terminal height and context. */
 export const getViewportHeight = (terminalRows: number): number =>
-  Math.max(3, terminalRows - VIEWPORT_CHROME_LINES - 1);
+  Math.max(3, terminalRows - FIXED_CHROME - 1); // -1 for help bar in browse mode
+
+// Keep for backward compat with cli.ts initial state calculation
+export const VIEWPORT_CHROME_LINES = 3;

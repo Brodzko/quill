@@ -25,6 +25,7 @@ import {
 import {
   type AnnotationFlowState,
   type BrowseState,
+  type DecideFlowState,
   type EditFlowState,
   type GotoFlowState,
   type ReplyFlowState,
@@ -165,6 +166,7 @@ const command = defineCommand({
       let gotoFlow: GotoFlowState | undefined;
       let replyFlow: ReplyFlowState | undefined;
       let editFlow: EditFlowState | undefined;
+      let decideFlow: DecideFlowState | undefined;
 
       const paint = (): void => {
         const rows = stderr.rows ?? 24;
@@ -187,6 +189,7 @@ const command = defineCommand({
           gotoFlow,
           replyFlow,
           editFlow,
+          decideFlow,
         };
 
         stderr.write(`${CURSOR_HOME}${buildFrame(ctx)}`);
@@ -230,6 +233,7 @@ const command = defineCommand({
         if ('gotoFlow' in result) gotoFlow = result.gotoFlow;
         if ('replyFlow' in result) replyFlow = result.replyFlow;
         if ('editFlow' in result) editFlow = result.editFlow;
+        if ('decideFlow' in result) decideFlow = result.decideFlow;
 
         // Handle gg timer state from browse handler
         if (result.gg) {
@@ -276,8 +280,8 @@ const command = defineCommand({
           applyResult(handleSelectKey(key, state));
         } else if (state.mode === 'browse') {
           applyResult(handleBrowseKey(key, state, gPending));
-        } else if (state.mode === 'decide') {
-          applyResult(handleDecideKey(key, state));
+        } else if (state.mode === 'decide' && decideFlow) {
+          applyResult(handleDecideKey(key, state, decideFlow));
         }
       });
     } catch (error) {

@@ -3,7 +3,8 @@
  *
  * Converts raw stdin data chunks into structured key events.
  * Handles printable chars, common control sequences (arrows, page keys,
- * home/end, escape, enter, backspace), and Ctrl+key combos.
+ * home/end, escape, enter, backspace), modifier combos (Ctrl, Shift, Alt/Option),
+ * and macOS-style word/line navigation sequences.
  */
 
 export type Key = {
@@ -11,12 +12,15 @@ export type Key = {
   char: string;
   ctrl: boolean;
   shift: boolean;
+  alt: boolean;
   escape: boolean;
   return: boolean;
   backspace: boolean;
   tab: boolean;
   upArrow: boolean;
   downArrow: boolean;
+  leftArrow: boolean;
+  rightArrow: boolean;
   pageUp: boolean;
   pageDown: boolean;
   home: boolean;
@@ -27,12 +31,15 @@ const EMPTY_KEY: Key = {
   char: '',
   ctrl: false,
   shift: false,
+  alt: false,
   escape: false,
   return: false,
   backspace: false,
   tab: false,
   upArrow: false,
   downArrow: false,
+  leftArrow: false,
+  rightArrow: false,
   pageUp: false,
   pageDown: false,
   home: false,
@@ -42,40 +49,88 @@ const EMPTY_KEY: Key = {
 export const parseKeypress = (data: Buffer | string): Key => {
   const raw = typeof data === 'string' ? data : data.toString('utf-8');
 
-  // --- Escape sequences ---
+  // --- CSI u protocol (kitty keyboard) ---
 
-  // Shift+Arrows: \x1b[1;2A / \x1b[1;2B (xterm-style modifier encoding)
+  // Shift+Enter: \x1b[13;2u
+  if (raw === '\x1b[13;2u')
+    return { ...EMPTY_KEY, return: true, shift: true };
+
+  // --- xterm modifier-encoded sequences: \x1b[1;<mod><letter> ---
+
+  // Shift+Arrows
   if (raw === '\x1b[1;2A')
     return { ...EMPTY_KEY, upArrow: true, shift: true };
   if (raw === '\x1b[1;2B')
     return { ...EMPTY_KEY, downArrow: true, shift: true };
+  if (raw === '\x1b[1;2C')
+    return { ...EMPTY_KEY, rightArrow: true, shift: true };
+  if (raw === '\x1b[1;2D')
+    return { ...EMPTY_KEY, leftArrow: true, shift: true };
 
-  // Arrows
+  // Alt/Option+Arrows (modifier 3)
+  if (raw === '\x1b[1;3A')
+    return { ...EMPTY_KEY, upArrow: true, alt: true };
+  if (raw === '\x1b[1;3B')
+    return { ...EMPTY_KEY, downArrow: true, alt: true };
+  if (raw === '\x1b[1;3C')
+    return { ...EMPTY_KEY, rightArrow: true, alt: true };
+  if (raw === '\x1b[1;3D')
+    return { ...EMPTY_KEY, leftArrow: true, alt: true };
+
+  // Ctrl+Arrows (modifier 5)
+  if (raw === '\x1b[1;5C')
+    return { ...EMPTY_KEY, rightArrow: true, ctrl: true };
+  if (raw === '\x1b[1;5D')
+    return { ...EMPTY_KEY, leftArrow: true, ctrl: true };
+
+  // --- Plain arrows ---
+
   if (raw === '\x1b[A') return { ...EMPTY_KEY, upArrow: true };
   if (raw === '\x1b[B') return { ...EMPTY_KEY, downArrow: true };
+  if (raw === '\x1b[C') return { ...EMPTY_KEY, rightArrow: true };
+  if (raw === '\x1b[D') return { ...EMPTY_KEY, leftArrow: true };
 
-  // Page Up / Page Down
-  // \x1b[5~ = PgUp, \x1b[6~ = PgDn (standard VT / xterm)
+  // --- Page Up / Page Down ---
+
   if (raw === '\x1b[5~') return { ...EMPTY_KEY, pageUp: true };
   if (raw === '\x1b[6~') return { ...EMPTY_KEY, pageDown: true };
 
-  // Home / End — multiple terminal encodings
-  // \x1b[H / \x1b[1~ / \x1bOH = Home
+  // --- Home / End (multiple terminal encodings) ---
+
   if (raw === '\x1b[H' || raw === '\x1b[1~' || raw === '\x1bOH')
     return { ...EMPTY_KEY, home: true };
-  // \x1b[F / \x1b[4~ / \x1bOF = End
   if (raw === '\x1b[F' || raw === '\x1b[4~' || raw === '\x1bOF')
     return { ...EMPTY_KEY, end: true };
+
+  // --- Alt/Option+key sequences (ESC prefix) ---
+
+  // Option+Left / Option+Right (readline-style: ESC b / ESC f)
+  if (raw === '\x1bb')
+    return { ...EMPTY_KEY, leftArrow: true, alt: true };
+  if (raw === '\x1bf')
+    return { ...EMPTY_KEY, rightArrow: true, alt: true };
+
+  // Option+Backspace (ESC + DEL)
+  if (raw === '\x1b\x7f')
+    return { ...EMPTY_KEY, backspace: true, alt: true };
+
+  // Option+Enter / Alt+Enter (ESC + CR/LF — fallback for Shift+Enter)
+  if (raw === '\x1b\r' || raw === '\x1b\n')
+    return { ...EMPTY_KEY, return: true, alt: true };
 
   // Single escape
   if (raw === '\x1b') return { ...EMPTY_KEY, escape: true };
 
   // --- Control characters ---
 
-  // Ctrl+C
+  // Ctrl+A (0x01) — line start (Cmd+Left equivalent in terminals)
+  if (raw === '\x01') return { ...EMPTY_KEY, char: 'a', ctrl: true };
+  // Ctrl+C (0x03)
   if (raw === '\x03') return { ...EMPTY_KEY, char: 'c', ctrl: true };
   // Ctrl+D (0x04)
   if (raw === '\x04') return { ...EMPTY_KEY, char: 'd', ctrl: true };
+  // Ctrl+E (0x05) — line end (Cmd+Right equivalent in terminals)
+  if (raw === '\x05') return { ...EMPTY_KEY, char: 'e', ctrl: true };
   // Ctrl+G (0x07)
   if (raw === '\x07') return { ...EMPTY_KEY, char: 'g', ctrl: true };
   // Ctrl+U (0x15)
