@@ -735,3 +735,50 @@ describe('reduce — navigate_match', () => {
     expect(next).toEqual(state);
   });
 });
+
+describe('reduce — scroll_viewport', () => {
+  it('scrolls viewport down without moving cursor', () => {
+    const state = makeState({ cursorLine: 15, viewportOffset: 5 });
+    const next = reduce(state, { type: 'scroll_viewport', delta: 3 });
+    expect(next.viewportOffset).toBe(8);
+    expect(next.cursorLine).toBe(15);
+  });
+
+  it('scrolls viewport up without moving cursor', () => {
+    const state = makeState({ cursorLine: 15, viewportOffset: 10 });
+    const next = reduce(state, { type: 'scroll_viewport', delta: -3 });
+    expect(next.viewportOffset).toBe(7);
+    expect(next.cursorLine).toBe(15);
+  });
+
+  it('clamps viewport offset at 0', () => {
+    const state = makeState({ cursorLine: 5, viewportOffset: 1 });
+    const next = reduce(state, { type: 'scroll_viewport', delta: -5 });
+    expect(next.viewportOffset).toBe(0);
+  });
+
+  it('clamps viewport offset at max', () => {
+    // lineCount=100, viewportHeight=20 → maxOffset=80
+    const state = makeState({ cursorLine: 90, viewportOffset: 79 });
+    const next = reduce(state, { type: 'scroll_viewport', delta: 5 });
+    expect(next.viewportOffset).toBe(80);
+  });
+
+  it('clamps cursor into viewport when scrolling past it', () => {
+    // viewport at 5, viewportHeight=20, visible: lines 6..25
+    // cursor at 6, scroll down 3 → viewport=8, visible: 9..28, cursor clamped to 9
+    const state = makeState({ cursorLine: 6, viewportOffset: 5 });
+    const next = reduce(state, { type: 'scroll_viewport', delta: 3 });
+    expect(next.viewportOffset).toBe(8);
+    expect(next.cursorLine).toBe(9);
+  });
+
+  it('clamps cursor when scrolling up past it', () => {
+    // viewport at 20, viewportHeight=20, visible: 21..40
+    // cursor at 40, scroll up 5 → viewport=15, visible: 16..35, cursor clamped to 35
+    const state = makeState({ cursorLine: 40, viewportOffset: 20 });
+    const next = reduce(state, { type: 'scroll_viewport', delta: -5 });
+    expect(next.viewportOffset).toBe(15);
+    expect(next.cursorLine).toBe(35);
+  });
+});

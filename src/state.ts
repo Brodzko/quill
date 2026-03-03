@@ -146,7 +146,8 @@ export type BrowseAction =
   | { type: 'add_reply'; annotationId: string; reply: { comment: string; source: string } }
   | { type: 'set_search'; pattern: string; matchLines: readonly number[] }
   | { type: 'clear_search' }
-  | { type: 'navigate_match'; delta: 1 | -1 };
+  | { type: 'navigate_match'; delta: 1 | -1 }
+  | { type: 'scroll_viewport'; delta: number };
 
 export const clampLine = (value: number, lineCount: number): number =>
   R.clamp(value, { min: 1, max: Math.max(1, lineCount) });
@@ -348,6 +349,24 @@ export const reduce = (state: BrowseState, action: BrowseAction): BrowseState =>
         viewportOffset,
         search: { ...state.search, currentMatchIndex: nextIdx },
       };
+    }
+    case 'scroll_viewport': {
+      const maxOffset = Math.max(0, state.lineCount - state.viewportHeight);
+      const viewportOffset = R.clamp(state.viewportOffset + action.delta, {
+        min: 0,
+        max: maxOffset,
+      });
+      // Clamp cursor to stay within the visible viewport
+      const visTop = viewportOffset + 1;
+      const visBottom = Math.min(
+        viewportOffset + state.viewportHeight,
+        state.lineCount
+      );
+      const cursorLine = R.clamp(state.cursorLine, {
+        min: visTop,
+        max: visBottom,
+      });
+      return { ...state, viewportOffset, cursorLine };
     }
   }
 };
