@@ -8,8 +8,10 @@ import { type BundledTheme, DEFAULT_THEME, highlightCode } from './highlight.js'
 import { parseKeypress } from './keypress.js';
 import {
   type AnnotationFlowState,
+  type GotoFlowState,
   type RenderContext,
   INITIAL_ANNOTATION_FLOW,
+  INITIAL_GOTO_FLOW,
   buildFrame,
   getViewportHeight,
 } from './render.js';
@@ -158,6 +160,12 @@ const command = defineCommand({
       // --- State + render loop ---
       let state = initialState;
       let annotationFlow: AnnotationFlowState | undefined;
+      let gotoFlow: GotoFlowState | undefined;
+
+      // gg detection: first `g` sets a 300ms timer; second `g` within window
+      // triggers jump-to-top. Timer expiry is a no-op (no single-g action).
+      let gPending = false;
+      let gTimer: ReturnType<typeof setTimeout> | undefined;
 
       const paint = (): void => {
         const rows = stderr.rows ?? 24;
@@ -177,6 +185,7 @@ const command = defineCommand({
           terminalCols: cols,
           focusAnnotation: focusAnnotationArg,
           annotationFlow,
+          gotoFlow,
         };
 
         stderr.write(`${CURSOR_HOME}${buildFrame(ctx)}`);
@@ -307,8 +316,42 @@ const command = defineCommand({
           return;
         }
 
+        // --- Goto mode ---
+        if (state.mode === 'goto' && gotoFlow) {
+          if (key.escape) {
+            gotoFlow = undefined;
+            state = reduce(state, { type: 'set_mode', mode: 'browse' });
+            paint();
+            return;
+          }
+          if (key.return) {
+            const target = parseInt(gotoFlow.input, 10);
+            gotoFlow = undefined;
+            state = reduce(state, { type: 'set_mode', mode: 'browse' });
+            if (!Number.isNaN(target) && target > 0) {
+              state = reduce(state, { type: 'set_cursor', line: target });
+            }
+            paint();
+            return;
+          }
+          if (key.backspace) {
+            gotoFlow = { input: gotoFlow.input.slice(0, -1) };
+            paint();
+            return;
+          }
+          // Accept digit characters only
+          if (key.char >= '0' && key.char <= '9') {
+            gotoFlow = { input: gotoFlow.input + key.char };
+            paint();
+            return;
+          }
+          // Ignore anything else in goto mode
+          return;
+        }
+
         // --- Browse mode ---
         if (state.mode === 'browse') {
+          // Single-line movement
           if (key.char === 'k' || key.upArrow) {
             state = reduce(state, { type: 'move_cursor', delta: -1 });
             paint();
@@ -319,29 +362,85 @@ const command = defineCommand({
             paint();
             return;
           }
-          if (key.char === 'g') {
-            // gg = go to top (simplified: single g goes to top)
+
+          // Half-page scroll: PgUp / Ctrl+U, PgDn / Ctrl+D
+          if (key.pageUp || (key.ctrl && key.char === 'u')) {
+            const halfPage = Math.max(1, Math.floor(state.viewportHeight / 2));
+            state = reduce(state, { type: 'move_cursor', delta: -halfPage });
+            paint();
+            return;
+          }
+          if (key.pageDown || (key.ctrl && key.char === 'd')) {
+            const halfPage = Math.max(1, Math.floor(state.viewportHeight / 2));
+            state = reduce(state, { type: 'move_cursor', delta: halfPage });
+            paint();
+            return;
+          }
+
+          // Jump to top: Home key or gg (two-key sequence)
+          if (key.home) {
+            state = reduce(state, { type: 'set_cursor', line: 1 });
+            paint();
+            return;
+          }
+
+          // Jump to bottom: End key or G
+          if (key.end) {
             state = reduce(state, {
-              type: 'move_cursor',
-              delta: -(state.cursorLine - 1),
+              type: 'set_cursor',
+              line: state.lineCount,
             });
             paint();
             return;
           }
+
+          // gg — two-key sequence with 300ms timeout
+          if (key.char === 'g') {
+            if (gPending) {
+              // Second g within window → jump to top
+              clearTimeout(gTimer);
+              gPending = false;
+              gTimer = undefined;
+              state = reduce(state, { type: 'set_cursor', line: 1 });
+              paint();
+            } else {
+              // First g — start timer
+              gPending = true;
+              gTimer = setTimeout(() => {
+                gPending = false;
+                gTimer = undefined;
+              }, 300);
+            }
+            return;
+          }
+
+          // G — jump to bottom
           if (key.char === 'G') {
             state = reduce(state, {
-              type: 'move_cursor',
-              delta: state.lineCount - state.cursorLine,
+              type: 'set_cursor',
+              line: state.lineCount,
             });
             paint();
             return;
           }
+
+          // Goto line: `:` or Ctrl+G
+          if (key.char === ':' || (key.ctrl && key.char === 'g')) {
+            gotoFlow = { ...INITIAL_GOTO_FLOW };
+            state = reduce(state, { type: 'set_mode', mode: 'goto' });
+            paint();
+            return;
+          }
+
+          // Annotate
           if (key.char === 'n') {
             annotationFlow = { ...INITIAL_ANNOTATION_FLOW };
             state = reduce(state, { type: 'set_mode', mode: 'annotate' });
             paint();
             return;
           }
+
+          // Finish / decision picker
           if (key.char === 'q') {
             state = reduce(state, { type: 'set_mode', mode: 'decide' });
             paint();

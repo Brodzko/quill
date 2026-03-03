@@ -93,13 +93,19 @@ All features are built on the raw ANSI renderer (`render.ts` + `state.ts`).
   *Done: `src/highlight.ts` — lazy singleton highlighter, hex→truecolor ANSI,
   60+ extension→language mappings, plain-text fallback for unknown langs.*
 
-- [ ] **2.2 Extended navigation**
+- [x] **2.2 Extended navigation**
   Half-page scroll (`PgUp`/`PgDn`, `Ctrl+U`/`Ctrl+D`), `gg`/`G`/`Home`/`End`
-  jumps. New `BrowseAction` variants in reducer.
+  jumps. New `set_cursor` action in reducer for absolute jumps. `gg` uses a
+  300ms two-key timeout (first `g` starts timer, second `g` within window jumps
+  to top; timeout expiry is a no-op). `keypress.ts` extended with `pageUp`,
+  `pageDown`, `home`, `end` fields and multi-encoding support (VT, xterm, etc.).
+  Help bar updated to show new bindings.
 
-- [ ] **2.3 Go-to-line**
-  `:N` or `Ctrl+G` → GOTO mode → number input → jump. Rendered inline in
-  `buildFrame`, mode transition in reducer.
+- [x] **2.3 Go-to-line**
+  `:` or `Ctrl+G` → GOTO mode → number input → `Enter` jump / `Esc` cancel.
+  New `goto` mode in state machine. `GotoFlowState` in `render.ts` with inline
+  prompt showing digits + valid range. Reducer gains `set_cursor` action for
+  absolute line jumps (shared with 2.2). Digits-only input; backspace supported.
 
 - [ ] **2.4 Line-range selection**
   `v` or `Shift+arrows` → SELECT mode. Visual highlight on selected range.

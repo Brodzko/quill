@@ -128,6 +128,7 @@ const MODE_COLORS: Record<Mode, string> = {
   browse: GREEN,
   decide: YELLOW,
   annotate: CYAN,
+  goto: CYAN,
 };
 
 const renderStatusBar = (state: BrowseState, filePath: string): string => {
@@ -143,9 +144,11 @@ const renderStatusBar = (state: BrowseState, filePath: string): string => {
 };
 
 const HELP_HINTS: Record<Mode, string> = {
-  browse: '[j/k ↑↓] move  [n] annotate  [q] finish  [Ctrl+C] abort',
+  browse:
+    '[j/k ↑↓] move  [PgUp/Dn Ctrl+U/D] half-page  [gg/G Home/End] jump  [:] goto  [n] annotate  [q] finish',
   decide: '[a] approve  [d] deny  [Esc] back',
   annotate: '[Esc] cancel',
+  goto: '',
 };
 
 const renderHelpBar = (mode: Mode): string =>
@@ -186,6 +189,18 @@ const renderAnnotationFlow = (
   return rows;
 };
 
+// --- Goto prompt ---
+
+export type GotoFlowState = {
+  /** Digits entered so far. */
+  input: string;
+};
+
+export const INITIAL_GOTO_FLOW: GotoFlowState = { input: '' };
+
+const renderGotoPrompt = (flow: GotoFlowState, lineCount: number): string =>
+  `${CLEAR_LINE}${colorBold(CYAN, 'Go to line:')} ${flow.input}${dim('▎')}  ${dim(`(1–${lineCount})  [Enter] jump  [Esc] cancel`)}`;
+
 // --- Public API ---
 
 export type RenderContext = {
@@ -196,6 +211,7 @@ export type RenderContext = {
   terminalCols: number;
   focusAnnotation?: string;
   annotationFlow?: AnnotationFlowState;
+  gotoFlow?: GotoFlowState;
 };
 
 /** Number of chrome rows below the viewport (status + help + potential modal). */
@@ -241,6 +257,9 @@ export const buildFrame = (ctx: RenderContext): string => {
     frame.push(
       ...renderAnnotationFlow(ctx.state.cursorLine, ctx.annotationFlow)
     );
+  }
+  if (ctx.state.mode === 'goto' && ctx.gotoFlow) {
+    frame.push(renderGotoPrompt(ctx.gotoFlow, ctx.state.lineCount));
   }
 
   // Pad remaining terminal rows with cleared lines to avoid leftover content

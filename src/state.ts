@@ -1,7 +1,7 @@
 import * as R from 'remeda';
 import type { Annotation } from './schema.js';
 
-export type Mode = 'browse' | 'decide' | 'annotate';
+export type Mode = 'browse' | 'decide' | 'annotate' | 'goto';
 
 export type BrowseState = {
   readonly lineCount: number;
@@ -15,6 +15,7 @@ export type BrowseState = {
 // Standard useReducer-compatible signature: (state, action) => state.
 export type BrowseAction =
   | { type: 'move_cursor'; delta: number }
+  | { type: 'set_cursor'; line: number }
   | { type: 'set_mode'; mode: Mode }
   | { type: 'add_annotation'; annotation: Annotation }
   | { type: 'update_viewport'; viewportHeight: number };
@@ -63,6 +64,16 @@ export const reduce = (state: BrowseState, action: BrowseAction): BrowseState =>
         state.cursorLine + action.delta,
         state.lineCount
       );
+      const viewportOffset = computeViewportOffset({
+        cursorLine,
+        currentOffset: state.viewportOffset,
+        viewportHeight: state.viewportHeight,
+        lineCount: state.lineCount,
+      });
+      return { ...state, cursorLine, viewportOffset };
+    }
+    case 'set_cursor': {
+      const cursorLine = clampLine(action.line, state.lineCount);
       const viewportOffset = computeViewportOffset({
         cursorLine,
         currentOffset: state.viewportOffset,
