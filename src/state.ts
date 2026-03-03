@@ -1,7 +1,7 @@
 import * as R from 'remeda';
 import type { Annotation } from './schema.js';
 
-export type Mode = 'browse' | 'decide';
+export type Mode = 'browse' | 'decide' | 'annotate';
 
 export type BrowseState = {
   readonly lineCount: number;
