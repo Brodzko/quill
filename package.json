@@ -12,7 +12,9 @@
     "build:tsc": "tsc --project tsconfig.build.json",
     "start": "node dist/cli.js",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "citty": "0.2.1",
@@ -25,6 +27,7 @@
     "prettier": "3.8.1",
     "ts-node": "10.9.2",
     "tsup": "8.5.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "4.0.18"
   }
 }
