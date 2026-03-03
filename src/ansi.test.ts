@@ -6,6 +6,7 @@ import {
   bold,
   colorBold,
   dim,
+  highlightSearchMatches,
   stripAnsi,
   visibleLength,
 } from './ansi.js';
@@ -57,6 +58,65 @@ describe('bgLine', () => {
     const result = bgLine('very long string here', '\x1b[44m', 5);
     // Should not throw, padding should be 0
     expect(result).toContain('very long string here');
+  });
+});
+
+describe('highlightSearchMatches', () => {
+  const BG = '\x1b[48;2;80;65;15m';
+
+  it('highlights a plain-text match', () => {
+    const result = highlightSearchMatches('hello world', 'world', BG);
+    expect(result).toContain(`${BG}world${RESET}`);
+    // 'hello ' should be untouched
+    expect(result).toMatch(/^hello /);
+  });
+
+  it('is case-insensitive', () => {
+    const result = highlightSearchMatches('Hello World', 'hello', BG);
+    expect(result).toContain(`${BG}Hello${RESET}`);
+  });
+
+  it('highlights multiple occurrences', () => {
+    const result = highlightSearchMatches('foo bar foo', 'foo', BG);
+    // Two injections of BG
+    const count = result.split(BG).length - 1;
+    expect(count).toBe(2);
+  });
+
+  it('handles ANSI-escaped input preserving syntax colors', () => {
+    const input = `\x1b[32mconst\x1b[0m foo = 1`;
+    const result = highlightSearchMatches(input, 'foo', BG);
+    // Match should be highlighted
+    expect(result).toContain(BG);
+    // Visible text should be unchanged
+    expect(stripAnsi(result)).toBe('const foo = 1');
+  });
+
+  it('re-injects match bg after embedded RESETs within match span', () => {
+    // Pattern spans across a RESET boundary: "st f" in "con[st] [f]oo"
+    const input = `con\x1b[1mst\x1b[0m foo`;
+    const result = highlightSearchMatches(input, 'st f', BG);
+    expect(result).toContain(`${RESET}${BG}`);
+  });
+
+  it('returns input unchanged for empty pattern', () => {
+    const input = 'hello';
+    expect(highlightSearchMatches(input, '', BG)).toBe(input);
+  });
+
+  it('returns input unchanged when pattern is not found', () => {
+    const input = 'hello world';
+    expect(highlightSearchMatches(input, 'xyz', BG)).toBe(input);
+  });
+
+  it('handles match at start of string', () => {
+    const result = highlightSearchMatches('foo bar', 'foo', BG);
+    expect(result.startsWith(BG)).toBe(true);
+  });
+
+  it('handles match at end of string', () => {
+    const result = highlightSearchMatches('bar foo', 'foo', BG);
+    expect(result).toContain(`${BG}foo${RESET}`);
   });
 });
 

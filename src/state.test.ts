@@ -635,3 +635,103 @@ describe('add_reply', () => {
     expect(next.annotations[1]!.replies).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Search actions
+// ---------------------------------------------------------------------------
+
+describe('reduce — set_search', () => {
+  it('sets search state and jumps to first match at or after cursor', () => {
+    const state = makeState({ cursorLine: 10 });
+    const next = reduce(state, {
+      type: 'set_search',
+      pattern: 'foo',
+      matchLines: [5, 15, 25],
+    });
+    expect(next.search).toEqual({
+      pattern: 'foo',
+      matchLines: [5, 15, 25],
+      currentMatchIndex: 1,
+    });
+    expect(next.cursorLine).toBe(15);
+  });
+
+  it('wraps to first match if cursor is past all matches', () => {
+    const state = makeState({ cursorLine: 30 });
+    const next = reduce(state, {
+      type: 'set_search',
+      pattern: 'foo',
+      matchLines: [5, 15, 25],
+    });
+    expect(next.search?.currentMatchIndex).toBe(0);
+    expect(next.cursorLine).toBe(5);
+  });
+
+  it('handles zero matches', () => {
+    const state = makeState({ cursorLine: 10 });
+    const next = reduce(state, {
+      type: 'set_search',
+      pattern: 'notfound',
+      matchLines: [],
+    });
+    expect(next.search).toEqual({
+      pattern: 'notfound',
+      matchLines: [],
+      currentMatchIndex: -1,
+    });
+    expect(next.cursorLine).toBe(10); // cursor unchanged
+  });
+});
+
+describe('reduce — clear_search', () => {
+  it('removes search state', () => {
+    const state = makeState({
+      search: { pattern: 'foo', matchLines: [5], currentMatchIndex: 0 },
+    });
+    const next = reduce(state, { type: 'clear_search' });
+    expect(next.search).toBeUndefined();
+  });
+});
+
+describe('reduce — navigate_match', () => {
+  it('advances to next match', () => {
+    const state = makeState({
+      search: { pattern: 'x', matchLines: [5, 15, 25], currentMatchIndex: 0 },
+    });
+    const next = reduce(state, { type: 'navigate_match', delta: 1 });
+    expect(next.search?.currentMatchIndex).toBe(1);
+    expect(next.cursorLine).toBe(15);
+  });
+
+  it('wraps forward', () => {
+    const state = makeState({
+      search: { pattern: 'x', matchLines: [5, 15, 25], currentMatchIndex: 2 },
+    });
+    const next = reduce(state, { type: 'navigate_match', delta: 1 });
+    expect(next.search?.currentMatchIndex).toBe(0);
+    expect(next.cursorLine).toBe(5);
+  });
+
+  it('wraps backward', () => {
+    const state = makeState({
+      search: { pattern: 'x', matchLines: [5, 15, 25], currentMatchIndex: 0 },
+    });
+    const next = reduce(state, { type: 'navigate_match', delta: -1 });
+    expect(next.search?.currentMatchIndex).toBe(2);
+    expect(next.cursorLine).toBe(25);
+  });
+
+  it('no-ops with empty matches', () => {
+    const state = makeState({
+      search: { pattern: 'x', matchLines: [], currentMatchIndex: -1 },
+    });
+    const next = reduce(state, { type: 'navigate_match', delta: 1 });
+    expect(next).toEqual(state);
+  });
+
+  it('no-ops without search state', () => {
+    const state = makeState();
+    const next = reduce(state, { type: 'navigate_match', delta: 1 });
+    expect(next).toEqual(state);
+  });
+});

@@ -7,6 +7,7 @@ import {
   handleEditKey,
   handleGotoKey,
   handleReplyKey,
+  handleSearchKey,
   handleSelectKey,
 } from './dispatch.js';
 import type { Key } from './keypress.js';
@@ -18,11 +19,13 @@ import type {
   EditFlowState,
   GotoFlowState,
   ReplyFlowState,
+  SearchFlowState,
 } from './state.js';
 import {
   INITIAL_ANNOTATION_FLOW,
   INITIAL_CONFIRM_FLOW,
   INITIAL_DECIDE_FLOW,
+  INITIAL_SEARCH_FLOW,
 } from './state.js';
 import { createBuffer, getText } from './text-buffer.js';
 import { createPicker, CATEGORY_OPTIONS } from './picker.js';
@@ -147,8 +150,8 @@ describe('handleBrowseKey', () => {
     expect(result.state.selection).toEqual({ anchor: 10, active: 10 });
   });
 
-  it('n enters annotate mode with flow', () => {
-    const result = handleBrowseKey(key({ char: 'n' }), makeState(), false);
+  it('a enters annotate mode with flow', () => {
+    const result = handleBrowseKey(key({ char: 'a' }), makeState(), false);
     expect(result.state.mode).toBe('annotate');
     expect(result.annotationFlow?.step).toBe('intent');
   });
@@ -826,5 +829,165 @@ describe('handleConfirmKey', () => {
     const result = handleConfirmKey(key({ char: 'z' }), state, flow);
     expect(result.state.mode).toBe('confirm');
     expect(result.confirmFlow).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleBrowseKey — search interaction
+// ---------------------------------------------------------------------------
+
+describe('handleBrowseKey — search', () => {
+  it('/ enters search mode with flow', () => {
+    const result = handleBrowseKey(key({ char: '/' }), makeState(), false);
+    expect(result.state.mode).toBe('search');
+    expect(result.searchFlow).toBeDefined();
+  });
+
+  it('n navigates to next match', () => {
+    const state = makeState({
+      search: { pattern: 'foo', matchLines: [5, 15, 25], currentMatchIndex: 0 },
+    });
+    const result = handleBrowseKey(key({ char: 'n' }), state, false);
+    expect(result.state.search?.currentMatchIndex).toBe(1);
+    expect(result.state.cursorLine).toBe(15);
+  });
+
+  it('N navigates to previous match', () => {
+    const state = makeState({
+      search: { pattern: 'foo', matchLines: [5, 15, 25], currentMatchIndex: 1 },
+    });
+    const result = handleBrowseKey(key({ char: 'N' }), state, false);
+    expect(result.state.search?.currentMatchIndex).toBe(0);
+    expect(result.state.cursorLine).toBe(5);
+  });
+
+  it('n wraps around from last to first match', () => {
+    const state = makeState({
+      search: { pattern: 'foo', matchLines: [5, 15, 25], currentMatchIndex: 2 },
+    });
+    const result = handleBrowseKey(key({ char: 'n' }), state, false);
+    expect(result.state.search?.currentMatchIndex).toBe(0);
+    expect(result.state.cursorLine).toBe(5);
+  });
+
+  it('N wraps around from first to last match', () => {
+    const state = makeState({
+      search: { pattern: 'foo', matchLines: [5, 15, 25], currentMatchIndex: 0 },
+    });
+    const result = handleBrowseKey(key({ char: 'N' }), state, false);
+    expect(result.state.search?.currentMatchIndex).toBe(2);
+    expect(result.state.cursorLine).toBe(25);
+  });
+
+  it('n with no active search is no-op', () => {
+    const state = makeState();
+    const result = handleBrowseKey(key({ char: 'n' }), state, false);
+    expect(result.state).toEqual(state);
+  });
+
+  it('n with zero matches is no-op', () => {
+    const state = makeState({
+      search: { pattern: 'notfound', matchLines: [], currentMatchIndex: -1 },
+    });
+    const result = handleBrowseKey(key({ char: 'n' }), state, false);
+    expect(result.state).toEqual(state);
+  });
+
+  it('Ctrl+N navigates to next match', () => {
+    const state = makeState({
+      search: { pattern: 'foo', matchLines: [5, 15], currentMatchIndex: 0 },
+    });
+    const result = handleBrowseKey(key({ ctrl: true, char: 'n' }), state, false);
+    expect(result.state.search?.currentMatchIndex).toBe(1);
+  });
+
+  it('Ctrl+P navigates to previous match', () => {
+    const state = makeState({
+      search: { pattern: 'foo', matchLines: [5, 15], currentMatchIndex: 1 },
+    });
+    const result = handleBrowseKey(key({ ctrl: true, char: 'p' }), state, false);
+    expect(result.state.search?.currentMatchIndex).toBe(0);
+  });
+
+  it('Escape clears search', () => {
+    const state = makeState({
+      search: { pattern: 'foo', matchLines: [5, 15], currentMatchIndex: 0 },
+    });
+    const result = handleBrowseKey(key({ escape: true }), state, false);
+    expect(result.state.search).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleSearchKey
+// ---------------------------------------------------------------------------
+
+describe('handleSearchKey', () => {
+  const sourceLines = [
+    'import foo from "bar"',
+    'const x = 1',
+    'function foo() {}',
+    'export default foo',
+    'const y = 2',
+  ];
+  const state = makeState({ mode: 'search', lineCount: 5, cursorLine: 1 });
+  const flow: SearchFlowState = { ...INITIAL_SEARCH_FLOW };
+
+  it('typing updates input and live-previews matches', () => {
+    const result = handleSearchKey(key({ char: 'f' }), state, flow, sourceLines);
+    expect(getText(result.searchFlow!.input)).toBe('f');
+    // 'f' matches lines 1, 3, 4 (foo, function, foo)
+    expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
+  });
+
+  it('Enter commits search and returns to browse', () => {
+    const f: SearchFlowState = { input: createBuffer('foo') };
+    const result = handleSearchKey(key({ return: true }), state, f, sourceLines);
+    expect(result.state.mode).toBe('browse');
+    expect(result.searchFlow).toBeUndefined();
+    expect(result.state.search?.pattern).toBe('foo');
+    expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
+  });
+
+  it('Enter jumps cursor to first match at or after cursor', () => {
+    const s = makeState({ mode: 'search', lineCount: 5, cursorLine: 2 });
+    const f: SearchFlowState = { input: createBuffer('foo') };
+    const result = handleSearchKey(key({ return: true }), s, f, sourceLines);
+    expect(result.state.cursorLine).toBe(3); // first match at/after line 2
+  });
+
+  it('Enter with empty pattern clears search and returns to browse', () => {
+    const result = handleSearchKey(key({ return: true }), state, flow, sourceLines);
+    expect(result.state.mode).toBe('browse');
+    expect(result.state.search).toBeUndefined();
+  });
+
+  it('Escape clears search and returns to browse', () => {
+    const f: SearchFlowState = { input: createBuffer('foo') };
+    const result = handleSearchKey(key({ escape: true }), state, f, sourceLines);
+    expect(result.state.mode).toBe('browse');
+    expect(result.state.search).toBeUndefined();
+    expect(result.searchFlow).toBeUndefined();
+  });
+
+  it('search is case-insensitive', () => {
+    const f: SearchFlowState = { input: createBuffer('FOO') };
+    const result = handleSearchKey(key({ return: true }), state, f, sourceLines);
+    expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
+  });
+
+  it('backspace updates input and recomputes matches', () => {
+    const f: SearchFlowState = { input: createBuffer('foo') };
+    const result = handleSearchKey(key({ backspace: true }), state, f, sourceLines);
+    expect(getText(result.searchFlow!.input)).toBe('fo');
+    // 'fo' matches same lines: 1, 3, 4
+    expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
+  });
+
+  it('clearing input via backspace removes search state', () => {
+    const f: SearchFlowState = { input: createBuffer('f') };
+    const result = handleSearchKey(key({ backspace: true }), state, f, sourceLines);
+    expect(getText(result.searchFlow!.input)).toBe('');
+    expect(result.state.search).toBeUndefined();
   });
 });

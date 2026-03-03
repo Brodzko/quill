@@ -143,6 +143,14 @@ describe('control characters', () => {
     expectKey('\x07', { char: 'g', ctrl: true });
   });
 
+  it('parses Ctrl+N (0x0E)', () => {
+    expectKey('\x0e', { char: 'n', ctrl: true });
+  });
+
+  it('parses Ctrl+P (0x10)', () => {
+    expectKey('\x10', { char: 'p', ctrl: true });
+  });
+
   it('parses Ctrl+U (0x15)', () => {
     expectKey('\x15', { char: 'u', ctrl: true });
   });
