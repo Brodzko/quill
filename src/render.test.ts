@@ -16,9 +16,11 @@ const makeCtx = (overrides: Partial<RenderContext> = {}): RenderContext => {
   const lines = overrides.lines ?? Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
   const state: BrowseState = overrides.state ?? {
     lineCount: lines.length,
+      maxLineWidth: 120,
     viewportHeight: 10,
     cursorLine: 1,
     viewportOffset: 0,
+      horizontalOffset: 0,
     mode: 'browse',
     annotations: [],
     expandedAnnotations: new Set(),
@@ -106,9 +108,11 @@ describe('buildFrame — decide mode', () => {
   it('shows decision picker in decide mode', () => {
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 5,
       cursorLine: 1,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'decide',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -132,9 +136,11 @@ describe('buildFrame — goto mode', () => {
   it('shows goto prompt when in goto mode', () => {
     const state: BrowseState = {
       lineCount: 100,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 1,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'goto',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -157,9 +163,11 @@ describe('buildFrame — annotation flow', () => {
   it('shows intent picker in annotate mode', () => {
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 5,
       cursorLine: 5,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'annotate',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -187,9 +195,11 @@ describe('buildFrame — select mode', () => {
   it('shows SELECT in status bar', () => {
     const state: BrowseState = {
       lineCount: 20,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 5,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -203,9 +213,11 @@ describe('buildFrame — select mode', () => {
   it('shows selection range in status bar', () => {
     const state: BrowseState = {
       lineCount: 20,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 7,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -220,9 +232,11 @@ describe('buildFrame — select mode', () => {
   it('shows select help hints', () => {
     const state: BrowseState = {
       lineCount: 20,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 5,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -238,9 +252,11 @@ describe('buildFrame — select mode', () => {
   it('applies selection background to selected lines', () => {
     const state: BrowseState = {
       lineCount: 20,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 5,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -267,9 +283,11 @@ describe('buildFrame — annotation markers', () => {
     };
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 1,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(),
@@ -294,9 +312,11 @@ describe('buildFrame — annotation markers', () => {
     };
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 1,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(),
@@ -316,9 +336,11 @@ describe('buildFrame — annotation markers', () => {
   it('shows space marker on unannotated lines', () => {
     const state: BrowseState = {
       lineCount: 5,
+      maxLineWidth: 120,
       viewportHeight: 5,
       cursorLine: 1,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'browse',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -340,9 +362,11 @@ describe('buildFrame — viewport overflow', () => {
   it('shows ~ for lines past end of file', () => {
     const state: BrowseState = {
       lineCount: 3,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 1,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'browse',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -375,9 +399,11 @@ describe('buildFrame — expanded annotation box', () => {
     };
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 3,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
@@ -402,9 +428,11 @@ describe('buildFrame — expanded annotation box', () => {
     };
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 1,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
@@ -428,9 +456,11 @@ describe('buildFrame — expanded annotation box', () => {
     };
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 15,
       cursorLine: 3,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
@@ -458,9 +488,11 @@ describe('buildFrame — expanded annotation box', () => {
     };
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 1,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(),
@@ -483,9 +515,11 @@ describe('buildFrame — expanded annotation box', () => {
     };
     const state: BrowseState = {
       lineCount: 20,
+      maxLineWidth: 120,
       viewportHeight: 10,
       cursorLine: 2,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
@@ -507,9 +541,11 @@ describe('buildFrame — reply mode', () => {
   it('shows reply textbox', () => {
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 5,
       cursorLine: 5,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'reply',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -530,9 +566,11 @@ describe('buildFrame — edit mode', () => {
   it('shows edit textbox', () => {
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 5,
       cursorLine: 5,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'edit',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -553,9 +591,11 @@ describe('buildFrame — annotation flow category step', () => {
   it('shows category picker with intent', () => {
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 5,
       cursorLine: 5,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'annotate',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -581,9 +621,11 @@ describe('buildFrame — annotation flow comment step', () => {
   it('shows comment textbox with intent and category context', () => {
     const state: BrowseState = {
       lineCount: 10,
+      maxLineWidth: 120,
       viewportHeight: 5,
       cursorLine: 5,
       viewportOffset: 0,
+      horizontalOffset: 0,
       mode: 'annotate',
       annotations: [],
       expandedAnnotations: new Set(),

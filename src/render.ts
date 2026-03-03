@@ -39,6 +39,7 @@ import {
   colorBold,
   dim,
   highlightSearchMatches,
+  sliceAnsi,
   truncateAnsi,
 } from './ansi.js';
 import { annotationsOnLine, renderAnnotationBox } from './annotation-box.js';
@@ -120,7 +121,9 @@ const renderViewport = (
       focusAnnotation
     );
     const paddedNum = String(lineNumber).padStart(gutterWidth, ' ');
-    const raw = `${pointer}${paddedNum} ${marker} ${lines[lineIndex]}`;
+    const gutterStr = `${pointer}${paddedNum} ${marker} `;
+    // gutterStr visible width: 1 + gutterWidth + 1 + 1 + 1 = gutterWidth + 4
+    const gutterVisWidth = gutterWidth + 4;
 
     const isCurrentMatch =
       search !== undefined &&
@@ -132,12 +135,23 @@ const renderViewport = (
       search.matchLines.length > 0 &&
       search.matchLines.includes(lineNumber);
 
-    // Apply inline substring highlighting on match lines
-    let displayRaw = raw;
+    // Apply inline search highlighting to code content before slicing
+    let codeContent = lines[lineIndex]!;
     if ((isCurrentMatch || isMatch) && search) {
       const inlineBg = isCurrentMatch ? SEARCH_CURRENT_MATCH_BG : SEARCH_MATCH_BG;
-      displayRaw = highlightSearchMatches(raw, search.pattern, inlineBg);
+      codeContent = highlightSearchMatches(codeContent, search.pattern, inlineBg);
     }
+
+    // Horizontal scroll: slice the code content, preserving ANSI state
+    const hOffset = state.horizontalOffset;
+    const availableCodeWidth = Math.max(1, cols - gutterVisWidth);
+    const slicedCode = hOffset > 0
+      ? sliceAnsi(codeContent, hOffset, availableCodeWidth)
+      : truncateAnsi(codeContent, availableCodeWidth);
+
+    // Horizontal scroll indicator: show ← when content is scrolled right
+    const scrollIndicator = hOffset > 0 ? `${DIM}←${RESET}` : '';
+    const displayRow = `${gutterStr}${scrollIndicator}${slicedCode}`;
 
     const bg = isSelected
       ? SELECT_BG
@@ -148,7 +162,7 @@ const renderViewport = (
           : isCursor
             ? CURSOR_BG
             : undefined;
-    const truncated = truncateAnsi(displayRaw, cols);
+    const truncated = truncateAnsi(displayRow, cols);
     rows.push(`${CLEAR_LINE}${bg ? bgLine(truncated, bg, cols) : truncated}`);
     rowToLine.push(lineNumber);
 
@@ -218,7 +232,7 @@ const renderStatusBar = (state: BrowseState, filePath: string): string => {
 // --- Help bar (browse/select only) ---
 
 const BROWSE_HELP =
-  '[j/k ↑↓] move  [v Shift+↑↓] select  [Tab/S-Tab] annotations  [/] search  [a] annotate  [:] goto  [q] finish';
+  '[j/k ↑↓] move  [h/l ←→] scroll  [v Shift+↑↓] select  [Tab/S-Tab] annotations  [/] search  [a] annotate  [:] goto  [q] finish';
 const BROWSE_SEARCH_HELP =
   '[j/k ↑↓] move  [n/N] next/prev match  [/] new search  [Esc] clear  [a] annotate  [q] finish';
 const BROWSE_EXPANDED_HELP =

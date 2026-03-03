@@ -15,9 +15,11 @@ import {
 
 const makeState = (overrides: Partial<BrowseState> = {}): BrowseState => ({
   lineCount: 100,
+  maxLineWidth: 120,
   viewportHeight: 20,
   cursorLine: 1,
   viewportOffset: 0,
+  horizontalOffset: 0,
   mode: 'browse',
   annotations: [],
   expandedAnnotations: new Set(),
@@ -780,5 +782,44 @@ describe('reduce — scroll_viewport', () => {
     const next = reduce(state, { type: 'scroll_viewport', delta: -5 });
     expect(next.viewportOffset).toBe(15);
     expect(next.cursorLine).toBe(35);
+  });
+});
+
+describe('reduce — scroll_horizontal', () => {
+  it('increases horizontal offset', () => {
+    const state = makeState({ horizontalOffset: 0 });
+    const next = reduce(state, { type: 'scroll_horizontal', delta: 4 });
+    expect(next.horizontalOffset).toBe(4);
+  });
+
+  it('decreases horizontal offset', () => {
+    const state = makeState({ horizontalOffset: 8 });
+    const next = reduce(state, { type: 'scroll_horizontal', delta: -4 });
+    expect(next.horizontalOffset).toBe(4);
+  });
+
+  it('clamps at 0 when scrolling left past start', () => {
+    const state = makeState({ horizontalOffset: 2 });
+    const next = reduce(state, { type: 'scroll_horizontal', delta: -10 });
+    expect(next.horizontalOffset).toBe(0);
+  });
+
+  it('does not affect cursor or viewport offset', () => {
+    const state = makeState({ cursorLine: 10, viewportOffset: 5, horizontalOffset: 0 });
+    const next = reduce(state, { type: 'scroll_horizontal', delta: 4 });
+    expect(next.cursorLine).toBe(10);
+    expect(next.viewportOffset).toBe(5);
+  });
+
+  it('caps at maxLineWidth + 20', () => {
+    const state = makeState({ horizontalOffset: 0, maxLineWidth: 80 });
+    const next = reduce(state, { type: 'scroll_horizontal', delta: 200 });
+    expect(next.horizontalOffset).toBe(100); // 80 + 20
+  });
+
+  it('caps at 0 when maxLineWidth is 0', () => {
+    const state = makeState({ horizontalOffset: 0, maxLineWidth: 0 });
+    const next = reduce(state, { type: 'scroll_horizontal', delta: 50 });
+    expect(next.horizontalOffset).toBe(20); // 0 + 20
   });
 });

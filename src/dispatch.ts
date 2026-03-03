@@ -448,12 +448,32 @@ export const handleBrowseKey = (
     return { state: reduce(state, { type: 'move_cursor', delta: hp }) };
   }
 
+  // Horizontal scroll (h/l or left/right arrows)
+  if (key.char === 'h' || key.leftArrow) {
+    return { state: reduce(state, { type: 'scroll_horizontal', delta: -4 }) };
+  }
+  if (key.char === 'l' || key.rightArrow) {
+    return { state: reduce(state, { type: 'scroll_horizontal', delta: 4 }) };
+  }
+  // Reset horizontal scroll
+  if (key.char === '0') {
+    return { state: { ...state, horizontalOffset: 0 } };
+  }
+
   // Mouse wheel scroll — moves viewport, cursor stays unless off-screen
   if (key.scrollUp) {
     return { state: reduce(state, { type: 'scroll_viewport', delta: -3 }) };
   }
   if (key.scrollDown) {
     return { state: reduce(state, { type: 'scroll_viewport', delta: 3 }) };
+  }
+
+  // Mouse horizontal scroll (Shift+wheel / trackpad sideways)
+  if (key.scrollLeft) {
+    return { state: reduce(state, { type: 'scroll_horizontal', delta: -4 }) };
+  }
+  if (key.scrollRight) {
+    return { state: reduce(state, { type: 'scroll_horizontal', delta: 4 }) };
   }
 
   // Jump to top/bottom

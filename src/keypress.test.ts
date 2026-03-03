@@ -33,6 +33,8 @@ const expectKey = (
     'end',
     'scrollUp',
     'scrollDown',
+    'scrollLeft',
+    'scrollRight',
   ];
   for (const field of boolFields) {
     if (!(field in expected)) {
@@ -330,6 +332,46 @@ describe('mouse wheel', () => {
     // Button 65+32=97=0x61, col=1+32=33, row=1+32=33
     const raw = `\x1b[M${String.fromCharCode(97, 33, 33)}`;
     expectKey(raw, { scrollDown: true });
+  });
+
+  it('parses SGR native horizontal scroll left (button 66)', () => {
+    expectKey('\x1b[<66;1;1M', { scrollLeft: true });
+  });
+
+  it('parses SGR native horizontal scroll right (button 67)', () => {
+    expectKey('\x1b[<67;1;1M', { scrollRight: true });
+  });
+
+  it('parses SGR Shift+wheel up as scrollLeft (button 68)', () => {
+    expectKey('\x1b[<68;1;1M', { scrollLeft: true });
+  });
+
+  it('parses SGR Shift+wheel down as scrollRight (button 69)', () => {
+    expectKey('\x1b[<69;1;1M', { scrollRight: true });
+  });
+
+  it('parses legacy X10 native horizontal scroll left (button 66)', () => {
+    // Button 66+32=98, col=1+32=33, row=1+32=33
+    const raw = `\x1b[M${String.fromCharCode(98, 33, 33)}`;
+    expectKey(raw, { scrollLeft: true });
+  });
+
+  it('parses legacy X10 native horizontal scroll right (button 67)', () => {
+    // Button 67+32=99, col=1+32=33, row=1+32=33
+    const raw = `\x1b[M${String.fromCharCode(99, 33, 33)}`;
+    expectKey(raw, { scrollRight: true });
+  });
+
+  it('parses legacy X10 Shift+wheel up as scrollLeft (button 68)', () => {
+    // Button 68+32=100, col=1+32=33, row=1+32=33
+    const raw = `\x1b[M${String.fromCharCode(100, 33, 33)}`;
+    expectKey(raw, { scrollLeft: true });
+  });
+
+  it('parses legacy X10 Shift+wheel down as scrollRight (button 69)', () => {
+    // Button 69+32=101, col=1+32=33, row=1+32=33
+    const raw = `\x1b[M${String.fromCharCode(101, 33, 33)}`;
+    expectKey(raw, { scrollRight: true });
   });
 });
 

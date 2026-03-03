@@ -27,6 +27,8 @@ export type Key = {
   end: boolean;
   scrollUp: boolean;
   scrollDown: boolean;
+  scrollLeft: boolean;
+  scrollRight: boolean;
   /** 1-based terminal row for mouse click, 0 = not a click. */
   mouseRow: number;
   /** 1-based terminal column for mouse click, 0 = not a click. */
@@ -52,6 +54,8 @@ const EMPTY_KEY: Key = {
   end: false,
   scrollUp: false,
   scrollDown: false,
+  scrollLeft: false,
+  scrollRight: false,
   mouseRow: 0,
   mouseCol: 0,
 };
@@ -66,9 +70,12 @@ export const parseKeypress = (data: Buffer | string): Key => {
     const col = Number(sgrMatch[2]);
     const row = Number(sgrMatch[3]);
     const press = sgrMatch[4] === 'M';
-    // Wheel events
+    // Wheel events (vertical)
     if (btn === 64) return { ...EMPTY_KEY, scrollUp: true };
     if (btn === 65) return { ...EMPTY_KEY, scrollDown: true };
+    // Horizontal wheel — native trackpad (66/67) or Shift+wheel (68/69)
+    if (btn === 66 || btn === 68) return { ...EMPTY_KEY, scrollLeft: true };
+    if (btn === 67 || btn === 69) return { ...EMPTY_KEY, scrollRight: true };
     // Left click press (button 0)
     if (btn === 0 && press) return { ...EMPTY_KEY, mouseRow: row, mouseCol: col };
     return EMPTY_KEY; // ignore other mouse events
@@ -79,9 +86,12 @@ export const parseKeypress = (data: Buffer | string): Key => {
     const btn = raw.charCodeAt(3) - 32;
     const col = raw.charCodeAt(4) - 32;
     const row = raw.charCodeAt(5) - 32;
-    // Wheel events
+    // Wheel events (vertical)
     if (btn === 64) return { ...EMPTY_KEY, scrollUp: true };
     if (btn === 65) return { ...EMPTY_KEY, scrollDown: true };
+    // Horizontal wheel — native trackpad (66/67) or Shift+wheel (68/69)
+    if (btn === 66 || btn === 68) return { ...EMPTY_KEY, scrollLeft: true };
+    if (btn === 67 || btn === 69) return { ...EMPTY_KEY, scrollRight: true };
     // Left click press (button 0)
     if (btn === 0) return { ...EMPTY_KEY, mouseRow: row, mouseCol: col };
     return EMPTY_KEY; // ignore other mouse events

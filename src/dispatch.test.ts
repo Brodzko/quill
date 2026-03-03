@@ -53,15 +53,21 @@ const EMPTY_KEY: Key = {
   end: false,
   scrollUp: false,
   scrollDown: false,
+  scrollLeft: false,
+  scrollRight: false,
+  mouseRow: 0,
+  mouseCol: 0,
 };
 
 const key = (overrides: Partial<Key>): Key => ({ ...EMPTY_KEY, ...overrides });
 
 const makeState = (overrides: Partial<BrowseState> = {}): BrowseState => ({
   lineCount: 100,
+  maxLineWidth: 120,
   viewportHeight: 20,
   cursorLine: 10,
   viewportOffset: 0,
+  horizontalOffset: 0,
   mode: 'browse',
   annotations: [],
   expandedAnnotations: new Set(),
@@ -148,6 +154,54 @@ describe('handleBrowseKey', () => {
     const result = handleBrowseKey(key({ scrollDown: true }), state, false);
     expect(result.state.viewportOffset).toBe(8);
     expect(result.state.cursorLine).toBe(9);
+  });
+
+  it('h scrolls left (decreases horizontal offset)', () => {
+    const state = makeState({ horizontalOffset: 8 });
+    const result = handleBrowseKey(key({ char: 'h' }), state, false);
+    expect(result.state.horizontalOffset).toBe(4);
+  });
+
+  it('l scrolls right (increases horizontal offset)', () => {
+    const state = makeState({ horizontalOffset: 0 });
+    const result = handleBrowseKey(key({ char: 'l' }), state, false);
+    expect(result.state.horizontalOffset).toBe(4);
+  });
+
+  it('left arrow scrolls left', () => {
+    const state = makeState({ horizontalOffset: 8 });
+    const result = handleBrowseKey(key({ leftArrow: true }), state, false);
+    expect(result.state.horizontalOffset).toBe(4);
+  });
+
+  it('right arrow scrolls right', () => {
+    const state = makeState({ horizontalOffset: 0 });
+    const result = handleBrowseKey(key({ rightArrow: true }), state, false);
+    expect(result.state.horizontalOffset).toBe(4);
+  });
+
+  it('0 resets horizontal offset to 0', () => {
+    const state = makeState({ horizontalOffset: 12 });
+    const result = handleBrowseKey(key({ char: '0' }), state, false);
+    expect(result.state.horizontalOffset).toBe(0);
+  });
+
+  it('horizontal scroll clamps at 0', () => {
+    const state = makeState({ horizontalOffset: 2 });
+    const result = handleBrowseKey(key({ char: 'h' }), state, false);
+    expect(result.state.horizontalOffset).toBe(0);
+  });
+
+  it('scrollLeft (trackpad) scrolls left', () => {
+    const state = makeState({ horizontalOffset: 8 });
+    const result = handleBrowseKey(key({ scrollLeft: true }), state, false);
+    expect(result.state.horizontalOffset).toBe(4);
+  });
+
+  it('scrollRight (trackpad) scrolls right', () => {
+    const state = makeState({ horizontalOffset: 0 });
+    const result = handleBrowseKey(key({ scrollRight: true }), state, false);
+    expect(result.state.horizontalOffset).toBe(4);
   });
 
   it('Home jumps to line 1', () => {

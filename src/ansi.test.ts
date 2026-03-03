@@ -7,6 +7,7 @@ import {
   colorBold,
   dim,
   highlightSearchMatches,
+  sliceAnsi,
   stripAnsi,
   truncateAnsi,
   visibleLength,
@@ -173,5 +174,53 @@ describe('truncateAnsi', () => {
     const styled = `ab\x1b[31mcd`;
     const result = truncateAnsi(styled, 2);
     expect(stripAnsi(result)).toBe('ab');
+  });
+});
+
+describe('sliceAnsi', () => {
+  it('with start=0 behaves like truncateAnsi', () => {
+    expect(sliceAnsi('hello world', 0, 5)).toBe(`hello${RESET}`);
+  });
+
+  it('skips start visible chars from plain text', () => {
+    expect(sliceAnsi('hello world', 6, 5)).toBe('world');
+  });
+
+  it('returns empty string when start exceeds visible length', () => {
+    expect(sliceAnsi('hello', 10, 5)).toBe('');
+  });
+
+  it('preserves ANSI sequences from before the slice window', () => {
+    const styled = `\x1b[32mhello world\x1b[0m`;
+    const result = sliceAnsi(styled, 6, 5);
+    // Should contain the green escape and show 'world'
+    expect(stripAnsi(result)).toBe('world');
+    expect(result).toContain('\x1b[32m');
+  });
+
+  it('handles ANSI sequence at the slice boundary', () => {
+    // "ab" + color change + "cd" → skip 2, take 2 → "cd" with color
+    const styled = `ab\x1b[31mcd`;
+    const result = sliceAnsi(styled, 2, 2);
+    expect(stripAnsi(result)).toBe('cd');
+    expect(result).toContain('\x1b[31m');
+  });
+
+  it('truncates at width when content exceeds it', () => {
+    const result = sliceAnsi('abcdefghij', 2, 4);
+    expect(stripAnsi(result)).toBe('cdef');
+  });
+
+  it('returns remainder when width exceeds remaining content', () => {
+    const result = sliceAnsi('abcde', 3, 10);
+    expect(result).toBe('de');
+  });
+
+  it('handles multiple ANSI sequences across skip and window', () => {
+    // green "ab" + red "cd" + blue "ef"
+    const styled = `\x1b[32mab\x1b[31mcd\x1b[34mef`;
+    const result = sliceAnsi(styled, 2, 3);
+    // Should show "cde" with red/blue coloring
+    expect(stripAnsi(result)).toBe('cde');
   });
 });

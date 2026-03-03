@@ -89,6 +89,54 @@ export const truncateAnsi = (s: string, maxVisible: number): string => {
 };
 
 /**
+ * Slice an ANSI-styled string: skip `start` visible characters, then take up to
+ * `width` visible characters. Preserves ANSI state accumulated before the window
+ * so colors/styles carry over correctly. Appends RESET if truncated.
+ *
+ * Returns the string unchanged when start=0 and it fits within width.
+ */
+export const sliceAnsi = (
+  s: string,
+  start: number,
+  width: number
+): string => {
+  if (start === 0) return truncateAnsi(s, width);
+
+  // Phase 1: skip `start` visible chars, collecting ANSI sequences
+  let i = 0;
+  let skipped = 0;
+  const pendingAnsi: string[] = [];
+
+  while (i < s.length && skipped < start) {
+    if (s[i] === '\x1b' && s[i + 1] === '[') {
+      const mIdx = s.indexOf('m', i + 2);
+      if (mIdx !== -1) {
+        pendingAnsi.push(s.slice(i, mIdx + 1));
+        i = mIdx + 1;
+        continue;
+      }
+    }
+    skipped++;
+    i++;
+  }
+
+  // Collect any trailing ANSI sequences right after the skip window
+  while (i < s.length && s[i] === '\x1b' && s[i + 1] === '[') {
+    const mIdx = s.indexOf('m', i + 2);
+    if (mIdx === -1) break;
+    pendingAnsi.push(s.slice(i, mIdx + 1));
+    i = mIdx + 1;
+  }
+
+  if (i >= s.length) return ''; // nothing left after skip
+
+  // Phase 2: take up to `width` visible chars from position i
+  const rest = s.slice(i);
+  const prefix = pendingAnsi.join('');
+  return truncateAnsi(`${prefix}${rest}`, width);
+};
+
+/**
  * Wrap a string with a background color that extends to the full terminal width.
  *
  * Embedded RESET sequences (`\x1b[0m`) kill all attributes including background,

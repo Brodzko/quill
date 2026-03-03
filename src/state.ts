@@ -116,9 +116,13 @@ export type Selection = {
 
 export type BrowseState = {
   readonly lineCount: number;
+  /** Maximum visible character width among all source lines. */
+  readonly maxLineWidth: number;
   readonly viewportHeight: number;
   readonly cursorLine: number;
   readonly viewportOffset: number;
+  /** Horizontal scroll offset — number of visible characters to skip from the left edge. */
+  readonly horizontalOffset: number;
   readonly mode: Mode;
   readonly annotations: readonly Annotation[];
   /** Present only in 'select' mode. */
@@ -147,7 +151,8 @@ export type BrowseAction =
   | { type: 'set_search'; pattern: string; matchLines: readonly number[] }
   | { type: 'clear_search' }
   | { type: 'navigate_match'; delta: 1 | -1 }
-  | { type: 'scroll_viewport'; delta: number };
+  | { type: 'scroll_viewport'; delta: number }
+  | { type: 'scroll_horizontal'; delta: number };
 
 export const clampLine = (value: number, lineCount: number): number =>
   R.clamp(value, { min: 1, max: Math.max(1, lineCount) });
@@ -367,6 +372,14 @@ export const reduce = (state: BrowseState, action: BrowseAction): BrowseState =>
         max: visBottom,
       });
       return { ...state, viewportOffset, cursorLine };
+    }
+    case 'scroll_horizontal': {
+      const maxHorizontal = Math.max(0, state.maxLineWidth + 20);
+      const horizontalOffset = R.clamp(state.horizontalOffset + action.delta, {
+        min: 0,
+        max: maxHorizontal,
+      });
+      return { ...state, horizontalOffset };
     }
   }
 };
