@@ -26,6 +26,7 @@ import {
   INITIAL_GOTO_FLOW,
   INITIAL_REPLY_FLOW,
   INITIAL_SEARCH_FLOW,
+  applyActions,
   halfPage,
   reduce,
   selectionRange,
@@ -290,11 +291,13 @@ export const handleGotoKey = (
 
   if (key.return) {
     const target = parseInt(flow.input, 10);
-    let nextState = reduce(state, { type: 'set_mode', mode: 'browse' });
-    if (!Number.isNaN(target) && target > 0) {
-      nextState = reduce(nextState, { type: 'set_cursor', line: target });
-    }
-    return { state: nextState, gotoFlow: undefined };
+    const actions = [
+      { type: 'set_mode' as const, mode: 'browse' as const },
+      ...(!Number.isNaN(target) && target > 0
+        ? [{ type: 'set_cursor' as const, line: target }]
+        : []),
+    ];
+    return { state: applyActions(state, actions), gotoFlow: undefined };
   }
 
   if (key.backspace) {
@@ -383,27 +386,21 @@ const jumpToNextAnnotation = (
     targetLine = prev ?? annotatedLines[annotatedLines.length - 1]!;
   }
 
-  // Collapse annotations on the current line
-  let s = state;
-  const currentAnns = annotationsOnLine(s.annotations, currentLine);
-  for (const ann of currentAnns) {
-    if (s.expandedAnnotations.has(ann.id)) {
-      s = reduce(s, { type: 'toggle_annotation', annotationId: ann.id });
-    }
-  }
+  // Collapse expanded annotations on departure line, move cursor, expand on target line
+  const collapseActions = annotationsOnLine(state.annotations, currentLine)
+    .filter((a) => state.expandedAnnotations.has(a.id))
+    .map((a) => ({ type: 'toggle_annotation' as const, annotationId: a.id }));
 
-  // Move cursor
-  s = reduce(s, { type: 'set_cursor', line: targetLine });
+  const afterCollapse = applyActions(state, [
+    ...collapseActions,
+    { type: 'set_cursor', line: targetLine },
+  ]);
 
-  // Expand annotations on the target line
-  const targetAnns = annotationsOnLine(s.annotations, targetLine);
-  for (const ann of targetAnns) {
-    if (!s.expandedAnnotations.has(ann.id)) {
-      s = reduce(s, { type: 'toggle_annotation', annotationId: ann.id });
-    }
-  }
+  const expandActions = annotationsOnLine(afterCollapse.annotations, targetLine)
+    .filter((a) => !afterCollapse.expandedAnnotations.has(a.id))
+    .map((a) => ({ type: 'toggle_annotation' as const, annotationId: a.id }));
 
-  return { state: s };
+  return { state: applyActions(afterCollapse, expandActions) };
 };
 
 // --- Browse mode ---
@@ -420,14 +417,16 @@ export const handleBrowseKey = (
 
   // Shift+arrows → start selection and extend
   if (key.shift && key.upArrow) {
-    let s = reduce(state, { type: 'start_select' });
-    s = reduce(s, { type: 'extend_select', delta: -1 });
-    return { state: s };
+    return { state: applyActions(state, [
+      { type: 'start_select' },
+      { type: 'extend_select', delta: -1 },
+    ]) };
   }
   if (key.shift && key.downArrow) {
-    let s = reduce(state, { type: 'start_select' });
-    s = reduce(s, { type: 'extend_select', delta: 1 });
-    return { state: s };
+    return { state: applyActions(state, [
+      { type: 'start_select' },
+      { type: 'extend_select', delta: 1 },
+    ]) };
   }
 
   // Single-line movement
@@ -457,7 +456,7 @@ export const handleBrowseKey = (
   }
   // Reset horizontal scroll
   if (key.char === '0') {
-    return { state: { ...state, horizontalOffset: 0 } };
+    return { state: reduce(state, { type: 'reset_horizontal' }) };
   }
 
   // Mouse wheel scroll — moves viewport, cursor stays unless off-screen
@@ -538,31 +537,18 @@ export const handleBrowseKey = (
 
   // c — toggle annotations on cursor line (expand if collapsed, collapse if expanded)
   if (key.char === 'c') {
-    const annsOnLine = annotationsOnLine(state.annotations, state.cursorLine);
-    if (annsOnLine.length > 0) {
-      let s = state;
-      for (const ann of annsOnLine) {
-        s = reduce(s, { type: 'toggle_annotation', annotationId: ann.id });
-      }
-      return { state: s };
-    }
-    return { state };
+    const toggleActions = annotationsOnLine(state.annotations, state.cursorLine)
+      .map((a) => ({ type: 'toggle_annotation' as const, annotationId: a.id }));
+    return { state: toggleActions.length > 0 ? applyActions(state, toggleActions) : state };
   }
 
   // C — toggle all: collapse all if any expanded, expand all if none expanded
   if (key.char === 'C') {
     if (state.annotations.length === 0) return { state };
-    if (state.expandedAnnotations.size > 0) {
-      return {
-        state: { ...state, expandedAnnotations: new Set<string>() },
-      };
-    }
-    return {
-      state: {
-        ...state,
-        expandedAnnotations: new Set(state.annotations.map((a) => a.id)),
-      },
-    };
+    const action = state.expandedAnnotations.size > 0
+      ? { type: 'collapse_all' as const }
+      : { type: 'expand_all' as const };
+    return { state: reduce(state, action) };
   }
 
   // r — reply to expanded annotation on cursor line
@@ -662,13 +648,11 @@ export const handleReplyKey = (
   if (key.return && !key.shift && !key.alt) {
     const trimmed = getText(flow.comment).trim();
     if (trimmed.length > 0) {
-      const nextState = reduce(state, {
-        type: 'add_reply',
-        annotationId: flow.annotationId,
-        reply: { comment: trimmed, source: 'user' },
-      });
       return {
-        state: reduce(nextState, { type: 'set_mode', mode: 'browse' }),
+        state: applyActions(state, [
+          { type: 'add_reply', annotationId: flow.annotationId, reply: { comment: trimmed, source: 'user' } },
+          { type: 'set_mode', mode: 'browse' },
+        ]),
         replyFlow: undefined,
       };
     }
@@ -702,13 +686,11 @@ export const handleEditKey = (
   if (key.return && !key.shift && !key.alt) {
     const trimmed = getText(flow.comment).trim();
     if (trimmed.length > 0) {
-      const nextState = reduce(state, {
-        type: 'update_annotation',
-        annotationId: flow.annotationId,
-        changes: { comment: trimmed },
-      });
       return {
-        state: reduce(nextState, { type: 'set_mode', mode: 'browse' }),
+        state: applyActions(state, [
+          { type: 'update_annotation', annotationId: flow.annotationId, changes: { comment: trimmed } },
+          { type: 'set_mode', mode: 'browse' },
+        ]),
         editFlow: undefined,
       };
     }
@@ -757,10 +739,10 @@ export const handleConfirmKey = (
     const selected = getHighlighted(flow.picker);
     if (selected?.id === 'yes') {
       return {
-        state: reduce(
-          reduce(state, { type: 'delete_annotation', annotationId: flow.annotationId }),
-          { type: 'set_mode', mode: 'browse' }
-        ),
+        state: applyActions(state, [
+          { type: 'delete_annotation', annotationId: flow.annotationId },
+          { type: 'set_mode', mode: 'browse' },
+        ]),
         confirmFlow: undefined,
       };
     }
@@ -775,10 +757,10 @@ export const handleConfirmKey = (
   const matched = findByShortcut(flow.picker, key.char);
   if (matched?.id === 'yes') {
     return {
-      state: reduce(
-        reduce(state, { type: 'delete_annotation', annotationId: flow.annotationId }),
-        { type: 'set_mode', mode: 'browse' }
-      ),
+      state: applyActions(state, [
+        { type: 'delete_annotation', annotationId: flow.annotationId },
+        { type: 'set_mode', mode: 'browse' },
+      ]),
       confirmFlow: undefined,
     };
   }
@@ -822,10 +804,10 @@ export const handleSearchKey = (
   // Escape clears search and returns to browse
   if (key.escape) {
     return {
-      state: reduce(
-        reduce(state, { type: 'clear_search' }),
-        { type: 'set_mode', mode: 'browse' }
-      ),
+      state: applyActions(state, [
+        { type: 'clear_search' },
+        { type: 'set_mode', mode: 'browse' },
+      ]),
       searchFlow: undefined,
     };
   }
@@ -836,19 +818,19 @@ export const handleSearchKey = (
     if (pattern.length > 0) {
       const matchLines = findMatchLines(sourceLines, pattern);
       return {
-        state: reduce(
-          reduce(state, { type: 'set_search', pattern, matchLines }),
-          { type: 'set_mode', mode: 'browse' }
-        ),
+        state: applyActions(state, [
+          { type: 'set_search', pattern, matchLines },
+          { type: 'set_mode', mode: 'browse' },
+        ]),
         searchFlow: undefined,
       };
     }
     // Empty pattern — clear search and return
     return {
-      state: reduce(
-        reduce(state, { type: 'clear_search' }),
-        { type: 'set_mode', mode: 'browse' }
-      ),
+      state: applyActions(state, [
+        { type: 'clear_search' },
+        { type: 'set_mode', mode: 'browse' },
+      ]),
       searchFlow: undefined,
     };
   }
