@@ -12,6 +12,8 @@ import { stderr } from 'process';
 import * as R from 'remeda';
 import { defineCommand, runMain } from 'citty';
 import { visibleLength } from './ansi.js';
+import { alignDiff, type DiffData } from './diff-align.js';
+import { resolveDiff } from './diff.js';
 import { type BundledTheme, DEFAULT_THEME, highlightCode } from './highlight.js';
 import { getViewportHeight } from './render.js';
 import {
@@ -21,7 +23,9 @@ import {
 import { runSession } from './session.js';
 import {
   clampLine,
+  clampCursor,
   computeViewportOffset,
+  type DiffMeta,
   type SessionState,
 } from './state.js';
 import {
@@ -61,6 +65,18 @@ const command = defineCommand({
       description:
         'Shiki theme name for syntax highlighting (default: one-dark-pro)',
     },
+    'diff-ref': {
+      type: 'string',
+      description: 'Diff against a git ref (e.g. main, HEAD~1)',
+    },
+    staged: {
+      type: 'boolean',
+      description: 'Diff staged changes',
+    },
+    unstaged: {
+      type: 'boolean',
+      description: 'Diff unstaged changes',
+    },
   },
   async run({ args }) {
     const filePath = args.file;
@@ -69,6 +85,9 @@ const command = defineCommand({
     const focusAnnotationArg = args['focus-annotation'] ?? undefined;
     const annotationsPath = args.annotations ?? undefined;
     const theme = (args.theme as BundledTheme | undefined) ?? DEFAULT_THEME;
+    const diffRef = args['diff-ref'] ?? undefined;
+    const staged = args.staged ?? false;
+    const unstaged = args.unstaged ?? false;
 
     try {
       // --- Input resolution ---
@@ -93,6 +112,48 @@ const command = defineCommand({
         0
       );
       const initialAnnotations = normalizeInputAnnotations(envelope);
+
+      // --- Diff resolution ---
+      let diffData: DiffData | undefined;
+      let diffMeta: DiffMeta | undefined;
+      let oldHighlightedLines: string[] | undefined;
+
+      const diffFlagCount = [diffRef, staged, unstaged].filter(Boolean).length;
+      if (diffFlagCount > 1) {
+        throw new Error('Only one diff source allowed: --diff-ref, --staged, or --unstaged');
+      }
+
+      if (diffRef || staged || unstaged) {
+        const source = diffRef
+          ? { type: 'ref' as const, ref: diffRef }
+          : staged
+            ? { type: 'staged' as const }
+            : { type: 'unstaged' as const };
+        const diffInput = resolveDiff(source, filePath);
+        if (diffInput.rawDiff.trim().length === 0) {
+          stderr.write('No differences found — opening in raw mode\n');
+        } else {
+          diffData = alignDiff(diffInput.rawDiff, diffInput.label);
+          diffMeta = {
+            rowCount: diffData.rows.length,
+            visibleLines: diffData.visibleNewLines,
+            newLineToRow: diffData.newLineToRowIndex,
+          };
+
+          // Highlight old file content if available
+          if (diffInput.oldContent) {
+            try {
+              oldHighlightedLines = await highlightCode({
+                code: diffInput.oldContent,
+                filePath,
+                theme,
+              });
+            } catch {
+              // Old file highlighting failed — old side renders without color
+            }
+          }
+        }
+      }
 
       const focusedAnnotation = focusAnnotationArg
         ? R.find(
@@ -126,7 +187,8 @@ const command = defineCommand({
         ? new Set([focusedAnnotation.id])
         : new Set<string>();
 
-      const initialState: SessionState = {
+      const initialViewMode = diffData ? 'diff' : 'raw';
+      const initialStateBase: SessionState = {
         lineCount,
         maxLineWidth,
         viewportHeight: initialViewportHeight,
@@ -142,8 +204,17 @@ const command = defineCommand({
         annotations: initialAnnotations,
         expandedAnnotations: initialExpandedAnnotations,
         focusedAnnotationId: focusedAnnotation?.id ?? null,
-        viewMode: 'raw',
+        viewMode: initialViewMode,
+        diffMeta,
       };
+
+      // In diff mode, clamp cursor to nearest visible diff line
+      const initialState: SessionState = diffMeta
+        ? {
+            ...initialStateBase,
+            cursorLine: clampCursor(initialStateBase, initialCursorLine),
+          }
+        : initialStateBase;
 
       // --- Launch interactive session ---
       runSession({
@@ -151,6 +222,8 @@ const command = defineCommand({
         lines,
         sourceLines,
         initialState,
+        diffData,
+        oldHighlightedLines,
       });
     } catch (error) {
       // Ensure we leave alt screen on crash

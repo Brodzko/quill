@@ -50,6 +50,10 @@ export type SessionConfig = {
   sourceLines: string[];
   /** Initial reducer state, fully resolved by the CLI layer. */
   initialState: SessionState;
+  /** Immutable diff data — undefined in raw-only sessions. */
+  diffData?: import('./diff-align.js').DiffData;
+  /** Old-file highlighted lines — undefined when old content unavailable. */
+  oldHighlightedLines?: readonly string[];
 };
 
 // --- gg two-key sequence timer ---
@@ -95,7 +99,7 @@ const createGgTimer = (timeoutMs = 300): GgTimer => {
  * with terminal cleanup).
  */
 export const runSession = (config: SessionConfig): void => {
-  const { filePath, lines, sourceLines, initialState } = config;
+  const { filePath, lines, sourceLines, initialState, diffData, oldHighlightedLines } = config;
 
   // --- Interactive input setup ---
   const input = resolveInteractiveInput();
@@ -144,6 +148,8 @@ export const runSession = (config: SessionConfig): void => {
       state,
       terminalRows: rows,
       terminalCols: cols,
+      diffData,
+      oldHighlightedLines,
     };
 
     const result = buildFrame(ctx);
