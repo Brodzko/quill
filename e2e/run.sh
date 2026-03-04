@@ -109,20 +109,21 @@ add "Search mode" \
     "/ search, type 'annotation', matches highlighted, n/N cycle, Esc exits"
 
 # Diff mode (uses self-contained temp git repo — no dependency on project history)
+# Commands cd into the temp repo so git resolves refs correctly.
 add "Diff — side-by-side view" \
-    '$QUILL $DIFF_REPO/code.ts --diff-ref base' \
+    '(cd $DIFF_REPO && $QUILL code.ts --diff-ref base)' \
     "Side-by-side panes, add/remove/modify colors, hunk headers, title (diff: base)"
 add "Diff — toggle raw/diff" \
-    '$QUILL $DIFF_REPO/code.ts --diff-ref base' \
+    '(cd $DIFF_REPO && $QUILL code.ts --diff-ref base)' \
     "d toggles raw↔diff, cursor snaps on toggle, help bar updates"
 add "Diff — horizontal scroll" \
-    '$QUILL $DIFF_REPO/code.ts --diff-ref base' \
+    '(cd $DIFF_REPO && $QUILL code.ts --diff-ref base)' \
     "h/l scrolls both panes, ← indicator on long line, 0 resets"
 add "Diff — annotations in diff" \
-    '$QUILL $DIFF_REPO/code.ts --diff-ref base' \
+    '(cd $DIFF_REPO && $QUILL code.ts --diff-ref base)' \
     "v/j/a create annotation on diff line, box in right pane, Tab cycles, toggle preserves"
 add "Diff — no changes fallback" \
-    '$QUILL $DIFF_REPO/code.ts --diff-ref HEAD' \
+    '(cd $DIFF_REPO && $QUILL code.ts --diff-ref HEAD)' \
     "'No differences found' message, opens raw, d is no-op"
 
 # Resize / edge
