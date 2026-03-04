@@ -202,25 +202,32 @@ Manual smoke test on macOS covers every keybinding in the Navigation table.
 
 ### Phase 3 — Diff mode
 
-- [ ] **3.1 Diff flag handling**
-  `--diff-ref`, `--staged`, `--unstaged`, `--diff <path|->` CLI flags. Shell
-  out to `git diff` for ref/staged/unstaged. Read file/stdin for `--diff`.
+> **Detailed spec:** [`PHASE_3_PLAN.md`](PHASE_3_PLAN.md) — complete executable
+> plan with types, algorithms, acceptance criteria, and test strategy.
 
-- [ ] **3.2 Diff parser + alignment**
-  Parse unified diff (integrate `parse-diff` or hand-roll). Align old/new lines
-  side-by-side: paired context, removed (left only), added (right only),
-  modified (paired with background color).
+- [ ] **3.1 Diff ingestion** — CLI flags (`--diff-ref`, `--staged`, `--unstaged`,
+  `--diff <path|->`), git exec, stdin routing, `DiffInput` type. New `src/diff.ts`.
+- [ ] **3.2 Parser + aligner** — `parse-diff` integration, hunk alignment algorithm,
+  `AlignedRow`/`DiffData` types, line number mappings. New `src/diff-align.ts`.
+- [ ] **3.3 Side-by-side renderer** — `renderDiffViewport` in `render.ts`, split-pane
+  layout, diff background colors, annotation boxes in diff, hunk-header rows.
+- [ ] **3.4 State + dispatch** — `viewMode: 'raw' | 'diff'` on state, `diffMeta` for
+  reducer, diff-aware cursor clamping, `d`-key toggle, selection in diff mode.
+- [ ] **3.5 Annotation anchoring** — annotations on new-file lines only, output
+  `mode: 'diff'` + `diffRef`, Tab-cycling in diff mode.
+- [ ] **3.6 Raw ↔ diff toggle** — `toggle_view_mode` reducer, cursor translation
+  between views, viewport recompute.
 
-- [ ] **3.3 Side-by-side rendering**
-  Split terminal width, render old/new with Shiki highlighting + diff
-  background colors (red/green). Truncate long lines with `…`.
-
-- [ ] **3.4 Annotations anchor to new-file lines**
-  Build `displayRow → newFileLine` mapping. Selection and annotation creation
-  reference new-file line numbers. Status bar shows new-file line numbers.
+**Key decisions** (see `PHASE_3_PLAN.md §12` for full rationale):
+- Hunks-only display (like GitLab); full file via raw mode toggle
+- Annotations reference new-file line numbers; no annotations on old code
+- `DiffData` is immutable input (not state); minimal `diffMeta` on `SessionState`
+- No horizontal scroll in diff mode — panes truncate
+- Old-file highlighting via `git show`; graceful degradation when unavailable
 
 **Exit criteria:** `quill src/auth.ts --diff-ref main` renders a usable
-side-by-side diff with syntax highlighting and annotation support.
+side-by-side diff with syntax highlighting, annotation support, and `d`-key
+toggle to raw view.
 
 ### Phase 4 — Polish & ship
 
