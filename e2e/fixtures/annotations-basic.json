@@ -1,0 +1,45 @@
+{
+  "annotations": [
+    {
+      "id": "e2e-1",
+      "startLine": 12,
+      "endLine": 12,
+      "intent": "question",
+      "comment": "Should this be a discriminated union instead of a plain string union?",
+      "source": "agent"
+    },
+    {
+      "id": "e2e-2",
+      "startLine": 38,
+      "endLine": 40,
+      "intent": "instruct",
+      "category": "bug",
+      "comment": "validateAnnotation doesn't check for empty `id` — the truthiness check passes for any non-empty string but doesn't validate format.",
+      "source": "agent"
+    },
+    {
+      "id": "e2e-3",
+      "startLine": 80,
+      "endLine": 80,
+      "intent": "comment",
+      "category": "style",
+      "comment": "This line is intentionally long for scroll testing. Consider breaking it up.",
+      "source": "agent"
+    },
+    {
+      "id": "e2e-4",
+      "startLine": 84,
+      "endLine": 98,
+      "intent": "comment",
+      "category": "design",
+      "comment": "Large config object — consider extracting into a separate config module with schema validation.",
+      "source": "agent",
+      "replies": [
+        {
+          "comment": "Agreed, will extract in a follow-up PR.",
+          "source": "user"
+        }
+      ]
+    }
+  ]
+}

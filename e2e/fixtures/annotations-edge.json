@@ -1,0 +1,30 @@
+{
+  "annotations": [
+    {
+      "startLine": 1,
+      "endLine": 1,
+      "intent": "comment",
+      "comment": "First line annotation — tests top boundary"
+    },
+    {
+      "id": "multi-1",
+      "startLine": 3,
+      "endLine": 3,
+      "intent": "instruct",
+      "comment": "First annotation on line 3"
+    },
+    {
+      "id": "multi-2",
+      "startLine": 3,
+      "endLine": 3,
+      "intent": "question",
+      "comment": "Second annotation on line 3 — tests multi-annotation markers"
+    },
+    {
+      "startLine": "5",
+      "endLine": "5",
+      "intent": "comment",
+      "comment": "String line numbers — tests coercion"
+    }
+  ]
+}
