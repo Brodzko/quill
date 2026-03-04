@@ -170,13 +170,14 @@ if [[ ! -f "$ROOT_DIR/dist/cli.js" ]]; then
   exit 1
 fi
 
+if [[ "${1:-}" == "build" ]]; then
+  echo -e "${C}Building...${X}"
+  (cd "$ROOT_DIR" && npm run build)
+  echo -e "${G}Build complete.${X}\n"
+  shift || true
+fi
+
 case "${1:-}" in
-  build)
-    echo -e "${C}Building...${X}"
-    (cd "$ROOT_DIR" && npm run build)
-    echo -e "${G}Build complete.${X}\n"
-    shift || true
-    ;;&
   list)
     print_header
     list_scenarios
