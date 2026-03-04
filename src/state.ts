@@ -114,6 +114,20 @@ export type Selection = {
   readonly active: number;
 };
 
+/**
+ * Diff mode display metadata — derived from DiffData at startup, stored on
+ * state so the reducer can clamp cursors and compute viewport offsets without
+ * needing the full DiffData. Undefined when no diff data exists.
+ */
+export type DiffMeta = {
+  /** Total display rows (DiffData.rows.length). */
+  readonly rowCount: number;
+  /** Sorted new-file line numbers visible in the diff (from DiffData.visibleNewLines). */
+  readonly visibleLines: readonly number[];
+  /** Maps new-file line number (1-indexed) → display row index. */
+  readonly newLineToRow: ReadonlyMap<number, number>;
+};
+
 export type SessionState = {
   readonly lineCount: number;
   /** Maximum visible character width among all source lines. */
@@ -137,6 +151,10 @@ export type SessionState = {
   readonly focusedAnnotationId: string | null;
   /** Persistent search state — survives mode transitions. */
   readonly search?: SearchState;
+  /** Current view — 'raw' (default) or 'diff' (side-by-side). */
+  readonly viewMode: 'raw' | 'diff';
+  /** Diff display metadata. Set once at startup when diff data exists; undefined otherwise. */
+  readonly diffMeta?: DiffMeta;
 
   // --- Modal flow sub-states ---
   // Present when the corresponding mode is active; undefined otherwise.
@@ -175,10 +193,79 @@ export type BrowseAction =
   | { type: 'reset_horizontal' }
   | { type: 'collapse_all' }
   | { type: 'expand_all' }
-  | { type: 'focus_annotation'; annotationId: string | null };
+  | { type: 'focus_annotation'; annotationId: string | null }
+  | { type: 'toggle_view_mode' };
 
 export const clampLine = (value: number, lineCount: number): number =>
   R.clamp(value, { min: 1, max: Math.max(1, lineCount) });
+
+/**
+ * Find the index of the nearest visible line to `target` via binary search.
+ * `visibleLines` must be sorted ascending. Returns -1 for empty arrays.
+ */
+export const findNearestVisibleIndex = (
+  visibleLines: readonly number[],
+  target: number,
+): number => {
+  if (visibleLines.length === 0) return -1;
+  let lo = 0;
+  let hi = visibleLines.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (visibleLines[mid]! < target) lo = mid + 1;
+    else hi = mid;
+  }
+  // lo = first element >= target. Check if lo-1 is closer.
+  if (lo > 0) {
+    const distLo = Math.abs(visibleLines[lo]! - target);
+    const distPrev = Math.abs(visibleLines[lo - 1]! - target);
+    if (distPrev < distLo) return lo - 1;
+  }
+  return lo;
+};
+
+/**
+ * Clamp a cursor value for the current view mode.
+ * In raw mode, clamps to [1, lineCount].
+ * In diff mode, snaps to the nearest visible new-file line.
+ */
+export const clampCursor = (state: SessionState, value: number): number => {
+  if (state.viewMode === 'diff' && state.diffMeta && state.diffMeta.visibleLines.length > 0) {
+    const idx = findNearestVisibleIndex(state.diffMeta.visibleLines, value);
+    return state.diffMeta.visibleLines[idx]!;
+  }
+  return clampLine(value, state.lineCount);
+};
+
+/**
+ * Move cursor by delta in diff mode — steps through visible lines by index
+ * rather than by absolute line number.
+ */
+const moveCursorDiff = (state: SessionState, delta: number): number => {
+  const visLines = state.diffMeta!.visibleLines;
+  if (visLines.length === 0) return state.cursorLine;
+  const currentIdx = findNearestVisibleIndex(visLines, state.cursorLine);
+  const nextIdx = R.clamp(currentIdx + delta, { min: 0, max: visLines.length - 1 });
+  return visLines[nextIdx]!;
+};
+
+/**
+ * Compute viewport offset in diff mode. Translates cursor (new-file line)
+ * to a display row, then delegates to `computeViewportOffset`.
+ */
+const computeDiffViewportOffset = (
+  state: SessionState,
+  cursorLine: number,
+): number => {
+  const meta = state.diffMeta!;
+  const displayRow = (meta.newLineToRow.get(cursorLine) ?? 0) + 1; // 1-indexed
+  return computeViewportOffset({
+    cursorLine: displayRow,
+    currentOffset: state.viewportOffset,
+    viewportHeight: state.viewportHeight,
+    lineCount: meta.rowCount,
+  });
+};
 
 /** Get the ordered [startLine, endLine] from a selection. */
 export const selectionRange = (
@@ -252,40 +339,57 @@ export const computeFocus = (
   return firstExpanded?.id ?? null;
 };
 
-const recomputeOffset = (state: SessionState, viewportHeight: number): number =>
-  computeViewportOffset({
+const recomputeOffset = (state: SessionState, viewportHeight: number): number => {
+  if (state.viewMode === 'diff' && state.diffMeta) {
+    const displayRow = (state.diffMeta.newLineToRow.get(state.cursorLine) ?? 0) + 1;
+    return computeViewportOffset({
+      cursorLine: displayRow,
+      currentOffset: state.viewportOffset,
+      viewportHeight,
+      lineCount: state.diffMeta.rowCount,
+    });
+  }
+  return computeViewportOffset({
     cursorLine: state.cursorLine,
     currentOffset: state.viewportOffset,
     viewportHeight,
     lineCount: state.lineCount,
   });
+};
 
 export const reduce = (state: SessionState, action: BrowseAction): SessionState => {
   switch (action.type) {
     case 'move_cursor': {
-      const cursorLine = clampLine(
-        state.cursorLine + action.delta,
-        state.lineCount
-      );
-      const viewportOffset = computeViewportOffset({
-        cursorLine,
-        currentOffset: state.viewportOffset,
-        viewportHeight: state.viewportHeight,
-        lineCount: state.lineCount,
-      });
+      const inDiff = state.viewMode === 'diff' && state.diffMeta;
+      const cursorLine = inDiff
+        ? moveCursorDiff(state, action.delta)
+        : clampLine(state.cursorLine + action.delta, state.lineCount);
+      const viewportOffset = inDiff
+        ? computeDiffViewportOffset(state, cursorLine)
+        : computeViewportOffset({
+            cursorLine,
+            currentOffset: state.viewportOffset,
+            viewportHeight: state.viewportHeight,
+            lineCount: state.lineCount,
+          });
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
       return { ...state, cursorLine, viewportOffset, focusedAnnotationId };
     }
     case 'set_cursor': {
-      const cursorLine = clampLine(action.line, state.lineCount);
-      const viewportOffset = computeViewportOffset({
-        cursorLine,
-        currentOffset: state.viewportOffset,
-        viewportHeight: state.viewportHeight,
-        lineCount: state.lineCount,
-      });
+      const inDiff = state.viewMode === 'diff' && state.diffMeta;
+      const cursorLine = inDiff
+        ? clampCursor(state, action.line)
+        : clampLine(action.line, state.lineCount);
+      const viewportOffset = inDiff
+        ? computeDiffViewportOffset(state, cursorLine)
+        : computeViewportOffset({
+            cursorLine,
+            currentOffset: state.viewportOffset,
+            viewportHeight: state.viewportHeight,
+            lineCount: state.lineCount,
+          });
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
@@ -312,17 +416,19 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
     }
     case 'extend_select': {
       if (!state.selection) return state;
-      const active = clampLine(
-        state.selection.active + action.delta,
-        state.lineCount
-      );
+      const inDiff = state.viewMode === 'diff' && state.diffMeta;
+      const active = inDiff
+        ? moveCursorDiff({ ...state, cursorLine: state.selection.active }, action.delta)
+        : clampLine(state.selection.active + action.delta, state.lineCount);
       const cursorLine = active;
-      const viewportOffset = computeViewportOffset({
-        cursorLine,
-        currentOffset: state.viewportOffset,
-        viewportHeight: state.viewportHeight,
-        lineCount: state.lineCount,
-      });
+      const viewportOffset = inDiff
+        ? computeDiffViewportOffset(state, cursorLine)
+        : computeViewportOffset({
+            cursorLine,
+            currentOffset: state.viewportOffset,
+            viewportHeight: state.viewportHeight,
+            lineCount: state.lineCount,
+          });
       return {
         ...state,
         cursorLine,
@@ -386,16 +492,20 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
           search: { pattern: action.pattern, matchLines: [], currentMatchIndex: -1 },
         };
       }
+      const inDiff = state.viewMode === 'diff' && state.diffMeta;
       // Find the first match at or after the current cursor line
       const idx = action.matchLines.findIndex((l) => l >= state.cursorLine);
       const matchIdx = idx >= 0 ? idx : 0;
-      const cursorLine = action.matchLines[matchIdx]!;
-      const viewportOffset = computeViewportOffset({
-        cursorLine,
-        currentOffset: state.viewportOffset,
-        viewportHeight: state.viewportHeight,
-        lineCount: state.lineCount,
-      });
+      const rawCursorLine = action.matchLines[matchIdx]!;
+      const cursorLine = inDiff ? clampCursor(state, rawCursorLine) : rawCursorLine;
+      const viewportOffset = inDiff
+        ? computeDiffViewportOffset(state, cursorLine)
+        : computeViewportOffset({
+            cursorLine,
+            currentOffset: state.viewportOffset,
+            viewportHeight: state.viewportHeight,
+            lineCount: state.lineCount,
+          });
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
@@ -412,15 +522,19 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
     }
     case 'navigate_match': {
       if (!state.search || state.search.matchLines.length === 0) return state;
+      const inDiff = state.viewMode === 'diff' && state.diffMeta;
       const len = state.search.matchLines.length;
       const nextIdx = ((state.search.currentMatchIndex + action.delta) % len + len) % len;
-      const cursorLine = state.search.matchLines[nextIdx]!;
-      const viewportOffset = computeViewportOffset({
-        cursorLine,
-        currentOffset: state.viewportOffset,
-        viewportHeight: state.viewportHeight,
-        lineCount: state.lineCount,
-      });
+      const rawCursorLine = state.search.matchLines[nextIdx]!;
+      const cursorLine = inDiff ? clampCursor(state, rawCursorLine) : rawCursorLine;
+      const viewportOffset = inDiff
+        ? computeDiffViewportOffset(state, cursorLine)
+        : computeViewportOffset({
+            cursorLine,
+            currentOffset: state.viewportOffset,
+            viewportHeight: state.viewportHeight,
+            lineCount: state.lineCount,
+          });
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
@@ -433,12 +547,19 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       };
     }
     case 'scroll_viewport': {
-      const maxOffset = Math.max(0, state.lineCount - state.viewportHeight);
+      const inDiff = state.viewMode === 'diff' && state.diffMeta;
+      const effectiveLineCount = inDiff ? state.diffMeta!.rowCount : state.lineCount;
+      const maxOffset = Math.max(0, effectiveLineCount - state.viewportHeight);
       const viewportOffset = R.clamp(state.viewportOffset + action.delta, {
         min: 0,
         max: maxOffset,
       });
-      // Clamp cursor to stay within the visible viewport
+      if (inDiff) {
+        // In diff mode, cursor stays put unless we'd need more complex row-based clamping.
+        // For now, keep cursor unchanged — the renderer will handle visibility.
+        return { ...state, viewportOffset };
+      }
+      // Raw mode: clamp cursor to stay within the visible viewport
       const visTop = viewportOffset + 1;
       const visBottom = Math.min(
         viewportOffset + state.viewportHeight,
@@ -476,6 +597,26 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
     }
     case 'focus_annotation': {
       return { ...state, focusedAnnotationId: action.annotationId };
+    }
+    case 'toggle_view_mode': {
+      if (!state.diffMeta) return state; // no-op without diff data
+      const nextMode = state.viewMode === 'raw' ? 'diff' : 'raw';
+      const nextState = { ...state, viewMode: nextMode } as SessionState;
+      const cursorLine = nextMode === 'diff'
+        ? clampCursor(nextState, state.cursorLine)
+        : state.cursorLine;
+      const viewportOffset = nextMode === 'diff'
+        ? computeDiffViewportOffset(nextState, cursorLine)
+        : computeViewportOffset({
+            cursorLine,
+            currentOffset: 0, // reset viewport on toggle
+            viewportHeight: state.viewportHeight,
+            lineCount: state.lineCount,
+          });
+      const focusedAnnotationId = computeFocus(
+        cursorLine, state.annotations, state.expandedAnnotations
+      );
+      return { ...nextState, cursorLine, viewportOffset, focusedAnnotationId };
     }
   }
 };

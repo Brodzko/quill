@@ -24,6 +24,7 @@ const makeCtx = (overrides: Partial<RenderContext> = {}): RenderContext => {
     annotations: [],
     expandedAnnotations: new Set(),
     focusedAnnotationId: null,
+    viewMode: 'raw',
   };
   return {
     filePath: 'test.ts',
@@ -122,6 +123,7 @@ describe('buildFrame — decide mode', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(makeCtx({
       state: { ...state, decideFlow: { ...INITIAL_DECIDE_FLOW } },
@@ -150,6 +152,7 @@ describe('buildFrame — goto mode', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({ state: { ...state, gotoFlow: { input: '42' } } })
@@ -178,6 +181,7 @@ describe('buildFrame — annotation flow', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({
@@ -210,6 +214,7 @@ describe('buildFrame — select mode', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
       selection: { anchor: 3, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state })).frame;
@@ -229,6 +234,7 @@ describe('buildFrame — select mode', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
       selection: { anchor: 3, active: 7 },
     };
     const frame = buildFrame(makeCtx({ state })).frame;
@@ -249,6 +255,7 @@ describe('buildFrame — select mode', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
       selection: { anchor: 5, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state })).frame;
@@ -270,6 +277,7 @@ describe('buildFrame — select mode', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
       selection: { anchor: 3, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state })).frame;
@@ -302,6 +310,7 @@ describe('buildFrame — annotation markers', () => {
       annotations: [annotation],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
@@ -332,6 +341,7 @@ describe('buildFrame — annotation markers', () => {
       annotations: [annotation],
       expandedAnnotations: new Set(['focus-ann']),
       focusedAnnotationId: 'focus-ann',
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({
@@ -359,6 +369,7 @@ describe('buildFrame — annotation markers', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 5 }, (_, i) => `line ${i + 1}`) })
@@ -386,6 +397,7 @@ describe('buildFrame — viewport overflow', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({
@@ -424,6 +436,7 @@ describe('buildFrame — expanded annotation box', () => {
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
@@ -454,6 +467,7 @@ describe('buildFrame — expanded annotation box', () => {
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
@@ -483,6 +497,7 @@ describe('buildFrame — expanded annotation box', () => {
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
       focusedAnnotationId: 'a1',
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({
@@ -516,6 +531,7 @@ describe('buildFrame — expanded annotation box', () => {
       annotations: [annotation],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
@@ -544,6 +560,7 @@ describe('buildFrame — expanded annotation box', () => {
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`) })
@@ -571,6 +588,7 @@ describe('buildFrame — reply mode', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({
@@ -596,6 +614,7 @@ describe('buildFrame — edit mode', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({
@@ -621,6 +640,7 @@ describe('buildFrame — annotation flow category step', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({
@@ -654,6 +674,7 @@ describe('buildFrame — annotation flow comment step', () => {
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
+      viewMode: 'raw',
     };
     const frame = buildFrame(
       makeCtx({

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation } from './schema.js';
 import {
+  type DiffMeta,
   type SessionState,
+  clampCursor,
   clampLine,
   computeFocus,
   computeViewportOffset,
+  findNearestVisibleIndex,
   halfPage,
   reduce,
   selectionRange,
@@ -25,6 +28,7 @@ const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
   annotations: [],
   expandedAnnotations: new Set(),
   focusedAnnotationId: null,
+  viewMode: 'raw',
   ...overrides,
 });
 
@@ -1062,5 +1066,286 @@ describe('focusedAnnotationId — reducer integration', () => {
     });
     const next = reduce(state, { type: 'focus_annotation', annotationId: 'a2' });
     expect(next.focusedAnnotationId).toBe('a2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Diff mode helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Helper: create a DiffMeta representing a diff with visible new-file lines.
+ * newLineToRow maps each visible line to a sequential row index.
+ */
+const makeDiffMeta = (visibleLines: number[]): DiffMeta => {
+  const newLineToRow = new Map<number, number>();
+  visibleLines.forEach((ln, i) => newLineToRow.set(ln, i));
+  return {
+    rowCount: visibleLines.length + 2, // +2 for hunk headers / padding
+    visibleLines,
+    newLineToRow,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// findNearestVisibleIndex
+// ---------------------------------------------------------------------------
+
+describe('findNearestVisibleIndex', () => {
+  const vis = [3, 7, 10, 15, 20];
+
+  it('returns exact match index', () => {
+    expect(findNearestVisibleIndex(vis, 10)).toBe(2);
+  });
+
+  it('returns nearest when target is between values', () => {
+    expect(findNearestVisibleIndex(vis, 8)).toBe(1); // 7 is closer than 10 (dist 1 vs 2)
+    expect(findNearestVisibleIndex(vis, 9)).toBe(2); // 10 is closer than 7 (dist 1 vs 2)
+  });
+
+  it('returns 0 for target below all', () => {
+    expect(findNearestVisibleIndex(vis, 1)).toBe(0);
+  });
+
+  it('returns last for target above all', () => {
+    expect(findNearestVisibleIndex(vis, 100)).toBe(4);
+  });
+
+  it('returns -1 for empty array', () => {
+    expect(findNearestVisibleIndex([], 5)).toBe(-1);
+  });
+
+  it('handles single-element array', () => {
+    expect(findNearestVisibleIndex([10], 5)).toBe(0);
+    expect(findNearestVisibleIndex([10], 15)).toBe(0);
+    expect(findNearestVisibleIndex([10], 10)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clampCursor
+// ---------------------------------------------------------------------------
+
+describe('clampCursor', () => {
+  it('snaps to nearest visible line in diff mode', () => {
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta: makeDiffMeta([3, 7, 10, 15, 20]),
+    });
+    expect(clampCursor(state, 8)).toBe(7);
+    expect(clampCursor(state, 10)).toBe(10);
+    expect(clampCursor(state, 1)).toBe(3);
+    expect(clampCursor(state, 100)).toBe(20);
+  });
+
+  it('falls through to raw clamping in raw mode', () => {
+    const state = makeState({ viewMode: 'raw', lineCount: 50 });
+    expect(clampCursor(state, 0)).toBe(1);
+    expect(clampCursor(state, 60)).toBe(50);
+    expect(clampCursor(state, 25)).toBe(25);
+  });
+
+  it('falls through to raw clamping when diffMeta is absent', () => {
+    const state = makeState({ viewMode: 'diff', lineCount: 50 });
+    expect(clampCursor(state, 60)).toBe(50);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — move_cursor in diff mode
+// ---------------------------------------------------------------------------
+
+describe('reduce — move_cursor (diff mode)', () => {
+  const diffMeta = makeDiffMeta([3, 7, 10, 15, 20]);
+
+  it('steps to next visible line with delta +1', () => {
+    const state = makeState({ cursorLine: 7, viewMode: 'diff', diffMeta });
+    const next = reduce(state, { type: 'move_cursor', delta: 1 });
+    expect(next.cursorLine).toBe(10);
+  });
+
+  it('steps to previous visible line with delta -1', () => {
+    const state = makeState({ cursorLine: 10, viewMode: 'diff', diffMeta });
+    const next = reduce(state, { type: 'move_cursor', delta: -1 });
+    expect(next.cursorLine).toBe(7);
+  });
+
+  it('clamps at first visible line', () => {
+    const state = makeState({ cursorLine: 3, viewMode: 'diff', diffMeta });
+    const next = reduce(state, { type: 'move_cursor', delta: -5 });
+    expect(next.cursorLine).toBe(3);
+  });
+
+  it('clamps at last visible line', () => {
+    const state = makeState({ cursorLine: 20, viewMode: 'diff', diffMeta });
+    const next = reduce(state, { type: 'move_cursor', delta: 5 });
+    expect(next.cursorLine).toBe(20);
+  });
+
+  it('jumps multiple visible lines with larger delta', () => {
+    const state = makeState({ cursorLine: 3, viewMode: 'diff', diffMeta });
+    const next = reduce(state, { type: 'move_cursor', delta: 3 });
+    expect(next.cursorLine).toBe(15);
+  });
+
+  it('handles cursor between visible lines (snaps first)', () => {
+    // cursorLine=8 is not visible; nearest is index 1 (line 7)
+    const state = makeState({ cursorLine: 8, viewMode: 'diff', diffMeta });
+    const next = reduce(state, { type: 'move_cursor', delta: 1 });
+    // From index 1 (7) + 1 → index 2 (10)
+    expect(next.cursorLine).toBe(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — set_cursor in diff mode
+// ---------------------------------------------------------------------------
+
+describe('reduce — set_cursor (diff mode)', () => {
+  const diffMeta = makeDiffMeta([3, 7, 10, 15, 20]);
+
+  it('snaps to nearest visible line', () => {
+    const state = makeState({ cursorLine: 3, viewMode: 'diff', diffMeta });
+    const next = reduce(state, { type: 'set_cursor', line: 12 });
+    expect(next.cursorLine).toBe(10);
+  });
+
+  it('snaps to first visible line for line 1', () => {
+    const state = makeState({ cursorLine: 10, viewMode: 'diff', diffMeta });
+    const next = reduce(state, { type: 'set_cursor', line: 1 });
+    expect(next.cursorLine).toBe(3);
+  });
+
+  it('snaps to last visible line for very large line', () => {
+    const state = makeState({ cursorLine: 3, viewMode: 'diff', diffMeta });
+    const next = reduce(state, { type: 'set_cursor', line: 999 });
+    expect(next.cursorLine).toBe(20);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — toggle_view_mode
+// ---------------------------------------------------------------------------
+
+describe('reduce — toggle_view_mode', () => {
+  const diffMeta = makeDiffMeta([3, 7, 10, 15, 20]);
+
+  it('toggles from raw to diff', () => {
+    const state = makeState({ viewMode: 'raw', diffMeta });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.viewMode).toBe('diff');
+  });
+
+  it('toggles from diff to raw', () => {
+    const state = makeState({ viewMode: 'diff', diffMeta, cursorLine: 10 });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.viewMode).toBe('raw');
+    expect(next.cursorLine).toBe(10); // preserved
+  });
+
+  it('snaps cursor to nearest visible line when switching to diff', () => {
+    const state = makeState({ viewMode: 'raw', diffMeta, cursorLine: 12 });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.viewMode).toBe('diff');
+    expect(next.cursorLine).toBe(10); // nearest visible
+  });
+
+  it('is a no-op without diffMeta', () => {
+    const state = makeState({ viewMode: 'raw' });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next).toBe(state);
+  });
+
+  it('preserves expanded annotations across toggle', () => {
+    const ann = makeAnnotation({ id: 'a1', startLine: 5, endLine: 10 });
+    const state = makeState({
+      viewMode: 'raw',
+      diffMeta,
+      cursorLine: 7,
+      annotations: [ann],
+      expandedAnnotations: new Set(['a1']),
+    });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.expandedAnnotations.has('a1')).toBe(true);
+  });
+
+  it('recomputes focus on toggle', () => {
+    const ann = makeAnnotation({ id: 'a1', startLine: 5, endLine: 10 });
+    const state = makeState({
+      viewMode: 'raw',
+      diffMeta,
+      cursorLine: 7,
+      annotations: [ann],
+      expandedAnnotations: new Set(['a1']),
+      focusedAnnotationId: 'a1',
+    });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.focusedAnnotationId).toBe('a1'); // still on the annotation
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — extend_select in diff mode
+// ---------------------------------------------------------------------------
+
+describe('reduce — extend_select (diff mode)', () => {
+  const diffMeta = makeDiffMeta([3, 7, 10, 15, 20]);
+
+  it('extends selection through visible lines only', () => {
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta,
+      cursorLine: 7,
+      mode: 'select',
+      selection: { anchor: 7, active: 7 },
+    });
+    const next = reduce(state, { type: 'extend_select', delta: 2 });
+    expect(next.selection?.active).toBe(15);
+    expect(next.cursorLine).toBe(15);
+  });
+
+  it('clamps at first visible line', () => {
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta,
+      cursorLine: 7,
+      mode: 'select',
+      selection: { anchor: 10, active: 7 },
+    });
+    const next = reduce(state, { type: 'extend_select', delta: -5 });
+    expect(next.selection?.active).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — scroll_viewport in diff mode
+// ---------------------------------------------------------------------------
+
+describe('reduce — scroll_viewport (diff mode)', () => {
+  const diffMeta = makeDiffMeta([3, 7, 10, 15, 20]);
+
+  it('uses diffMeta.rowCount for max offset', () => {
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta,
+      viewportHeight: 5,
+      viewportOffset: 0,
+      cursorLine: 3,
+    });
+    // rowCount = 7 (5 visible + 2 hunk headers)
+    const next = reduce(state, { type: 'scroll_viewport', delta: 10 });
+    expect(next.viewportOffset).toBe(2); // max(0, 7 - 5) = 2
+  });
+
+  it('does not clamp cursor in diff mode (cursor stays put)', () => {
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta,
+      viewportHeight: 5,
+      viewportOffset: 0,
+      cursorLine: 7,
+    });
+    const next = reduce(state, { type: 'scroll_viewport', delta: 1 });
+    expect(next.cursorLine).toBe(7); // unchanged
   });
 });

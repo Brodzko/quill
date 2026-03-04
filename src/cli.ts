@@ -142,6 +142,7 @@ const command = defineCommand({
         annotations: initialAnnotations,
         expandedAnnotations: initialExpandedAnnotations,
         focusedAnnotationId: focusedAnnotation?.id ?? null,
+        viewMode: 'raw',
       };
 
       // --- Launch interactive session ---

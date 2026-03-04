@@ -13,6 +13,7 @@ import {
 import type { Key } from './keypress.js';
 import type {
   AnnotationFlowState,
+  DiffMeta,
   SessionState,
   ConfirmFlowState,
   DecideFlowState,
@@ -72,6 +73,7 @@ const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
   annotations: [],
   expandedAnnotations: new Set(),
   focusedAnnotationId: null,
+  viewMode: 'raw',
   ...overrides,
 });
 
@@ -1231,5 +1233,66 @@ describe('handleSearchKey', () => {
     const result = handleSearchKey(key({ backspace: true }), state, f, sourceLines);
     expect(getText(result.state.searchFlow!.input)).toBe('');
     expect(result.state.search).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleBrowseKey — diff toggle (d key)
+// ---------------------------------------------------------------------------
+
+describe('handleBrowseKey — diff toggle', () => {
+  const makeDiffMeta = (visibleLines: number[]): DiffMeta => {
+    const newLineToRow = new Map<number, number>();
+    visibleLines.forEach((ln, i) => newLineToRow.set(ln, i));
+    return { rowCount: visibleLines.length + 2, visibleLines, newLineToRow };
+  };
+
+  it('d toggles to diff mode when diffMeta exists', () => {
+    const state = makeState({
+      viewMode: 'raw',
+      diffMeta: makeDiffMeta([3, 7, 10, 15, 20]),
+    });
+    const result = handleBrowseKey(key({ char: 'd' }), state, false);
+    expect(result.state.viewMode).toBe('diff');
+  });
+
+  it('d toggles back to raw from diff mode', () => {
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta: makeDiffMeta([3, 7, 10, 15, 20]),
+      cursorLine: 10,
+    });
+    const result = handleBrowseKey(key({ char: 'd' }), state, false);
+    expect(result.state.viewMode).toBe('raw');
+  });
+
+  it('d is no-op without diffMeta', () => {
+    const state = makeState({ viewMode: 'raw' });
+    const result = handleBrowseKey(key({ char: 'd' }), state, false);
+    expect(result.state.viewMode).toBe('raw');
+    expect(result.state).toEqual(state);
+  });
+
+  it('d snaps cursor to nearest visible line when toggling to diff', () => {
+    const state = makeState({
+      viewMode: 'raw',
+      diffMeta: makeDiffMeta([3, 7, 10, 15, 20]),
+      cursorLine: 12,
+    });
+    const result = handleBrowseKey(key({ char: 'd' }), state, false);
+    expect(result.state.viewMode).toBe('diff');
+    expect(result.state.cursorLine).toBe(10); // nearest to 12
+  });
+
+  it('horizontal scroll keys are no-op in diff mode', () => {
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta: makeDiffMeta([3, 7, 10]),
+      horizontalOffset: 0,
+    });
+    const resultH = handleBrowseKey(key({ char: 'h' }), state, false);
+    expect(resultH.state.horizontalOffset).toBe(0);
+    const resultL = handleBrowseKey(key({ char: 'l' }), state, false);
+    expect(resultL.state.horizontalOffset).toBe(0);
   });
 });

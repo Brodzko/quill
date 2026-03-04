@@ -196,6 +196,11 @@ export const BROWSE = {
     hint: ':',
     description: 'goto',
   },
+  toggleDiff: {
+    match: (k: Key): boolean => k.char === 'd',
+    hint: 'd',
+    description: 'diff',
+  },
   finish: {
     match: (k: Key): boolean => k.char === 'q',
     hint: 'q',
@@ -315,6 +320,31 @@ export const BROWSE_EXPANDED_HELP = helpBar([
   BROWSE.toggleAnnotation,
   BROWSE.toggleAllAnnotations,
   { ...BROWSE.annotate, description: 'new' },
+  BROWSE.finish,
+]);
+
+/** Browse mode when diff data is available (shows toggle hint). */
+export const BROWSE_DIFF_HELP = helpBar([
+  BROWSE.moveUp,
+  { ...BROWSE.toggleDiff, description: 'raw view' },
+  BROWSE.startSelect,
+  BROWSE.nextAnnotation,
+  BROWSE.search,
+  BROWSE.annotate,
+  BROWSE.gotoLine,
+  BROWSE.finish,
+]);
+
+/** Browse mode when in raw view but diff data exists (shows toggle hint). */
+export const BROWSE_RAW_WITH_DIFF_HELP = helpBar([
+  BROWSE.moveUp,
+  BROWSE.scrollLeft,
+  { ...BROWSE.toggleDiff, description: 'diff view' },
+  BROWSE.startSelect,
+  BROWSE.nextAnnotation,
+  BROWSE.search,
+  BROWSE.annotate,
+  BROWSE.gotoLine,
   BROWSE.finish,
 ]);
 
