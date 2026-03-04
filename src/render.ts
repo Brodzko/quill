@@ -448,6 +448,8 @@ export type FrameResult = {
   frame: string;
   /** Maps each viewport row index (0-based, after the title row) to a 1-based source line, or undefined. */
   rowToLine: (number | undefined)[];
+  /** 1-based terminal row where the viewport begins (after title/chrome rows). */
+  viewportStartRow: number;
 };
 
 export const buildFrame = (ctx: RenderContext): FrameResult => {
@@ -466,6 +468,9 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
 
   // Title
   frame.push(`${CLEAR_LINE}${bold(`Quill — ${ctx.filePath}`)}`);
+
+  // viewportStartRow = number of chrome rows above viewport + 1 (1-based)
+  const viewportStartRow = frame.length + 1; // currently 2 (title is row 1)
 
   // Viewport
   const viewport = renderViewport(
@@ -527,7 +532,7 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
     frame.push(CLEAR_LINE);
   }
 
-  return { frame: frame.join('\n'), rowToLine: viewport.rowToLine };
+  return { frame: frame.join('\n'), rowToLine: viewport.rowToLine, viewportStartRow };
 };
 
 /** Compute the viewport height for a given terminal height and context. */

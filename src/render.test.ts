@@ -7,7 +7,6 @@ import { createBuffer } from './text-buffer.js';
 import { createPicker, CATEGORY_OPTIONS } from './picker.js';
 import {
   type RenderContext,
-  VIEWPORT_CHROME_LINES,
   buildFrame,
   getViewportHeight,
 } from './render.js';
@@ -97,6 +96,11 @@ describe('buildFrame', () => {
     const frame = buildFrame(ctx).frame;
     const lineCount = frame.split('\n').length;
     expect(lineCount).toBeGreaterThanOrEqual(30);
+  });
+
+  it('returns viewportStartRow = 2 for standard layout (1 title row)', () => {
+    const result = buildFrame(makeCtx());
+    expect(result.viewportStartRow).toBe(2);
   });
 });
 

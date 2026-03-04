@@ -181,8 +181,9 @@ const command = defineCommand({
       let confirmFlow: ConfirmFlowState | undefined;
       let searchFlow: SearchFlowState | undefined;
 
-      // Row→line mapping from last render, used for mouse click → cursor
+      // Last render metadata, used for mouse click → cursor line mapping
       let lastRowToLine: (number | undefined)[] = [];
+      let lastViewportStartRow = 2; // default: title is row 1, viewport starts at row 2
 
       // Coalesce rapid inputs (e.g. trackpad inertial scroll) into a single
       // repaint per event-loop tick. State mutations apply immediately; only
@@ -225,6 +226,7 @@ const command = defineCommand({
 
         const result = buildFrame(ctx);
         lastRowToLine = result.rowToLine;
+        lastViewportStartRow = result.viewportStartRow;
         stderr.write(`${CURSOR_HOME}${result.frame}`);
       };
 
@@ -304,8 +306,7 @@ const command = defineCommand({
 
         // Mouse click → set cursor to clicked line (browse/select only)
         if (key.mouseRow > 0 && (state.mode === 'browse' || state.mode === 'select')) {
-          // Terminal row 1 = title, row 2+ = viewport
-          const vpRow = key.mouseRow - 2; // 0-based viewport row index
+          const vpRow = key.mouseRow - lastViewportStartRow; // 0-based viewport row index
           if (vpRow >= 0 && vpRow < lastRowToLine.length) {
             const targetLine = lastRowToLine[vpRow];
             if (targetLine !== undefined) {
