@@ -68,7 +68,7 @@ import { renderTextbox } from './textbox.js';
 // --- Line marker ---
 
 /**
- * Gutter marker for a source line. Uses ▸/▾ triangles with count for multi-annotation.
+ * Gutter marker for a source line. Uses ●/▼/◎ dots with count for multi-annotation.
  * Returns a 2-char string: marker + optional count digit.
  */
 const lineMarker = (
@@ -83,7 +83,6 @@ const lineMarker = (
   if (lineAnns.length === 0) return '  ';
 
   const hasExpanded = lineAnns.some((a) => expandedAnnotations.has(a.id));
-  const triangle = hasExpanded ? '▾' : '▸';
   const count = lineAnns.length > 1
     ? lineAnns.length > 9 ? '+' : String(lineAnns.length)
     : ' ';
@@ -91,11 +90,16 @@ const lineMarker = (
   const isFocusedLine = focusedAnnotationId !== null &&
     lineAnns.some((a) => a.id === focusedAnnotationId);
 
-  if (isFocusedLine) {
-    return `${FOCUS_MARKER}${triangle}${RESET}${count}`;
+  if (hasExpanded) {
+    const dot = isFocusedLine ? `${FOCUS_MARKER}▼${RESET}` : `${DIM}▼${RESET}`;
+    return `${dot}${count}`;
   }
 
-  return `${DIM}${triangle}${RESET}${count}`;
+  if (isFocusedLine) {
+    return `${FOCUS_MARKER}◎${RESET}${count}`;
+  }
+
+  return `${DIM}●${RESET}${count}`;
 };
 
 // --- Frame builders ---

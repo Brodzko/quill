@@ -299,7 +299,7 @@ describe('buildFrame — select mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildFrame — annotation markers', () => {
-  it('shows ▸ on collapsed annotated lines', () => {
+  it('shows ● on collapsed annotated lines', () => {
     const annotation: Annotation = {
       id: 'a1',
       startLine: 3,
@@ -327,7 +327,7 @@ describe('buildFrame — annotation markers', () => {
     const plain = stripAnsi(frame);
     const lines = plain.split('\n');
     const line3 = lines.find((l) => l.includes('line 3'));
-    expect(line3).toContain('▸');
+    expect(line3).toContain('●');
   });
 
   it('shows focused marker with accent color for focusedAnnotationId', () => {
@@ -360,8 +360,8 @@ describe('buildFrame — annotation markers', () => {
     ).frame;
     const plain = stripAnsi(frame);
     const line3 = plain.split('\n').find((l) => l.includes('line 3'));
-    // Focused expanded annotation shows ▾
-    expect(line3).toContain('▾');
+    // Focused expanded annotation shows ▼
+    expect(line3).toContain('▼');
     // The raw frame should contain the FOCUS_MARKER color escape
     expect(frame).toContain('\x1b[38;2;97;175;239m');
   });
@@ -384,8 +384,8 @@ describe('buildFrame — annotation markers', () => {
       makeCtx({ state, lines: Array.from({ length: 5 }, (_, i) => `line ${i + 1}`) })
     ).frame;
     const plain = stripAnsi(frame);
-    expect(plain).not.toContain('▸');
-    expect(plain).not.toContain('▾');
+    expect(plain).not.toContain('●');
+    expect(plain).not.toContain('▼');
   });
 });
 
@@ -456,7 +456,7 @@ describe('buildFrame — expanded annotation box', () => {
     expect(plain).toContain('└');
   });
 
-  it('shows ▾ marker on line with expanded annotation', () => {
+  it('shows ▼ marker on line with expanded annotation', () => {
     const annotation: Annotation = {
       id: 'a1',
       startLine: 3,
@@ -483,7 +483,7 @@ describe('buildFrame — expanded annotation box', () => {
     ).frame;
     const plain = stripAnsi(frame);
     const line3 = plain.split('\n').find((l) => l.includes('line 3'));
-    expect(line3).toContain('▾');
+    expect(line3).toContain('▼');
   });
 
   it('shows action hints when annotation is focused', () => {
