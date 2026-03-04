@@ -3,9 +3,11 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE.md"
   ],
   "bin": {
     "quill": "dist/cli.js"
