@@ -161,6 +161,12 @@ const tokensToAnsi = (tokens: ThemedToken[]): string =>
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * Files above this line count skip syntax highlighting to avoid Shiki OOM /
+ * multi-second parse times. The viewer still works — just without color.
+ */
+export const HIGHLIGHT_LINE_LIMIT = 50_000;
+
 export type HighlightOptions = {
   /** Full code content. */
   code: string;
@@ -173,17 +179,24 @@ export type HighlightOptions = {
 /**
  * Highlight source code and return one ANSI-colored string per line.
  *
- * Falls back to plain (uncolored) lines when the language is unknown.
+ * Falls back to plain (uncolored) lines when:
+ * - the language is unknown
+ * - the file exceeds {@link HIGHLIGHT_LINE_LIMIT} lines
  */
 export const highlightCode = async (
   options: HighlightOptions
 ): Promise<string[]> => {
   const { code, filePath, theme = DEFAULT_THEME } = options;
+  const plainLines = code.split(/\r?\n/);
+
+  if (plainLines.length > HIGHLIGHT_LINE_LIMIT) {
+    return plainLines;
+  }
+
   const lang = detectLanguage(filePath);
 
   if (!lang) {
-    // Unknown language — return plain lines
-    return code.split(/\r?\n/);
+    return plainLines;
   }
 
   const highlighter = await getHighlighter(theme, lang);

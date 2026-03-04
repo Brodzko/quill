@@ -14,7 +14,31 @@ import { defineCommand, runMain } from 'citty';
 import { visibleLength } from './ansi.js';
 import { alignDiff, type DiffData } from './diff-align.js';
 import { resolveDiff } from './diff.js';
-import { type BundledTheme, DEFAULT_THEME, highlightCode } from './highlight.js';
+import {
+  type BundledTheme,
+  DEFAULT_THEME,
+  HIGHLIGHT_LINE_LIMIT,
+  highlightCode,
+} from './highlight.js';
+
+// ---------------------------------------------------------------------------
+// Edge-case helpers
+// ---------------------------------------------------------------------------
+
+/** Max characters per source line — prevents OOM on minified / generated files. */
+const MAX_LINE_LENGTH = 10_000;
+
+/**
+ * Detect binary content by checking for NUL bytes in the first 8 KB.
+ * Returns `true` if the buffer likely contains binary data.
+ */
+const isBinary = (buf: Buffer): boolean => {
+  const check = Math.min(buf.length, 8192);
+  for (let i = 0; i < check; i++) {
+    if (buf[i] === 0) return true;
+  }
+  return false;
+};
 import { getViewportHeight } from './render.js';
 import {
   normalizeInputAnnotations,
@@ -99,14 +123,31 @@ const command = defineCommand({
         annotationsJsonFromFile ?? pipedInput
       );
 
-      const rawContent = readFileSync(filePath, 'utf-8');
-      const sourceLines = rawContent.split('\n');
+      // --- Binary detection ---
+      const rawBuf = readFileSync(filePath);
+      if (isBinary(rawBuf)) {
+        stderr.write(`Error: ${filePath} appears to be a binary file\n`);
+        process.exit(1);
+      }
+
+      const rawContent = rawBuf.toString('utf-8');
+      const sourceLines = rawContent.split('\n').map((l) =>
+        l.length > MAX_LINE_LENGTH ? l.slice(0, MAX_LINE_LENGTH) : l
+      );
+
+      const lineCount = sourceLines.length;
+
+      if (lineCount > HIGHLIGHT_LINE_LIMIT) {
+        stderr.write(
+          `File has ${lineCount.toLocaleString()} lines — syntax highlighting disabled (limit: ${HIGHLIGHT_LINE_LIMIT.toLocaleString()})\n`
+        );
+      }
+
       const lines = await highlightCode({
-        code: rawContent,
+        code: sourceLines.join('\n'),
         filePath,
         theme,
       });
-      const lineCount = lines.length;
       const maxLineWidth = lines.reduce(
         (max, l) => Math.max(max, visibleLength(l)),
         0
