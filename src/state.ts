@@ -84,7 +84,7 @@ export const INITIAL_SEARCH_FLOW: SearchFlowState = {
 };
 
 /**
- * Persistent search state — lives on BrowseState so highlights/navigation
+ * Persistent search state — lives on SessionState so highlights/navigation
  * survive exiting search mode back to browse.
  */
 export type SearchState = {
@@ -114,7 +114,7 @@ export type Selection = {
   readonly active: number;
 };
 
-export type BrowseState = {
+export type SessionState = {
   readonly lineCount: number;
   /** Maximum visible character width among all source lines. */
   readonly maxLineWidth: number;
@@ -131,7 +131,20 @@ export type BrowseState = {
   readonly expandedAnnotations: ReadonlySet<string>;
   /** Persistent search state — survives mode transitions. */
   readonly search?: SearchState;
+
+  // --- Modal flow sub-states ---
+  // Present when the corresponding mode is active; undefined otherwise.
+  readonly annotationFlow?: AnnotationFlowState;
+  readonly gotoFlow?: GotoFlowState;
+  readonly replyFlow?: ReplyFlowState;
+  readonly editFlow?: EditFlowState;
+  readonly decideFlow?: DecideFlowState;
+  readonly confirmFlow?: ConfirmFlowState;
+  readonly searchFlow?: SearchFlowState;
 };
+
+/** @deprecated Use SessionState — alias kept for migration. */
+export type BrowseState = SessionState;
 
 // Standard useReducer-compatible signature: (state, action) => state.
 export type BrowseAction =
@@ -198,7 +211,7 @@ export const computeViewportOffset = (params: {
   return currentOffset;
 };
 
-const recomputeOffset = (state: BrowseState, viewportHeight: number): number =>
+const recomputeOffset = (state: SessionState, viewportHeight: number): number =>
   computeViewportOffset({
     cursorLine: state.cursorLine,
     currentOffset: state.viewportOffset,
@@ -206,7 +219,7 @@ const recomputeOffset = (state: BrowseState, viewportHeight: number): number =>
     lineCount: state.lineCount,
   });
 
-export const reduce = (state: BrowseState, action: BrowseAction): BrowseState => {
+export const reduce = (state: SessionState, action: BrowseAction): SessionState => {
   switch (action.type) {
     case 'move_cursor': {
       const cursorLine = clampLine(
@@ -405,6 +418,6 @@ export const reduce = (state: BrowseState, action: BrowseAction): BrowseState =>
  * patterns with a declarative pipeline.
  */
 export const applyActions = (
-  state: BrowseState,
+  state: SessionState,
   actions: readonly BrowseAction[]
-): BrowseState => actions.reduce(reduce, state);
+): SessionState => actions.reduce(reduce, state);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { stripAnsi } from './ansi.js';
 import type { Annotation } from './schema.js';
-import type { BrowseState } from './state.js';
+import type { SessionState } from './state.js';
 import { INITIAL_ANNOTATION_FLOW, INITIAL_DECIDE_FLOW } from './state.js';
 import { createBuffer } from './text-buffer.js';
 import { createPicker, CATEGORY_OPTIONS } from './picker.js';
@@ -13,7 +13,7 @@ import {
 
 const makeCtx = (overrides: Partial<RenderContext> = {}): RenderContext => {
   const lines = overrides.lines ?? Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
-  const state: BrowseState = overrides.state ?? {
+  const state: SessionState = overrides.state ?? {
     lineCount: lines.length,
       maxLineWidth: 120,
     viewportHeight: 10,
@@ -110,7 +110,7 @@ describe('buildFrame', () => {
 
 describe('buildFrame — decide mode', () => {
   it('shows decision picker in decide mode', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 5,
@@ -122,8 +122,7 @@ describe('buildFrame — decide mode', () => {
       expandedAnnotations: new Set(),
     };
     const frame = buildFrame(makeCtx({
-      state,
-      decideFlow: { ...INITIAL_DECIDE_FLOW },
+      state: { ...state, decideFlow: { ...INITIAL_DECIDE_FLOW } },
     })).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('Decision');
@@ -138,7 +137,7 @@ describe('buildFrame — decide mode', () => {
 
 describe('buildFrame — goto mode', () => {
   it('shows goto prompt when in goto mode', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 100,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -150,7 +149,7 @@ describe('buildFrame — goto mode', () => {
       expandedAnnotations: new Set(),
     };
     const frame = buildFrame(
-      makeCtx({ state, gotoFlow: { input: '42' } })
+      makeCtx({ state: { ...state, gotoFlow: { input: '42' } } })
     ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('Go to line');
@@ -165,7 +164,7 @@ describe('buildFrame — goto mode', () => {
 
 describe('buildFrame — annotation flow', () => {
   it('shows intent picker in annotate mode', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 5,
@@ -178,8 +177,7 @@ describe('buildFrame — annotation flow', () => {
     };
     const frame = buildFrame(
       makeCtx({
-        state,
-        annotationFlow: { ...INITIAL_ANNOTATION_FLOW },
+        state: { ...state, annotationFlow: { ...INITIAL_ANNOTATION_FLOW } },
       })
     ).frame;
     const plain = stripAnsi(frame);
@@ -197,7 +195,7 @@ describe('buildFrame — annotation flow', () => {
 
 describe('buildFrame — select mode', () => {
   it('shows SELECT in status bar', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 20,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -215,7 +213,7 @@ describe('buildFrame — select mode', () => {
   });
 
   it('shows selection range in status bar', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 20,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -234,7 +232,7 @@ describe('buildFrame — select mode', () => {
   });
 
   it('shows select help hints', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 20,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -254,7 +252,7 @@ describe('buildFrame — select mode', () => {
   });
 
   it('applies selection background to selected lines', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 20,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -285,7 +283,7 @@ describe('buildFrame — annotation markers', () => {
       comment: 'test',
       source: 'user',
     };
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -314,7 +312,7 @@ describe('buildFrame — annotation markers', () => {
       comment: 'why?',
       source: 'agent',
     };
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -338,7 +336,7 @@ describe('buildFrame — annotation markers', () => {
   });
 
   it('shows space marker on unannotated lines', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 5,
       maxLineWidth: 120,
       viewportHeight: 5,
@@ -364,7 +362,7 @@ describe('buildFrame — annotation markers', () => {
 
 describe('buildFrame — viewport overflow', () => {
   it('shows ~ for lines past end of file', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 3,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -401,7 +399,7 @@ describe('buildFrame — expanded annotation box', () => {
       comment: 'This is a test comment.',
       source: 'user',
     };
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -430,7 +428,7 @@ describe('buildFrame — expanded annotation box', () => {
       comment: 'test',
       source: 'user',
     };
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -458,7 +456,7 @@ describe('buildFrame — expanded annotation box', () => {
       comment: 'test',
       source: 'user',
     };
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 15,
@@ -490,7 +488,7 @@ describe('buildFrame — expanded annotation box', () => {
       comment: 'This should not appear expanded.',
       source: 'user',
     };
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -517,7 +515,7 @@ describe('buildFrame — expanded annotation box', () => {
       comment: 'A comment that takes space.',
       source: 'user',
     };
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 20,
       maxLineWidth: 120,
       viewportHeight: 10,
@@ -543,7 +541,7 @@ describe('buildFrame — expanded annotation box', () => {
 
 describe('buildFrame — reply mode', () => {
   it('shows reply textbox', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 5,
@@ -556,8 +554,7 @@ describe('buildFrame — reply mode', () => {
     };
     const frame = buildFrame(
       makeCtx({
-        state,
-        replyFlow: { annotationId: 'a1', comment: createBuffer('hello') },
+        state: { ...state, replyFlow: { annotationId: 'a1', comment: createBuffer('hello') } },
       })
     ).frame;
     const plain = stripAnsi(frame);
@@ -568,7 +565,7 @@ describe('buildFrame — reply mode', () => {
 
 describe('buildFrame — edit mode', () => {
   it('shows edit textbox', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 5,
@@ -581,8 +578,7 @@ describe('buildFrame — edit mode', () => {
     };
     const frame = buildFrame(
       makeCtx({
-        state,
-        editFlow: { annotationId: 'a1', comment: createBuffer('editing') },
+        state: { ...state, editFlow: { annotationId: 'a1', comment: createBuffer('editing') } },
       })
     ).frame;
     const plain = stripAnsi(frame);
@@ -593,7 +589,7 @@ describe('buildFrame — edit mode', () => {
 
 describe('buildFrame — annotation flow category step', () => {
   it('shows category picker with intent', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 5,
@@ -606,12 +602,14 @@ describe('buildFrame — annotation flow category step', () => {
     };
     const frame = buildFrame(
       makeCtx({
-        state,
-        annotationFlow: {
-          step: 'category',
-          intent: 'instruct',
-          comment: createBuffer(),
-          picker: createPicker(CATEGORY_OPTIONS),
+        state: {
+          ...state,
+          annotationFlow: {
+            step: 'category',
+            intent: 'instruct',
+            comment: createBuffer(),
+            picker: createPicker(CATEGORY_OPTIONS),
+          },
         },
       })
     ).frame;
@@ -623,7 +621,7 @@ describe('buildFrame — annotation flow category step', () => {
 
 describe('buildFrame — annotation flow comment step', () => {
   it('shows comment textbox with intent and category context', () => {
-    const state: BrowseState = {
+    const state: SessionState = {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 5,
@@ -636,13 +634,15 @@ describe('buildFrame — annotation flow comment step', () => {
     };
     const frame = buildFrame(
       makeCtx({
-        state,
-        annotationFlow: {
-          step: 'comment',
-          intent: 'question',
-          category: 'bug',
-          comment: createBuffer('hello'),
-          picker: createPicker([]),
+        state: {
+          ...state,
+          annotationFlow: {
+            step: 'comment',
+            intent: 'question',
+            category: 'bug',
+            comment: createBuffer('hello'),
+            picker: createPicker([]),
+          },
         },
       })
     ).frame;

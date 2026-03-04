@@ -8,7 +8,6 @@
 import type { Annotation } from './schema.js';
 import type {
   AnnotationFlowState,
-  BrowseState,
   ConfirmFlowState,
   DecideFlowState,
   EditFlowState,
@@ -18,6 +17,7 @@ import type {
   SearchFlowState,
   SearchState,
   Selection,
+  SessionState,
 } from './state.js';
 import { selectionRange } from './state.js';
 import {
@@ -83,7 +83,7 @@ type ViewportResult = {
 
 const renderViewport = (
   lines: string[],
-  state: BrowseState,
+  state: SessionState,
   viewportHeight: number,
   cols: number,
   focusAnnotation?: string,
@@ -204,7 +204,7 @@ const MODE_COLORS: Record<Mode, string> = {
   search: YELLOW,
 };
 
-const renderStatusBar = (state: BrowseState, filePath: string): string => {
+const renderStatusBar = (state: SessionState, filePath: string): string => {
   const modeTag = colorBold(
     MODE_COLORS[state.mode],
     ` ${state.mode.toUpperCase()} `
@@ -240,7 +240,7 @@ const BROWSE_EXPANDED_HELP =
 const SELECT_HELP =
   '[j/k ↑↓ Shift+↑↓] extend  [Enter] annotate  [Esc] cancel';
 
-const renderHelpBar = (state: BrowseState): string => {
+const renderHelpBar = (state: SessionState): string => {
   if (state.mode === 'select') return `${CLEAR_LINE}${dim(SELECT_HELP)}`;
   if (state.mode === 'browse') {
     // Show annotation-specific hints when on an expanded annotation line
@@ -404,34 +404,27 @@ const renderEditModal = (flow: EditFlowState, cols: number): string[] => {
 export type RenderContext = {
   filePath: string;
   lines: string[];
-  state: BrowseState;
+  state: SessionState;
   terminalRows: number;
   terminalCols: number;
   focusAnnotation?: string;
-  annotationFlow?: AnnotationFlowState;
-  gotoFlow?: GotoFlowState;
-  replyFlow?: ReplyFlowState;
-  editFlow?: EditFlowState;
-  decideFlow?: DecideFlowState;
-  confirmFlow?: ConfirmFlowState;
-  searchFlow?: SearchFlowState;
 };
 
 /** Compute modal height for a given render context. */
 const modalHeight = (ctx: RenderContext): number => {
-  if (ctx.state.mode === 'annotate' && ctx.annotationFlow) {
-    if (ctx.annotationFlow.step === 'intent') return 7; // picker: 4 options + 3 chrome
-    if (ctx.annotationFlow.step === 'category') return 10; // picker: 7 options + 3 chrome
+  if (ctx.state.mode === 'annotate' && ctx.state.annotationFlow) {
+    if (ctx.state.annotationFlow.step === 'intent') return 7; // picker: 4 options + 3 chrome
+    if (ctx.state.annotationFlow.step === 'category') return 10; // picker: 7 options + 3 chrome
     // comment textbox
-    const hasContext = !!(ctx.annotationFlow.intent);
+    const hasContext = !!(ctx.state.annotationFlow.intent);
     return 9 + (hasContext ? 1 : 0); // textbox: 6 rows + 3 chrome + context
   }
-  if (ctx.state.mode === 'confirm' && ctx.confirmFlow) return 5; // 2 options + 3 chrome
-  if (ctx.state.mode === 'decide' && ctx.decideFlow) return 5; // 2 options + 3 chrome
-  if (ctx.state.mode === 'goto' && ctx.gotoFlow) return 4;
-  if (ctx.state.mode === 'reply' && ctx.replyFlow) return 7; // 4 rows + 3 chrome
-  if (ctx.state.mode === 'edit' && ctx.editFlow) return 9; // 6 rows + 3 chrome
-  if (ctx.state.mode === 'search' && ctx.searchFlow) return 5; // 1 row + 3 chrome + context
+  if (ctx.state.mode === 'confirm' && ctx.state.confirmFlow) return 5; // 2 options + 3 chrome
+  if (ctx.state.mode === 'decide' && ctx.state.decideFlow) return 5; // 2 options + 3 chrome
+  if (ctx.state.mode === 'goto' && ctx.state.gotoFlow) return 4;
+  if (ctx.state.mode === 'reply' && ctx.state.replyFlow) return 7; // 4 rows + 3 chrome
+  if (ctx.state.mode === 'edit' && ctx.state.editFlow) return 9; // 6 rows + 3 chrome
+  if (ctx.state.mode === 'search' && ctx.state.searchFlow) return 5; // 1 row + 3 chrome + context
   return 0;
 };
 
@@ -493,37 +486,37 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
   }
 
   // Modal overlays
-  if (ctx.state.mode === 'annotate' && ctx.annotationFlow) {
+  if (ctx.state.mode === 'annotate' && ctx.state.annotationFlow) {
     frame.push(
       ...renderAnnotationModal(
-        ctx.annotationFlow,
+        ctx.state.annotationFlow,
         ctx.state.cursorLine,
         ctx.terminalCols
       )
     );
   }
-  if (ctx.state.mode === 'confirm' && ctx.confirmFlow) {
+  if (ctx.state.mode === 'confirm' && ctx.state.confirmFlow) {
     frame.push(
-      ...renderConfirmModal(ctx.confirmFlow, ctx.state.annotations, ctx.terminalCols)
+      ...renderConfirmModal(ctx.state.confirmFlow, ctx.state.annotations, ctx.terminalCols)
     );
   }
-  if (ctx.state.mode === 'decide' && ctx.decideFlow) {
-    frame.push(...renderDecisionModal(ctx.decideFlow, ctx.terminalCols));
+  if (ctx.state.mode === 'decide' && ctx.state.decideFlow) {
+    frame.push(...renderDecisionModal(ctx.state.decideFlow, ctx.terminalCols));
   }
-  if (ctx.state.mode === 'goto' && ctx.gotoFlow) {
+  if (ctx.state.mode === 'goto' && ctx.state.gotoFlow) {
     frame.push(
-      ...renderGotoModal(ctx.gotoFlow, ctx.state.lineCount, ctx.terminalCols)
+      ...renderGotoModal(ctx.state.gotoFlow, ctx.state.lineCount, ctx.terminalCols)
     );
   }
-  if (ctx.state.mode === 'reply' && ctx.replyFlow) {
-    frame.push(...renderReplyModal(ctx.replyFlow, ctx.terminalCols));
+  if (ctx.state.mode === 'reply' && ctx.state.replyFlow) {
+    frame.push(...renderReplyModal(ctx.state.replyFlow, ctx.terminalCols));
   }
-  if (ctx.state.mode === 'edit' && ctx.editFlow) {
-    frame.push(...renderEditModal(ctx.editFlow, ctx.terminalCols));
+  if (ctx.state.mode === 'edit' && ctx.state.editFlow) {
+    frame.push(...renderEditModal(ctx.state.editFlow, ctx.terminalCols));
   }
-  if (ctx.state.mode === 'search' && ctx.searchFlow) {
+  if (ctx.state.mode === 'search' && ctx.state.searchFlow) {
     frame.push(
-      ...renderSearchModal(ctx.searchFlow, ctx.state.search, ctx.terminalCols)
+      ...renderSearchModal(ctx.state.searchFlow, ctx.state.search, ctx.terminalCols)
     );
   }
 

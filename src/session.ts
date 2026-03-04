@@ -24,14 +24,7 @@ import { parseKeypress } from './keypress.js';
 import { type RenderContext, buildFrame, getViewportHeight } from './render.js';
 import { type SessionResult, createOutput } from './schema.js';
 import {
-  type AnnotationFlowState,
-  type BrowseState,
-  type ConfirmFlowState,
-  type DecideFlowState,
-  type EditFlowState,
-  type GotoFlowState,
-  type ReplyFlowState,
-  type SearchFlowState,
+  type SessionState,
   reduce,
 } from './state.js';
 import {
@@ -56,21 +49,9 @@ export type SessionConfig = {
   /** Raw (unhighlighted) source lines for search matching. */
   sourceLines: string[];
   /** Initial reducer state, fully resolved by the CLI layer. */
-  initialState: BrowseState;
+  initialState: SessionState;
   /** Annotation id to visually focus (e.g. from --focus-annotation). */
   focusAnnotationId?: string;
-};
-
-// --- Flow state container ---
-
-type FlowState = {
-  annotationFlow?: AnnotationFlowState;
-  gotoFlow?: GotoFlowState;
-  replyFlow?: ReplyFlowState;
-  editFlow?: EditFlowState;
-  decideFlow?: DecideFlowState;
-  confirmFlow?: ConfirmFlowState;
-  searchFlow?: SearchFlowState;
 };
 
 // --- gg two-key sequence timer ---
@@ -132,8 +113,7 @@ export const runSession = (config: SessionConfig): void => {
   stderr.write(`${ALT_SCREEN_ON}${CURSOR_HIDE}${MOUSE_ON}`);
 
   // --- Mutable session state ---
-  let state: BrowseState = initialState;
-  let flows: FlowState = {};
+  let state: SessionState = initialState;
 
   // Last render metadata, used for mouse click → cursor line mapping
   let lastRowToLine: (number | undefined)[] = [];
@@ -168,7 +148,6 @@ export const runSession = (config: SessionConfig): void => {
       terminalRows: rows,
       terminalCols: cols,
       focusAnnotation: focusAnnotationId,
-      ...flows,
     };
 
     const result = buildFrame(ctx);
@@ -204,15 +183,6 @@ export const runSession = (config: SessionConfig): void => {
   // --- Dispatch result application ---
   const applyResult = (result: DispatchResult): void => {
     state = result.state;
-
-    // Merge flow states — only update fields explicitly present in the result
-    if ('annotationFlow' in result) flows = { ...flows, annotationFlow: result.annotationFlow };
-    if ('gotoFlow' in result) flows = { ...flows, gotoFlow: result.gotoFlow };
-    if ('replyFlow' in result) flows = { ...flows, replyFlow: result.replyFlow };
-    if ('editFlow' in result) flows = { ...flows, editFlow: result.editFlow };
-    if ('decideFlow' in result) flows = { ...flows, decideFlow: result.decideFlow };
-    if ('confirmFlow' in result) flows = { ...flows, confirmFlow: result.confirmFlow };
-    if ('searchFlow' in result) flows = { ...flows, searchFlow: result.searchFlow };
 
     // Handle gg timer state from browse handler
     if (result.gg) {
@@ -255,24 +225,24 @@ export const runSession = (config: SessionConfig): void => {
     }
 
     // Dispatch to mode-specific handler
-    if (state.mode === 'search' && flows.searchFlow) {
-      applyResult(handleSearchKey(key, state, flows.searchFlow, sourceLines));
-    } else if (state.mode === 'confirm' && flows.confirmFlow) {
-      applyResult(handleConfirmKey(key, state, flows.confirmFlow));
-    } else if (state.mode === 'annotate' && flows.annotationFlow) {
-      applyResult(handleAnnotateKey(key, state, flows.annotationFlow));
-    } else if (state.mode === 'goto' && flows.gotoFlow) {
-      applyResult(handleGotoKey(key, state, flows.gotoFlow));
-    } else if (state.mode === 'reply' && flows.replyFlow) {
-      applyResult(handleReplyKey(key, state, flows.replyFlow));
-    } else if (state.mode === 'edit' && flows.editFlow) {
-      applyResult(handleEditKey(key, state, flows.editFlow));
+    if (state.mode === 'search' && state.searchFlow) {
+      applyResult(handleSearchKey(key, state, state.searchFlow, sourceLines));
+    } else if (state.mode === 'confirm' && state.confirmFlow) {
+      applyResult(handleConfirmKey(key, state, state.confirmFlow));
+    } else if (state.mode === 'annotate' && state.annotationFlow) {
+      applyResult(handleAnnotateKey(key, state, state.annotationFlow));
+    } else if (state.mode === 'goto' && state.gotoFlow) {
+      applyResult(handleGotoKey(key, state, state.gotoFlow));
+    } else if (state.mode === 'reply' && state.replyFlow) {
+      applyResult(handleReplyKey(key, state, state.replyFlow));
+    } else if (state.mode === 'edit' && state.editFlow) {
+      applyResult(handleEditKey(key, state, state.editFlow));
     } else if (state.mode === 'select') {
       applyResult(handleSelectKey(key, state));
     } else if (state.mode === 'browse') {
       applyResult(handleBrowseKey(key, state, gg.isPending()));
-    } else if (state.mode === 'decide' && flows.decideFlow) {
-      applyResult(handleDecideKey(key, state, flows.decideFlow));
+    } else if (state.mode === 'decide' && state.decideFlow) {
+      applyResult(handleDecideKey(key, state, state.decideFlow));
     }
   };
 

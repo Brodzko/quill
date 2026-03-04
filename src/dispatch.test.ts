@@ -13,7 +13,7 @@ import {
 import type { Key } from './keypress.js';
 import type {
   AnnotationFlowState,
-  BrowseState,
+  SessionState,
   ConfirmFlowState,
   DecideFlowState,
   EditFlowState,
@@ -61,7 +61,7 @@ const EMPTY_KEY: Key = {
 
 const key = (overrides: Partial<Key>): Key => ({ ...EMPTY_KEY, ...overrides });
 
-const makeState = (overrides: Partial<BrowseState> = {}): BrowseState => ({
+const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
   lineCount: 100,
   maxLineWidth: 120,
   viewportHeight: 20,
@@ -240,19 +240,19 @@ describe('handleBrowseKey', () => {
   it('a enters annotate mode with flow', () => {
     const result = handleBrowseKey(key({ char: 'a' }), makeState(), false);
     expect(result.state.mode).toBe('annotate');
-    expect(result.annotationFlow?.step).toBe('intent');
+    expect(result.state.annotationFlow?.step).toBe('intent');
   });
 
   it('q enters decide mode with flow', () => {
     const result = handleBrowseKey(key({ char: 'q' }), makeState(), false);
     expect(result.state.mode).toBe('decide');
-    expect(result.decideFlow).toBeDefined();
+    expect(result.state.decideFlow).toBeDefined();
   });
 
   it(': enters goto mode with flow', () => {
     const result = handleBrowseKey(key({ char: ':' }), makeState(), false);
     expect(result.state.mode).toBe('goto');
-    expect(result.gotoFlow?.input).toBe('');
+    expect(result.state.gotoFlow?.input).toBe('');
   });
 
   it('Ctrl+G enters goto mode', () => {
@@ -304,7 +304,7 @@ describe('handleSelectKey', () => {
   it('Enter confirms → annotate with flow', () => {
     const result = handleSelectKey(key({ return: true }), selectState);
     expect(result.state.mode).toBe('annotate');
-    expect(result.annotationFlow?.step).toBe('intent');
+    expect(result.state.annotationFlow?.step).toBe('intent');
   });
 
   it('Escape cancels → browse, clears selection', () => {
@@ -344,24 +344,24 @@ describe('handleGotoKey', () => {
 
   it('digit appends to input', () => {
     const result = handleGotoKey(key({ char: '5' }), state, flow);
-    expect(result.gotoFlow?.input).toBe('5');
+    expect(result.state.gotoFlow?.input).toBe('5');
   });
 
   it('multiple digits accumulate', () => {
     const result = handleGotoKey(key({ char: '2' }), state, { input: '4' });
-    expect(result.gotoFlow?.input).toBe('42');
+    expect(result.state.gotoFlow?.input).toBe('42');
   });
 
   it('backspace removes last digit', () => {
     const result = handleGotoKey(key({ backspace: true }), state, { input: '42' });
-    expect(result.gotoFlow?.input).toBe('4');
+    expect(result.state.gotoFlow?.input).toBe('4');
   });
 
   it('Enter jumps to line and clears flow', () => {
     const result = handleGotoKey(key({ return: true }), state, { input: '50' });
     expect(result.state.cursorLine).toBe(50);
     expect(result.state.mode).toBe('browse');
-    expect(result.gotoFlow).toBeUndefined();
+    expect(result.state.gotoFlow).toBeUndefined();
   });
 
   it('Enter with empty input returns to browse without moving', () => {
@@ -373,12 +373,12 @@ describe('handleGotoKey', () => {
   it('Escape cancels and clears flow', () => {
     const result = handleGotoKey(key({ escape: true }), state, { input: '42' });
     expect(result.state.mode).toBe('browse');
-    expect(result.gotoFlow).toBeUndefined();
+    expect(result.state.gotoFlow).toBeUndefined();
   });
 
   it('non-digit char is ignored', () => {
     const result = handleGotoKey(key({ char: 'a' }), state, { input: '4' });
-    expect(result.gotoFlow?.input).toBe('4');
+    expect(result.state.gotoFlow?.input).toBe('4');
   });
 });
 
@@ -394,45 +394,45 @@ describe('handleAnnotateKey', () => {
 
     it('i selects instruct → advances to category', () => {
       const result = handleAnnotateKey(key({ char: 'i' }), state, flow);
-      expect(result.annotationFlow?.intent).toBe('instruct');
-      expect(result.annotationFlow?.step).toBe('category');
+      expect(result.state.annotationFlow?.intent).toBe('instruct');
+      expect(result.state.annotationFlow?.step).toBe('category');
     });
 
     it('q selects question', () => {
       const result = handleAnnotateKey(key({ char: 'q' }), state, flow);
-      expect(result.annotationFlow?.intent).toBe('question');
+      expect(result.state.annotationFlow?.intent).toBe('question');
     });
 
     it('c selects comment', () => {
       const result = handleAnnotateKey(key({ char: 'c' }), state, flow);
-      expect(result.annotationFlow?.intent).toBe('comment');
+      expect(result.state.annotationFlow?.intent).toBe('comment');
     });
 
     it('p selects praise', () => {
       const result = handleAnnotateKey(key({ char: 'p' }), state, flow);
-      expect(result.annotationFlow?.intent).toBe('praise');
+      expect(result.state.annotationFlow?.intent).toBe('praise');
     });
 
     it('arrow down moves picker highlight', () => {
       const result = handleAnnotateKey(key({ downArrow: true }), state, flow);
-      expect(result.annotationFlow?.picker.highlighted).toBe(1);
+      expect(result.state.annotationFlow?.picker.highlighted).toBe(1);
     });
 
     it('Enter confirms highlighted intent', () => {
       const result = handleAnnotateKey(key({ return: true }), state, flow);
-      expect(result.annotationFlow?.intent).toBe('instruct'); // default highlight = 0
-      expect(result.annotationFlow?.step).toBe('category');
+      expect(result.state.annotationFlow?.intent).toBe('instruct'); // default highlight = 0
+      expect(result.state.annotationFlow?.step).toBe('category');
     });
 
     it('unknown char is no-op', () => {
       const result = handleAnnotateKey(key({ char: 'z' }), state, flow);
-      expect(result.annotationFlow?.step).toBe('intent');
+      expect(result.state.annotationFlow?.step).toBe('intent');
     });
 
     it('Escape cancels → browse', () => {
       const result = handleAnnotateKey(key({ escape: true }), state, flow);
       expect(result.state.mode).toBe('browse');
-      expect(result.annotationFlow).toBeUndefined();
+      expect(result.state.annotationFlow).toBeUndefined();
     });
   });
 
@@ -446,25 +446,25 @@ describe('handleAnnotateKey', () => {
 
     it('b selects bug → advances to comment', () => {
       const result = handleAnnotateKey(key({ char: 'b' }), state, flow);
-      expect(result.annotationFlow?.category).toBe('bug');
-      expect(result.annotationFlow?.step).toBe('comment');
+      expect(result.state.annotationFlow?.category).toBe('bug');
+      expect(result.state.annotationFlow?.step).toBe('comment');
     });
 
     it('Enter on default (none) skips category → advances to comment', () => {
       const result = handleAnnotateKey(key({ return: true }), state, flow);
-      expect(result.annotationFlow?.step).toBe('comment');
+      expect(result.state.annotationFlow?.step).toBe('comment');
       // Default highlight is (none) at index 0 — category should be undefined
-      expect(result.annotationFlow?.category).toBeUndefined();
+      expect(result.state.annotationFlow?.category).toBeUndefined();
     });
 
     it('s selects security', () => {
       const result = handleAnnotateKey(key({ char: 's' }), state, flow);
-      expect(result.annotationFlow?.category).toBe('security');
+      expect(result.state.annotationFlow?.category).toBe('security');
     });
 
     it('unknown char is no-op', () => {
       const result = handleAnnotateKey(key({ char: 'z' }), state, flow);
-      expect(result.annotationFlow?.step).toBe('category');
+      expect(result.state.annotationFlow?.step).toBe('category');
     });
   });
 
@@ -478,13 +478,13 @@ describe('handleAnnotateKey', () => {
 
     it('typing appends to comment', () => {
       const result = handleAnnotateKey(key({ char: 'h' }), state, flow);
-      expect(commentText(result.annotationFlow)).toBe('h');
+      expect(commentText(result.state.annotationFlow)).toBe('h');
     });
 
     it('backspace removes last char', () => {
       const f = { ...flow, comment: createBuffer('hello') };
       const result = handleAnnotateKey(key({ backspace: true }), state, f);
-      expect(commentText(result.annotationFlow)).toBe('hell');
+      expect(commentText(result.state.annotationFlow)).toBe('hell');
     });
 
     it('Enter with text submits annotation', () => {
@@ -496,7 +496,7 @@ describe('handleAnnotateKey', () => {
       expect(result.state.annotations[0]?.intent).toBe('instruct');
       expect(result.state.annotations[0]?.startLine).toBe(5);
       expect(result.state.annotations[0]?.endLine).toBe(5);
-      expect(result.annotationFlow).toBeUndefined();
+      expect(result.state.annotationFlow).toBeUndefined();
     });
 
     it('Enter with selection range uses selection', () => {
@@ -520,25 +520,25 @@ describe('handleAnnotateKey', () => {
     it('Shift+Enter inserts newline', () => {
       const f = { ...flow, comment: createBuffer('line1') };
       const result = handleAnnotateKey(key({ return: true, shift: true }), state, f);
-      expect(commentText(result.annotationFlow)).toBe('line1\n');
+      expect(commentText(result.state.annotationFlow)).toBe('line1\n');
     });
 
     it('Alt+Enter inserts newline', () => {
       const f = { ...flow, comment: createBuffer('line1') };
       const result = handleAnnotateKey(key({ return: true, alt: true }), state, f);
-      expect(commentText(result.annotationFlow)).toBe('line1\n');
+      expect(commentText(result.state.annotationFlow)).toBe('line1\n');
     });
 
     it('arrow keys move cursor in textbox', () => {
       const f = { ...flow, comment: createBuffer('hello') };
       const result = handleAnnotateKey(key({ leftArrow: true }), state, f);
-      expect(result.annotationFlow?.comment.cursor.col).toBe(4);
+      expect(result.state.annotationFlow?.comment.cursor.col).toBe(4);
     });
 
     it('Ctrl+A moves to line start', () => {
       const f = { ...flow, comment: createBuffer('hello') };
       const result = handleAnnotateKey(key({ ctrl: true, char: 'a' }), state, f);
-      expect(result.annotationFlow?.comment.cursor.col).toBe(0);
+      expect(result.state.annotationFlow?.comment.cursor.col).toBe(0);
     });
   });
 });
@@ -577,8 +577,8 @@ describe('handleDecideKey', () => {
 
   it('arrow down + Enter selects deny', () => {
     const moved = handleDecideKey(key({ downArrow: true }), state, flow);
-    expect(moved.decideFlow?.picker.highlighted).toBe(1);
-    const result = handleDecideKey(key({ return: true }), state, moved.decideFlow!);
+    expect(moved.state.decideFlow?.picker.highlighted).toBe(1);
+    const result = handleDecideKey(key({ return: true }), state, moved.state.decideFlow!);
     expect(result.exit?.type).toBe('finish');
     if (result.exit?.type === 'finish') {
       expect(result.exit.decision).toBe('deny');
@@ -700,29 +700,29 @@ describe('handleBrowseKey — annotation interaction', () => {
   it('r on expanded annotation enters reply mode', () => {
     const result = handleBrowseKey(key({ char: 'r' }), stateWithExpanded, false);
     expect(result.state.mode).toBe('reply');
-    expect(result.replyFlow).toBeDefined();
-    expect(result.replyFlow?.annotationId).toBe('ann-1');
+    expect(result.state.replyFlow).toBeDefined();
+    expect(result.state.replyFlow?.annotationId).toBe('ann-1');
   });
 
   it('r on collapsed annotation does not enter reply mode', () => {
     const result = handleBrowseKey(key({ char: 'r' }), stateWithAnn, false);
     expect(result.state.mode).toBe('browse');
-    expect(result.replyFlow).toBeUndefined();
+    expect(result.state.replyFlow).toBeUndefined();
   });
 
   it('w on expanded annotation enters edit mode', () => {
     const result = handleBrowseKey(key({ char: 'w' }), stateWithExpanded, false);
     expect(result.state.mode).toBe('edit');
-    expect(result.editFlow).toBeDefined();
-    expect(result.editFlow?.annotationId).toBe('ann-1');
-    expect(getText(result.editFlow!.comment)).toBe('test comment');
+    expect(result.state.editFlow).toBeDefined();
+    expect(result.state.editFlow?.annotationId).toBe('ann-1');
+    expect(getText(result.state.editFlow!.comment)).toBe('test comment');
   });
 
   it('x on expanded annotation enters confirm mode', () => {
     const result = handleBrowseKey(key({ char: 'x' }), stateWithExpanded, false);
     expect(result.state.mode).toBe('confirm');
-    expect(result.confirmFlow).toBeDefined();
-    expect(result.confirmFlow?.annotationId).toBe('ann-1');
+    expect(result.state.confirmFlow).toBeDefined();
+    expect(result.state.confirmFlow?.annotationId).toBe('ann-1');
     // Annotation is NOT deleted yet
     expect(result.state.annotations).toHaveLength(1);
   });
@@ -730,7 +730,7 @@ describe('handleBrowseKey — annotation interaction', () => {
   it('x on collapsed annotation does not enter confirm', () => {
     const result = handleBrowseKey(key({ char: 'x' }), stateWithAnn, false);
     expect(result.state.mode).toBe('browse');
-    expect(result.confirmFlow).toBeUndefined();
+    expect(result.state.confirmFlow).toBeUndefined();
   });
 });
 
@@ -756,7 +756,7 @@ describe('handleReplyKey', () => {
 
   it('typing appends to comment', () => {
     const result = handleReplyKey(key({ char: 'h' }), state, flow);
-    expect(commentText(result.replyFlow)).toBe('h');
+    expect(commentText(result.state.replyFlow)).toBe('h');
   });
 
   it('backspace removes last char', () => {
@@ -765,7 +765,7 @@ describe('handleReplyKey', () => {
       state,
       { ...flow, comment: createBuffer('hi') }
     );
-    expect(commentText(result.replyFlow)).toBe('h');
+    expect(commentText(result.state.replyFlow)).toBe('h');
   });
 
   it('Enter with text adds reply and returns to browse', () => {
@@ -775,7 +775,7 @@ describe('handleReplyKey', () => {
       { ...flow, comment: createBuffer('my reply') }
     );
     expect(result.state.mode).toBe('browse');
-    expect(result.replyFlow).toBeUndefined();
+    expect(result.state.replyFlow).toBeUndefined();
     const ann = result.state.annotations.find((a) => a.id === 'ann-1');
     expect(ann?.replies).toEqual([{ comment: 'my reply', source: 'user' }]);
   });
@@ -783,19 +783,19 @@ describe('handleReplyKey', () => {
   it('Enter with empty text is no-op', () => {
     const result = handleReplyKey(key({ return: true }), state, flow);
     expect(result.state.mode).toBe('reply');
-    expect(result.replyFlow).toBeDefined();
+    expect(result.state.replyFlow).toBeDefined();
   });
 
   it('Escape cancels reply', () => {
     const result = handleReplyKey(key({ escape: true }), state, flow);
     expect(result.state.mode).toBe('browse');
-    expect(result.replyFlow).toBeUndefined();
+    expect(result.state.replyFlow).toBeUndefined();
   });
 
   it('Shift+Enter inserts newline', () => {
     const f = { ...flow, comment: createBuffer('line1') };
     const result = handleReplyKey(key({ return: true, shift: true }), state, f);
-    expect(commentText(result.replyFlow)).toBe('line1\n');
+    expect(commentText(result.state.replyFlow)).toBe('line1\n');
   });
 });
 
@@ -821,12 +821,12 @@ describe('handleEditKey', () => {
 
   it('typing appends at cursor', () => {
     const result = handleEditKey(key({ char: '!' }), state, flow);
-    expect(commentText(result.editFlow)).toBe('original comment!');
+    expect(commentText(result.state.editFlow)).toBe('original comment!');
   });
 
   it('backspace removes last char', () => {
     const result = handleEditKey(key({ backspace: true }), state, flow);
-    expect(commentText(result.editFlow)).toBe('original commen');
+    expect(commentText(result.state.editFlow)).toBe('original commen');
   });
 
   it('Enter saves edited comment and returns to browse', () => {
@@ -836,7 +836,7 @@ describe('handleEditKey', () => {
       { ...flow, comment: createBuffer('updated comment') }
     );
     expect(result.state.mode).toBe('browse');
-    expect(result.editFlow).toBeUndefined();
+    expect(result.state.editFlow).toBeUndefined();
     const ann = result.state.annotations.find((a) => a.id === 'ann-1');
     expect(ann?.comment).toBe('updated comment');
   });
@@ -853,7 +853,7 @@ describe('handleEditKey', () => {
   it('Escape cancels edit', () => {
     const result = handleEditKey(key({ escape: true }), state, flow);
     expect(result.state.mode).toBe('browse');
-    expect(result.editFlow).toBeUndefined();
+    expect(result.state.editFlow).toBeUndefined();
     const ann = result.state.annotations.find((a) => a.id === 'ann-1');
     expect(ann?.comment).toBe('original comment');
   });
@@ -883,14 +883,14 @@ describe('handleConfirmKey', () => {
     const result = handleConfirmKey(key({ char: 'y' }), state, flow);
     expect(result.state.mode).toBe('browse');
     expect(result.state.annotations).toEqual([]);
-    expect(result.confirmFlow).toBeUndefined();
+    expect(result.state.confirmFlow).toBeUndefined();
   });
 
   it('n shortcut cancels delete', () => {
     const result = handleConfirmKey(key({ char: 'n' }), state, flow);
     expect(result.state.mode).toBe('browse');
     expect(result.state.annotations).toHaveLength(1);
-    expect(result.confirmFlow).toBeUndefined();
+    expect(result.state.confirmFlow).toBeUndefined();
   });
 
   it('Enter on default (no) cancels delete', () => {
@@ -901,7 +901,7 @@ describe('handleConfirmKey', () => {
 
   it('arrow down + Enter on yes deletes', () => {
     const moved = handleConfirmKey(key({ downArrow: true }), state, flow);
-    const result = handleConfirmKey(key({ return: true }), state, moved.confirmFlow!);
+    const result = handleConfirmKey(key({ return: true }), state, moved.state.confirmFlow!);
     expect(result.state.annotations).toEqual([]);
   });
 
@@ -909,13 +909,13 @@ describe('handleConfirmKey', () => {
     const result = handleConfirmKey(key({ escape: true }), state, flow);
     expect(result.state.mode).toBe('browse');
     expect(result.state.annotations).toHaveLength(1);
-    expect(result.confirmFlow).toBeUndefined();
+    expect(result.state.confirmFlow).toBeUndefined();
   });
 
   it('unknown key is no-op', () => {
     const result = handleConfirmKey(key({ char: 'z' }), state, flow);
     expect(result.state.mode).toBe('confirm');
-    expect(result.confirmFlow).toBeDefined();
+    expect(result.state.confirmFlow).toBeDefined();
   });
 });
 
@@ -927,7 +927,7 @@ describe('handleBrowseKey — search', () => {
   it('/ enters search mode with flow', () => {
     const result = handleBrowseKey(key({ char: '/' }), makeState(), false);
     expect(result.state.mode).toBe('search');
-    expect(result.searchFlow).toBeDefined();
+    expect(result.state.searchFlow).toBeDefined();
   });
 
   it('n navigates to next match', () => {
@@ -1022,7 +1022,7 @@ describe('handleSearchKey', () => {
 
   it('typing updates input and live-previews matches', () => {
     const result = handleSearchKey(key({ char: 'f' }), state, flow, sourceLines);
-    expect(getText(result.searchFlow!.input)).toBe('f');
+    expect(getText(result.state.searchFlow!.input)).toBe('f');
     // 'f' matches lines 1, 3, 4 (foo, function, foo)
     expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
   });
@@ -1031,7 +1031,7 @@ describe('handleSearchKey', () => {
     const f: SearchFlowState = { input: createBuffer('foo') };
     const result = handleSearchKey(key({ return: true }), state, f, sourceLines);
     expect(result.state.mode).toBe('browse');
-    expect(result.searchFlow).toBeUndefined();
+    expect(result.state.searchFlow).toBeUndefined();
     expect(result.state.search?.pattern).toBe('foo');
     expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
   });
@@ -1054,7 +1054,7 @@ describe('handleSearchKey', () => {
     const result = handleSearchKey(key({ escape: true }), state, f, sourceLines);
     expect(result.state.mode).toBe('browse');
     expect(result.state.search).toBeUndefined();
-    expect(result.searchFlow).toBeUndefined();
+    expect(result.state.searchFlow).toBeUndefined();
   });
 
   it('search is case-insensitive', () => {
@@ -1066,7 +1066,7 @@ describe('handleSearchKey', () => {
   it('backspace updates input and recomputes matches', () => {
     const f: SearchFlowState = { input: createBuffer('foo') };
     const result = handleSearchKey(key({ backspace: true }), state, f, sourceLines);
-    expect(getText(result.searchFlow!.input)).toBe('fo');
+    expect(getText(result.state.searchFlow!.input)).toBe('fo');
     // 'fo' matches same lines: 1, 3, 4
     expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
   });
@@ -1074,7 +1074,7 @@ describe('handleSearchKey', () => {
   it('clearing input via backspace removes search state', () => {
     const f: SearchFlowState = { input: createBuffer('f') };
     const result = handleSearchKey(key({ backspace: true }), state, f, sourceLines);
-    expect(getText(result.searchFlow!.input)).toBe('');
+    expect(getText(result.state.searchFlow!.input)).toBe('');
     expect(result.state.search).toBeUndefined();
   });
 });

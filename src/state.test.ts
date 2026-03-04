@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation } from './schema.js';
 import {
-  type BrowseState,
+  type SessionState,
   clampLine,
   computeViewportOffset,
   halfPage,
@@ -13,7 +13,7 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const makeState = (overrides: Partial<BrowseState> = {}): BrowseState => ({
+const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
   lineCount: 100,
   maxLineWidth: 120,
   viewportHeight: 20,

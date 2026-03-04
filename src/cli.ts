@@ -22,7 +22,7 @@ import { runSession } from './session.js';
 import {
   clampLine,
   computeViewportOffset,
-  type BrowseState,
+  type SessionState,
 } from './state.js';
 import {
   ALT_SCREEN_OFF,
@@ -122,7 +122,7 @@ const command = defineCommand({
       const terminalRows = stderr.rows ?? 24;
       const initialViewportHeight = getViewportHeight(terminalRows);
 
-      const initialState: BrowseState = {
+      const initialState: SessionState = {
         lineCount,
         maxLineWidth,
         viewportHeight: initialViewportHeight,

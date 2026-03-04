@@ -12,13 +12,13 @@ import type { Key } from './keypress.js';
 import type { KnownCategory, KnownIntent, SessionResult } from './schema.js';
 import {
   type AnnotationFlowState,
-  type BrowseState,
   type ConfirmFlowState,
   type DecideFlowState,
   type EditFlowState,
   type GotoFlowState,
   type ReplyFlowState,
   type SearchFlowState,
+  type SessionState,
   INITIAL_ANNOTATION_FLOW,
   INITIAL_CONFIRM_FLOW,
   INITIAL_DECIDE_FLOW,
@@ -59,14 +59,7 @@ import {
 // --- Result type ---
 
 export type DispatchResult = {
-  readonly state: BrowseState;
-  readonly annotationFlow?: AnnotationFlowState;
-  readonly gotoFlow?: GotoFlowState;
-  readonly replyFlow?: ReplyFlowState;
-  readonly editFlow?: EditFlowState;
-  readonly decideFlow?: DecideFlowState;
-  readonly confirmFlow?: ConfirmFlowState;
-  readonly searchFlow?: SearchFlowState;
+  readonly state: SessionState;
   /** When set, the CLI should call `finish()` with this result. */
   readonly exit?: SessionResult;
   /** When set, controls the gg two-key sequence timer state. */
@@ -134,13 +127,12 @@ const applyTextKey = (key: Key, buf: TextBuffer): TextBuffer | undefined => {
 
 export const handleAnnotateKey = (
   key: Key,
-  state: BrowseState,
+  state: SessionState,
   flow: AnnotationFlowState
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: { ...state, mode: 'browse', selection: undefined },
-      annotationFlow: undefined,
+      state: { ...state, mode: 'browse', selection: undefined, annotationFlow: undefined },
     };
   }
 
@@ -149,14 +141,12 @@ export const handleAnnotateKey = (
     // Arrow navigation
     if (key.upArrow || key.char === 'k') {
       return {
-        state,
-        annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) },
+        state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) } },
       };
     }
     if (key.downArrow || key.char === 'j') {
       return {
-        state,
-        annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) },
+        state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) } },
       };
     }
 
@@ -165,33 +155,37 @@ export const handleAnnotateKey = (
       const selected = getHighlighted(flow.picker);
       if (selected) {
         return {
-          state,
-          annotationFlow: {
-            ...flow,
-            step: 'category',
-            intent: selected.id,
-            picker: createPicker(CATEGORY_OPTIONS),
+          state: {
+            ...state,
+            annotationFlow: {
+              ...flow,
+              step: 'category',
+              intent: selected.id,
+              picker: createPicker(CATEGORY_OPTIONS),
+            },
           },
         };
       }
-      return { state, annotationFlow: flow };
+      return { state: { ...state, annotationFlow: flow } };
     }
 
     // Direct shortcut
     const matched = findByShortcut(flow.picker, key.char);
     if (matched) {
       return {
-        state,
-        annotationFlow: {
-          ...flow,
-          step: 'category',
-          intent: matched.id,
-          picker: createPicker(CATEGORY_OPTIONS),
+        state: {
+          ...state,
+          annotationFlow: {
+            ...flow,
+            step: 'category',
+            intent: matched.id,
+            picker: createPicker(CATEGORY_OPTIONS),
+          },
         },
       };
     }
 
-    return { state, annotationFlow: flow };
+    return { state: { ...state, annotationFlow: flow } };
   }
 
   // --- Category picker step ---
@@ -199,14 +193,12 @@ export const handleAnnotateKey = (
     // Arrow navigation
     if (key.upArrow || key.char === 'k') {
       return {
-        state,
-        annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) },
+        state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) } },
       };
     }
     if (key.downArrow || key.char === 'j') {
       return {
-        state,
-        annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) },
+        state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) } },
       };
     }
 
@@ -214,11 +206,13 @@ export const handleAnnotateKey = (
     if (key.return) {
       const selected = getHighlighted(flow.picker);
       return {
-        state,
-        annotationFlow: {
-          ...flow,
-          step: 'comment',
-          category: selected?.id || undefined,
+        state: {
+          ...state,
+          annotationFlow: {
+            ...flow,
+            step: 'comment',
+            category: selected?.id || undefined,
+          },
         },
       };
     }
@@ -227,16 +221,18 @@ export const handleAnnotateKey = (
     const matched = findByShortcut(flow.picker, key.char);
     if (matched) {
       return {
-        state,
-        annotationFlow: {
-          ...flow,
-          step: 'comment',
-          category: matched.id || undefined,
+        state: {
+          ...state,
+          annotationFlow: {
+            ...flow,
+            step: 'comment',
+            category: matched.id || undefined,
+          },
         },
       };
     }
 
-    return { state, annotationFlow: flow };
+    return { state: { ...state, annotationFlow: flow } };
   }
 
   // --- Comment textbox step ---
@@ -259,33 +255,31 @@ export const handleAnnotateKey = (
         },
       });
       return {
-        state: { ...nextState, mode: 'browse', selection: undefined },
-        annotationFlow: undefined,
+        state: { ...nextState, mode: 'browse', selection: undefined, annotationFlow: undefined },
       };
     }
-    return { state, annotationFlow: flow };
+    return { state: { ...state, annotationFlow: flow } };
   }
 
   // Text editing keys
   const updatedBuf = applyTextKey(key, flow.comment);
   if (updatedBuf) {
-    return { state, annotationFlow: { ...flow, comment: updatedBuf } };
+    return { state: { ...state, annotationFlow: { ...flow, comment: updatedBuf } } };
   }
 
-  return { state, annotationFlow: flow };
+  return { state: { ...state, annotationFlow: flow } };
 };
 
 // --- Goto mode ---
 
 export const handleGotoKey = (
   key: Key,
-  state: BrowseState,
+  state: SessionState,
   flow: GotoFlowState
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
-      gotoFlow: undefined,
+      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), gotoFlow: undefined },
     };
   }
 
@@ -297,25 +291,25 @@ export const handleGotoKey = (
         ? [{ type: 'set_cursor' as const, line: target }]
         : []),
     ];
-    return { state: applyActions(state, actions), gotoFlow: undefined };
+    return { state: { ...applyActions(state, actions), gotoFlow: undefined } };
   }
 
   if (key.backspace) {
-    return { state, gotoFlow: { input: flow.input.slice(0, -1) } };
+    return { state: { ...state, gotoFlow: { input: flow.input.slice(0, -1) } } };
   }
 
   if (key.char >= '0' && key.char <= '9') {
-    return { state, gotoFlow: { input: flow.input + key.char } };
+    return { state: { ...state, gotoFlow: { input: flow.input + key.char } } };
   }
 
-  return { state, gotoFlow: flow };
+  return { state: { ...state, gotoFlow: flow } };
 };
 
 // --- Select mode ---
 
 export const handleSelectKey = (
   key: Key,
-  state: BrowseState
+  state: SessionState
 ): DispatchResult => {
   if (key.escape) {
     return { state: reduce(state, { type: 'cancel_select' }) };
@@ -323,8 +317,7 @@ export const handleSelectKey = (
 
   if (key.return) {
     return {
-      state: reduce(state, { type: 'confirm_select' }),
-      annotationFlow: { ...INITIAL_ANNOTATION_FLOW },
+      state: { ...reduce(state, { type: 'confirm_select' }), annotationFlow: { ...INITIAL_ANNOTATION_FLOW } },
     };
   }
 
@@ -355,7 +348,7 @@ export const handleSelectKey = (
  * line and auto-collapses annotations on the departure line.
  */
 const jumpToNextAnnotation = (
-  state: BrowseState,
+  state: SessionState,
   direction: 1 | -1
 ): DispatchResult => {
   if (state.annotations.length === 0) return { state };
@@ -407,7 +400,7 @@ const jumpToNextAnnotation = (
 
 export const handleBrowseKey = (
   key: Key,
-  state: BrowseState,
+  state: SessionState,
   ggPending: boolean
 ): DispatchResult => {
   // Escape clears active search highlights
@@ -502,8 +495,7 @@ export const handleBrowseKey = (
   // Goto line (must precede gg check — Ctrl+G has char='g' + ctrl=true)
   if (key.char === ':' || (key.ctrl && key.char === 'g')) {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'goto' }),
-      gotoFlow: { ...INITIAL_GOTO_FLOW },
+      state: { ...reduce(state, { type: 'set_mode', mode: 'goto' }), gotoFlow: { ...INITIAL_GOTO_FLOW } },
     };
   }
 
@@ -557,8 +549,7 @@ export const handleBrowseKey = (
       .find((a) => state.expandedAnnotations.has(a.id));
     if (target) {
       return {
-        state: reduce(state, { type: 'set_mode', mode: 'reply' }),
-        replyFlow: INITIAL_REPLY_FLOW(target.id),
+        state: { ...reduce(state, { type: 'set_mode', mode: 'reply' }), replyFlow: INITIAL_REPLY_FLOW(target.id) },
       };
     }
   }
@@ -569,8 +560,7 @@ export const handleBrowseKey = (
       .find((a) => state.expandedAnnotations.has(a.id));
     if (target) {
       return {
-        state: reduce(state, { type: 'set_mode', mode: 'edit' }),
-        editFlow: INITIAL_EDIT_FLOW(target),
+        state: { ...reduce(state, { type: 'set_mode', mode: 'edit' }), editFlow: INITIAL_EDIT_FLOW(target) },
       };
     }
   }
@@ -581,8 +571,7 @@ export const handleBrowseKey = (
       .find((a) => state.expandedAnnotations.has(a.id));
     if (target) {
       return {
-        state: reduce(state, { type: 'set_mode', mode: 'confirm' }),
-        confirmFlow: INITIAL_CONFIRM_FLOW(target.id),
+        state: { ...reduce(state, { type: 'set_mode', mode: 'confirm' }), confirmFlow: INITIAL_CONFIRM_FLOW(target.id) },
       };
     }
   }
@@ -590,16 +579,14 @@ export const handleBrowseKey = (
   // Annotate (single-line)
   if (key.char === 'a') {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'annotate' }),
-      annotationFlow: { ...INITIAL_ANNOTATION_FLOW },
+      state: { ...reduce(state, { type: 'set_mode', mode: 'annotate' }), annotationFlow: { ...INITIAL_ANNOTATION_FLOW } },
     };
   }
 
   // Search
   if (key.char === '/') {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'search' }),
-      searchFlow: { ...INITIAL_SEARCH_FLOW },
+      state: { ...reduce(state, { type: 'set_mode', mode: 'search' }), searchFlow: { ...INITIAL_SEARCH_FLOW } },
     };
   }
 
@@ -622,8 +609,7 @@ export const handleBrowseKey = (
   // Finish / decision picker
   if (key.char === 'q') {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'decide' }),
-      decideFlow: { ...INITIAL_DECIDE_FLOW },
+      state: { ...reduce(state, { type: 'set_mode', mode: 'decide' }), decideFlow: { ...INITIAL_DECIDE_FLOW } },
     };
   }
 
@@ -634,13 +620,12 @@ export const handleBrowseKey = (
 
 export const handleReplyKey = (
   key: Key,
-  state: BrowseState,
+  state: SessionState,
   flow: ReplyFlowState
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
-      replyFlow: undefined,
+      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), replyFlow: undefined },
     };
   }
 
@@ -649,36 +634,37 @@ export const handleReplyKey = (
     const trimmed = getText(flow.comment).trim();
     if (trimmed.length > 0) {
       return {
-        state: applyActions(state, [
-          { type: 'add_reply', annotationId: flow.annotationId, reply: { comment: trimmed, source: 'user' } },
-          { type: 'set_mode', mode: 'browse' },
-        ]),
-        replyFlow: undefined,
+        state: {
+          ...applyActions(state, [
+            { type: 'add_reply', annotationId: flow.annotationId, reply: { comment: trimmed, source: 'user' } },
+            { type: 'set_mode', mode: 'browse' },
+          ]),
+          replyFlow: undefined,
+        },
       };
     }
-    return { state, replyFlow: flow };
+    return { state: { ...state, replyFlow: flow } };
   }
 
   // Text editing keys
   const updatedBuf = applyTextKey(key, flow.comment);
   if (updatedBuf) {
-    return { state, replyFlow: { ...flow, comment: updatedBuf } };
+    return { state: { ...state, replyFlow: { ...flow, comment: updatedBuf } } };
   }
 
-  return { state, replyFlow: flow };
+  return { state: { ...state, replyFlow: flow } };
 };
 
 // --- Edit mode ---
 
 export const handleEditKey = (
   key: Key,
-  state: BrowseState,
+  state: SessionState,
   flow: EditFlowState
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
-      editFlow: undefined,
+      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), editFlow: undefined },
     };
   }
 
@@ -687,50 +673,49 @@ export const handleEditKey = (
     const trimmed = getText(flow.comment).trim();
     if (trimmed.length > 0) {
       return {
-        state: applyActions(state, [
-          { type: 'update_annotation', annotationId: flow.annotationId, changes: { comment: trimmed } },
-          { type: 'set_mode', mode: 'browse' },
-        ]),
-        editFlow: undefined,
+        state: {
+          ...applyActions(state, [
+            { type: 'update_annotation', annotationId: flow.annotationId, changes: { comment: trimmed } },
+            { type: 'set_mode', mode: 'browse' },
+          ]),
+          editFlow: undefined,
+        },
       };
     }
-    return { state, editFlow: flow };
+    return { state: { ...state, editFlow: flow } };
   }
 
   // Text editing keys
   const updatedBuf = applyTextKey(key, flow.comment);
   if (updatedBuf) {
-    return { state, editFlow: { ...flow, comment: updatedBuf } };
+    return { state: { ...state, editFlow: { ...flow, comment: updatedBuf } } };
   }
 
-  return { state, editFlow: flow };
+  return { state: { ...state, editFlow: flow } };
 };
 
 // --- Confirm mode ---
 
 export const handleConfirmKey = (
   key: Key,
-  state: BrowseState,
+  state: SessionState,
   flow: ConfirmFlowState
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
-      confirmFlow: undefined,
+      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), confirmFlow: undefined },
     };
   }
 
   // Arrow navigation
   if (key.upArrow || key.char === 'k') {
     return {
-      state,
-      confirmFlow: { ...flow, picker: moveHighlight(flow.picker, -1) },
+      state: { ...state, confirmFlow: { ...flow, picker: moveHighlight(flow.picker, -1) } },
     };
   }
   if (key.downArrow || key.char === 'j') {
     return {
-      state,
-      confirmFlow: { ...flow, picker: moveHighlight(flow.picker, 1) },
+      state: { ...state, confirmFlow: { ...flow, picker: moveHighlight(flow.picker, 1) } },
     };
   }
 
@@ -739,17 +724,18 @@ export const handleConfirmKey = (
     const selected = getHighlighted(flow.picker);
     if (selected?.id === 'yes') {
       return {
-        state: applyActions(state, [
-          { type: 'delete_annotation', annotationId: flow.annotationId },
-          { type: 'set_mode', mode: 'browse' },
-        ]),
-        confirmFlow: undefined,
+        state: {
+          ...applyActions(state, [
+            { type: 'delete_annotation', annotationId: flow.annotationId },
+            { type: 'set_mode', mode: 'browse' },
+          ]),
+          confirmFlow: undefined,
+        },
       };
     }
     // "no" or default — cancel
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
-      confirmFlow: undefined,
+      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), confirmFlow: undefined },
     };
   }
 
@@ -757,21 +743,22 @@ export const handleConfirmKey = (
   const matched = findByShortcut(flow.picker, key.char);
   if (matched?.id === 'yes') {
     return {
-      state: applyActions(state, [
-        { type: 'delete_annotation', annotationId: flow.annotationId },
-        { type: 'set_mode', mode: 'browse' },
-      ]),
-      confirmFlow: undefined,
+      state: {
+        ...applyActions(state, [
+          { type: 'delete_annotation', annotationId: flow.annotationId },
+          { type: 'set_mode', mode: 'browse' },
+        ]),
+        confirmFlow: undefined,
+      },
     };
   }
   if (matched?.id === 'no') {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
-      confirmFlow: undefined,
+      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), confirmFlow: undefined },
     };
   }
 
-  return { state, confirmFlow: flow };
+  return { state: { ...state, confirmFlow: flow } };
 };
 
 // --- Search mode ---
@@ -797,18 +784,20 @@ const findMatchLines = (
 
 export const handleSearchKey = (
   key: Key,
-  state: BrowseState,
+  state: SessionState,
   flow: SearchFlowState,
   sourceLines: readonly string[]
 ): DispatchResult => {
   // Escape clears search and returns to browse
   if (key.escape) {
     return {
-      state: applyActions(state, [
-        { type: 'clear_search' },
-        { type: 'set_mode', mode: 'browse' },
-      ]),
-      searchFlow: undefined,
+      state: {
+        ...applyActions(state, [
+          { type: 'clear_search' },
+          { type: 'set_mode', mode: 'browse' },
+        ]),
+        searchFlow: undefined,
+      },
     };
   }
 
@@ -818,20 +807,24 @@ export const handleSearchKey = (
     if (pattern.length > 0) {
       const matchLines = findMatchLines(sourceLines, pattern);
       return {
-        state: applyActions(state, [
-          { type: 'set_search', pattern, matchLines },
-          { type: 'set_mode', mode: 'browse' },
-        ]),
-        searchFlow: undefined,
+        state: {
+          ...applyActions(state, [
+            { type: 'set_search', pattern, matchLines },
+            { type: 'set_mode', mode: 'browse' },
+          ]),
+          searchFlow: undefined,
+        },
       };
     }
     // Empty pattern — clear search and return
     return {
-      state: applyActions(state, [
-        { type: 'clear_search' },
-        { type: 'set_mode', mode: 'browse' },
-      ]),
-      searchFlow: undefined,
+      state: {
+        ...applyActions(state, [
+          { type: 'clear_search' },
+          { type: 'set_mode', mode: 'browse' },
+        ]),
+        searchFlow: undefined,
+      },
     };
   }
 
@@ -844,37 +837,34 @@ export const handleSearchKey = (
     const nextState = pattern.length > 0
       ? reduce(state, { type: 'set_search', pattern, matchLines })
       : reduce(state, { type: 'clear_search' });
-    return { state: nextState, searchFlow: { ...flow, input: updatedBuf } };
+    return { state: { ...nextState, searchFlow: { ...flow, input: updatedBuf } } };
   }
 
-  return { state, searchFlow: flow };
+  return { state: { ...state, searchFlow: flow } };
 };
 
 // --- Decide mode ---
 
 export const handleDecideKey = (
   key: Key,
-  state: BrowseState,
+  state: SessionState,
   flow: DecideFlowState
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: reduce(state, { type: 'set_mode', mode: 'browse' }),
-      decideFlow: undefined,
+      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), decideFlow: undefined },
     };
   }
 
   // Arrow navigation
   if (key.upArrow || key.char === 'k') {
     return {
-      state,
-      decideFlow: { picker: moveHighlight(flow.picker, -1) },
+      state: { ...state, decideFlow: { picker: moveHighlight(flow.picker, -1) } },
     };
   }
   if (key.downArrow || key.char === 'j') {
     return {
-      state,
-      decideFlow: { picker: moveHighlight(flow.picker, 1) },
+      state: { ...state, decideFlow: { picker: moveHighlight(flow.picker, 1) } },
     };
   }
 
@@ -892,7 +882,7 @@ export const handleDecideKey = (
         },
       };
     }
-    return { state, decideFlow: flow };
+    return { state: { ...state, decideFlow: flow } };
   }
 
   // Direct shortcut
@@ -909,5 +899,5 @@ export const handleDecideKey = (
     };
   }
 
-  return { state, decideFlow: flow };
+  return { state: { ...state, decideFlow: flow } };
 };
