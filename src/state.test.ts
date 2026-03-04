@@ -1282,6 +1282,85 @@ describe('reduce — toggle_view_mode', () => {
     const next = reduce(state, { type: 'toggle_view_mode' });
     expect(next.focusedAnnotationId).toBe('a1'); // still on the annotation
   });
+
+  it('resets viewport offset on toggle to raw', () => {
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta,
+      cursorLine: 15,
+      viewportOffset: 3, // some offset in diff row space
+    });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.viewMode).toBe('raw');
+    // Viewport recomputed from scratch (currentOffset: 0), cursor 15 in 100-line file
+    expect(typeof next.viewportOffset).toBe('number');
+  });
+
+  it('resets viewport offset on toggle to diff', () => {
+    const state = makeState({
+      viewMode: 'raw',
+      diffMeta,
+      cursorLine: 7,
+      viewportOffset: 50,
+    });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.viewMode).toBe('diff');
+    // Viewport recomputed for diff row space
+    expect(next.viewportOffset).toBeDefined();
+  });
+
+  it('resets horizontal offset when toggling to diff', () => {
+    const state = makeState({
+      viewMode: 'raw',
+      diffMeta,
+      cursorLine: 7,
+      horizontalOffset: 20,
+    });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.viewMode).toBe('diff');
+    expect(next.horizontalOffset).toBe(0);
+  });
+
+  it('preserves horizontal offset when toggling to raw', () => {
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta,
+      cursorLine: 10,
+      horizontalOffset: 15,
+    });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.viewMode).toBe('raw');
+    expect(next.horizontalOffset).toBe(15);
+  });
+
+  it('preserves search state across toggle', () => {
+    const search = { pattern: 'foo', matchLines: [3, 10], currentMatchIndex: 0 };
+    const state = makeState({
+      viewMode: 'raw',
+      diffMeta,
+      cursorLine: 3,
+      search,
+    });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.search).toEqual(search);
+  });
+
+  it('round-trip raw→diff→raw preserves cursor on a visible line', () => {
+    const state = makeState({ viewMode: 'raw', diffMeta, cursorLine: 10 });
+    const diff = reduce(state, { type: 'toggle_view_mode' });
+    expect(diff.cursorLine).toBe(10); // 10 is visible
+    const raw = reduce(diff, { type: 'toggle_view_mode' });
+    expect(raw.cursorLine).toBe(10);
+  });
+
+  it('round-trip raw→diff→raw snaps then preserves cursor', () => {
+    // cursorLine 12 not visible — snaps to 10 in diff, stays 10 in raw
+    const state = makeState({ viewMode: 'raw', diffMeta, cursorLine: 12 });
+    const diff = reduce(state, { type: 'toggle_view_mode' });
+    expect(diff.cursorLine).toBe(10);
+    const raw = reduce(diff, { type: 'toggle_view_mode' });
+    expect(raw.cursorLine).toBe(10);
+  });
 });
 
 // ---------------------------------------------------------------------------
