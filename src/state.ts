@@ -152,7 +152,10 @@ export type BrowseAction =
   | { type: 'clear_search' }
   | { type: 'navigate_match'; delta: 1 | -1 }
   | { type: 'scroll_viewport'; delta: number }
-  | { type: 'scroll_horizontal'; delta: number };
+  | { type: 'scroll_horizontal'; delta: number }
+  | { type: 'reset_horizontal' }
+  | { type: 'collapse_all' }
+  | { type: 'expand_all' };
 
 export const clampLine = (value: number, lineCount: number): number =>
   R.clamp(value, { min: 1, max: Math.max(1, lineCount) });
@@ -381,5 +384,27 @@ export const reduce = (state: BrowseState, action: BrowseAction): BrowseState =>
       });
       return { ...state, horizontalOffset };
     }
+    case 'reset_horizontal': {
+      return { ...state, horizontalOffset: 0 };
+    }
+    case 'collapse_all': {
+      return { ...state, expandedAnnotations: new Set<string>() };
+    }
+    case 'expand_all': {
+      return {
+        ...state,
+        expandedAnnotations: new Set(state.annotations.map((a) => a.id)),
+      };
+    }
   }
 };
+
+/**
+ * Apply a sequence of actions to state, left-to-right.
+ * Replaces nested `reduce(reduce(s, a1), a2)` and imperative `let s = ...; s = reduce(s, ...)`
+ * patterns with a declarative pipeline.
+ */
+export const applyActions = (
+  state: BrowseState,
+  actions: readonly BrowseAction[]
+): BrowseState => actions.reduce(reduce, state);

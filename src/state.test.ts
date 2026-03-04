@@ -823,3 +823,90 @@ describe('reduce — scroll_horizontal', () => {
     expect(next.horizontalOffset).toBe(20); // 0 + 20
   });
 });
+
+// ---------------------------------------------------------------------------
+// reset_horizontal
+
+describe('reduce — reset_horizontal', () => {
+  it('resets horizontalOffset to 0', () => {
+    const state = makeState({ horizontalOffset: 42 });
+    const next = reduce(state, { type: 'reset_horizontal' });
+    expect(next.horizontalOffset).toBe(0);
+  });
+
+  it('is a no-op when already 0', () => {
+    const state = makeState({ horizontalOffset: 0 });
+    const next = reduce(state, { type: 'reset_horizontal' });
+    expect(next.horizontalOffset).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// collapse_all / expand_all
+
+describe('reduce — collapse_all', () => {
+  it('clears all expanded annotations', () => {
+    const state = makeState({
+      annotations: [makeAnnotation({ id: 'a' }), makeAnnotation({ id: 'b' })],
+      expandedAnnotations: new Set(['a', 'b']),
+    });
+    const next = reduce(state, { type: 'collapse_all' });
+    expect(next.expandedAnnotations.size).toBe(0);
+  });
+
+  it('is a no-op when none expanded', () => {
+    const state = makeState({ expandedAnnotations: new Set() });
+    const next = reduce(state, { type: 'collapse_all' });
+    expect(next.expandedAnnotations.size).toBe(0);
+  });
+});
+
+describe('reduce — expand_all', () => {
+  it('expands all annotations', () => {
+    const anns = [makeAnnotation({ id: 'a' }), makeAnnotation({ id: 'b' })];
+    const state = makeState({ annotations: anns, expandedAnnotations: new Set() });
+    const next = reduce(state, { type: 'expand_all' });
+    expect(next.expandedAnnotations).toEqual(new Set(['a', 'b']));
+  });
+
+  it('is idempotent when all already expanded', () => {
+    const anns = [makeAnnotation({ id: 'a' })];
+    const state = makeState({ annotations: anns, expandedAnnotations: new Set(['a']) });
+    const next = reduce(state, { type: 'expand_all' });
+    expect(next.expandedAnnotations).toEqual(new Set(['a']));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyActions
+
+import { applyActions } from './state.js';
+
+describe('applyActions', () => {
+  it('applies multiple actions in sequence', () => {
+    const state = makeState({ cursorLine: 1, mode: 'browse' });
+    const next = applyActions(state, [
+      { type: 'move_cursor', delta: 5 },
+      { type: 'set_mode', mode: 'goto' },
+    ]);
+    expect(next.cursorLine).toBe(6);
+    expect(next.mode).toBe('goto');
+  });
+
+  it('returns original state for empty actions list', () => {
+    const state = makeState();
+    const next = applyActions(state, []);
+    expect(next).toBe(state);
+  });
+
+  it('composes start_select + extend_select correctly', () => {
+    const state = makeState({ cursorLine: 10 });
+    const next = applyActions(state, [
+      { type: 'start_select' },
+      { type: 'extend_select', delta: 3 },
+    ]);
+    expect(next.mode).toBe('select');
+    expect(next.selection).toEqual({ anchor: 10, active: 13 });
+    expect(next.cursorLine).toBe(13);
+  });
+});
