@@ -2,6 +2,16 @@ import { openSync } from 'fs';
 import { stdin } from 'process';
 import { ReadStream as TtyReadStream } from 'tty';
 
+// --- Terminal escape sequences ---
+
+export const ALT_SCREEN_ON = '\x1b[?1049h';
+export const ALT_SCREEN_OFF = '\x1b[?1049l';
+export const CURSOR_HIDE = '\x1b[?25l';
+export const CURSOR_SHOW = '\x1b[?25h';
+export const CURSOR_HOME = '\x1b[H';
+export const MOUSE_ON = '\x1b[?1000h\x1b[?1006h';
+export const MOUSE_OFF = '\x1b[?1000l\x1b[?1006l';
+
 export const readStdinIfPiped = async (): Promise<string | null> => {
   if (stdin.isTTY) {
     return null;

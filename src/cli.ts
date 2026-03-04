@@ -1,58 +1,35 @@
 #!/usr/bin/env node
+/**
+ * CLI entry point — arg parsing, input resolution, and session launch.
+ *
+ * Reads the file, resolves annotations (stdin or file), highlights code,
+ * computes initial state, then hands off to `runSession()` for the
+ * interactive terminal session.
+ */
+
 import { readFileSync } from 'fs';
-import { stderr, stdout } from 'process';
+import { stderr } from 'process';
 import * as R from 'remeda';
 import { defineCommand, runMain } from 'citty';
-import {
-  type DispatchResult,
-  handleAnnotateKey,
-  handleBrowseKey,
-  handleConfirmKey,
-  handleDecideKey,
-  handleEditKey,
-  handleGotoKey,
-  handleReplyKey,
-  handleSearchKey,
-  handleSelectKey,
-} from './dispatch.js';
 import { visibleLength } from './ansi.js';
 import { type BundledTheme, DEFAULT_THEME, highlightCode } from './highlight.js';
-import { parseKeypress } from './keypress.js';
-import { type RenderContext, buildFrame, getViewportHeight } from './render.js';
+import { getViewportHeight } from './render.js';
 import {
-  type SessionResult,
-  createOutput,
   normalizeInputAnnotations,
   tryParseInputEnvelope,
 } from './schema.js';
+import { runSession } from './session.js';
 import {
-  type AnnotationFlowState,
-  type BrowseState,
-  type ConfirmFlowState,
-  type DecideFlowState,
-  type EditFlowState,
-  type GotoFlowState,
-  type ReplyFlowState,
-  type SearchFlowState,
   clampLine,
   computeViewportOffset,
-  reduce,
+  type BrowseState,
 } from './state.js';
 import {
-  cleanupTerminal,
+  ALT_SCREEN_OFF,
+  CURSOR_SHOW,
+  MOUSE_OFF,
   readStdinIfPiped,
-  resolveInteractiveInput,
 } from './terminal.js';
-
-// --- Terminal escape sequences ---
-
-const ALT_SCREEN_ON = '\x1b[?1049h';
-const ALT_SCREEN_OFF = '\x1b[?1049l';
-const CURSOR_HIDE = '\x1b[?25l';
-const CURSOR_SHOW = '\x1b[?25h';
-const CURSOR_HOME = '\x1b[H';
-const MOUSE_ON = '\x1b[?1000h\x1b[?1006h';
-const MOUSE_OFF = '\x1b[?1000l\x1b[?1006l';
 
 const command = defineCommand({
   meta: {
@@ -111,7 +88,10 @@ const command = defineCommand({
         theme,
       });
       const lineCount = lines.length;
-      const maxLineWidth = lines.reduce((max, l) => Math.max(max, visibleLength(l)), 0);
+      const maxLineWidth = lines.reduce(
+        (max, l) => Math.max(max, visibleLength(l)),
+        0
+      );
       const initialAnnotations = normalizeInputAnnotations(envelope);
 
       const focusedAnnotation = focusAnnotationArg
@@ -159,184 +139,13 @@ const command = defineCommand({
         expandedAnnotations: new Set(),
       };
 
-      // --- Interactive input setup ---
-      const input = resolveInteractiveInput();
-      if (!('setRawMode' in input) || typeof input.setRawMode !== 'function') {
-        throw new Error('Cannot enable raw mode — not a TTY');
-      }
-      input.setRawMode(true);
-      input.setEncoding('utf-8');
-      input.resume();
-
-      // --- Alternate screen buffer ---
-      stderr.write(`${ALT_SCREEN_ON}${CURSOR_HIDE}${MOUSE_ON}`);
-
-      // --- State + render loop ---
-      let state = initialState;
-      let annotationFlow: AnnotationFlowState | undefined;
-      let gotoFlow: GotoFlowState | undefined;
-      let replyFlow: ReplyFlowState | undefined;
-      let editFlow: EditFlowState | undefined;
-      let decideFlow: DecideFlowState | undefined;
-      let confirmFlow: ConfirmFlowState | undefined;
-      let searchFlow: SearchFlowState | undefined;
-
-      // Last render metadata, used for mouse click → cursor line mapping
-      let lastRowToLine: (number | undefined)[] = [];
-      let lastViewportStartRow = 2; // default: title is row 1, viewport starts at row 2
-
-      // Coalesce rapid inputs (e.g. trackpad inertial scroll) into a single
-      // repaint per event-loop tick. State mutations apply immediately; only
-      // the expensive buildFrame + write is deferred.
-      let paintScheduled = false;
-      const schedulePaint = (): void => {
-        if (paintScheduled) return;
-        paintScheduled = true;
-        setImmediate(() => {
-          paintScheduled = false;
-          paint();
-        });
-      };
-
-      const paint = (): void => {
-        const rows = stderr.rows ?? 24;
-        const cols = stderr.columns ?? 80;
-
-        // Sync viewport height on resize
-        const vh = getViewportHeight(rows);
-        if (vh !== state.viewportHeight) {
-          state = reduce(state, { type: 'update_viewport', viewportHeight: vh });
-        }
-
-        const ctx: RenderContext = {
-          filePath,
-          lines,
-          state,
-          terminalRows: rows,
-          terminalCols: cols,
-          focusAnnotation: focusAnnotationArg,
-          annotationFlow,
-          gotoFlow,
-          replyFlow,
-          editFlow,
-          decideFlow,
-          confirmFlow,
-          searchFlow,
-        };
-
-        const result = buildFrame(ctx);
-        lastRowToLine = result.rowToLine;
-        lastViewportStartRow = result.viewportStartRow;
-        stderr.write(`${CURSOR_HOME}${result.frame}`);
-      };
-
-      const finish = (result: SessionResult): void => {
-        input.setRawMode(false);
-        input.pause();
-        stderr.write(`${MOUSE_OFF}${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
-        cleanupTerminal(input);
-
-        if (result.type === 'abort') {
-          process.exit(1);
-        }
-
-        const output = createOutput({
-          filePath,
-          decision: result.decision,
-          annotations: result.annotations,
-        });
-        stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-        process.exit(0);
-      };
-
-      // Handle terminal resize
-      stderr.on('resize', paint);
-
-      // Initial paint
-      paint();
-
-      // --- Keypress dispatch ---
-
-      // gg detection: first `g` sets a 300ms timer; second `g` within window
-      // triggers jump-to-top. Timer expiry is a no-op (no single-g action).
-      let gPending = false;
-      let gTimer: ReturnType<typeof setTimeout> | undefined;
-
-      const applyResult = (result: DispatchResult): void => {
-        state = result.state;
-        if ('annotationFlow' in result) annotationFlow = result.annotationFlow;
-        if ('gotoFlow' in result) gotoFlow = result.gotoFlow;
-        if ('replyFlow' in result) replyFlow = result.replyFlow;
-        if ('editFlow' in result) editFlow = result.editFlow;
-        if ('decideFlow' in result) decideFlow = result.decideFlow;
-        if ('confirmFlow' in result) confirmFlow = result.confirmFlow;
-        if ('searchFlow' in result) searchFlow = result.searchFlow;
-
-        // Handle gg timer state from browse handler
-        if (result.gg) {
-          if (result.gg.pending) {
-            gPending = true;
-            gTimer = setTimeout(() => {
-              gPending = false;
-              gTimer = undefined;
-            }, 300);
-          } else {
-            clearTimeout(gTimer);
-            gPending = false;
-            gTimer = undefined;
-          }
-        }
-
-        if (result.exit) {
-          finish(result.exit);
-          return;
-        }
-
-        schedulePaint();
-      };
-
-      input.on('data', (data: string | Buffer) => {
-        const key = parseKeypress(data);
-
-        // Global: Ctrl+C
-        if (key.ctrl && key.char === 'c') {
-          finish({ type: 'abort' });
-          return;
-        }
-
-        // Mouse click → set cursor to clicked line (browse/select only)
-        if (key.mouseRow > 0 && (state.mode === 'browse' || state.mode === 'select')) {
-          const vpRow = key.mouseRow - lastViewportStartRow; // 0-based viewport row index
-          if (vpRow >= 0 && vpRow < lastRowToLine.length) {
-            const targetLine = lastRowToLine[vpRow];
-            if (targetLine !== undefined) {
-              state = reduce(state, { type: 'set_cursor', line: targetLine });
-              schedulePaint();
-            }
-          }
-          return;
-        }
-
-        // Dispatch to mode-specific handler
-        if (state.mode === 'search' && searchFlow) {
-          applyResult(handleSearchKey(key, state, searchFlow, sourceLines));
-        } else if (state.mode === 'confirm' && confirmFlow) {
-          applyResult(handleConfirmKey(key, state, confirmFlow));
-        } else if (state.mode === 'annotate' && annotationFlow) {
-          applyResult(handleAnnotateKey(key, state, annotationFlow));
-        } else if (state.mode === 'goto' && gotoFlow) {
-          applyResult(handleGotoKey(key, state, gotoFlow));
-        } else if (state.mode === 'reply' && replyFlow) {
-          applyResult(handleReplyKey(key, state, replyFlow));
-        } else if (state.mode === 'edit' && editFlow) {
-          applyResult(handleEditKey(key, state, editFlow));
-        } else if (state.mode === 'select') {
-          applyResult(handleSelectKey(key, state));
-        } else if (state.mode === 'browse') {
-          applyResult(handleBrowseKey(key, state, gPending));
-        } else if (state.mode === 'decide' && decideFlow) {
-          applyResult(handleDecideKey(key, state, decideFlow));
-        }
+      // --- Launch interactive session ---
+      runSession({
+        filePath,
+        lines,
+        sourceLines,
+        initialState,
+        focusAnnotationId: focusAnnotationArg,
       });
     } catch (error) {
       // Ensure we leave alt screen on crash
