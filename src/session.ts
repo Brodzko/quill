@@ -243,7 +243,7 @@ export const runSession = (config: SessionConfig): void => {
   };
 
   // --- Event wiring ---
-  stderr.on('resize', paint);
+  stderr.on('resize', schedulePaint);
   input.on('data', handleKeypress);
 
   // --- Initial paint ---
