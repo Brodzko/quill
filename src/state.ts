@@ -613,12 +613,10 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
             viewportHeight: state.viewportHeight,
             lineCount: state.lineCount,
           });
-      // Reset horizontal scroll when entering diff mode (no h-scroll in diff)
-      const horizontalOffset = nextMode === 'diff' ? 0 : state.horizontalOffset;
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
-      return { ...nextState, cursorLine, viewportOffset, horizontalOffset, focusedAnnotationId };
+      return { ...nextState, cursorLine, viewportOffset, focusedAnnotationId };
     }
   }
 };

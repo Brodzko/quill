@@ -1284,15 +1284,14 @@ describe('handleBrowseKey — diff toggle', () => {
     expect(result.state.cursorLine).toBe(10); // nearest to 12
   });
 
-  it('horizontal scroll keys are no-op in diff mode', () => {
+  it('horizontal scroll keys work in diff mode', () => {
     const state = makeState({
       viewMode: 'diff',
       diffMeta: makeDiffMeta([3, 7, 10]),
       horizontalOffset: 0,
+      maxLineWidth: 200,
     });
-    const resultH = handleBrowseKey(key({ char: 'h' }), state, false);
-    expect(resultH.state.horizontalOffset).toBe(0);
     const resultL = handleBrowseKey(key({ char: 'l' }), state, false);
-    expect(resultL.state.horizontalOffset).toBe(0);
+    expect(resultL.state.horizontalOffset).toBe(4);
   });
 });

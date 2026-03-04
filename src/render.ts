@@ -245,8 +245,9 @@ const renderDiffPane = (opts: {
   bg: string | undefined;
   pointer: string;
   marker: string;
+  horizontalOffset: number;
 }): string => {
-  const { paneWidth, lineNumber, gutterWidth, isPadding, bg, pointer, marker } = opts;
+  const { paneWidth, lineNumber, gutterWidth, isPadding, bg, pointer, marker, horizontalOffset } = opts;
 
   if (isPadding) {
     // Empty padding pane — fill with background
@@ -263,9 +264,15 @@ const renderDiffPane = (opts: {
 
   // Use highlighted line if available, fall back to raw content
   const code = opts.highlightedLine ?? opts.content ?? '';
-  const truncatedCode = truncateAnsi(code, codeWidth);
 
-  const row = `${gutterStr}${truncatedCode}`;
+  // Horizontal scroll: slice the code content, preserving ANSI state
+  const scrollIndicator = horizontalOffset > 0 ? `${DIM}←${RESET}` : '';
+  const effectiveCodeWidth = horizontalOffset > 0 ? Math.max(1, codeWidth - 1) : codeWidth;
+  const slicedCode = horizontalOffset > 0
+    ? sliceAnsi(code, horizontalOffset, effectiveCodeWidth)
+    : truncateAnsi(code, codeWidth);
+
+  const row = `${gutterStr}${scrollIndicator}${slicedCode}`;
   if (bg) {
     return bgLine(row, bg, paneWidth);
   }
@@ -425,6 +432,7 @@ const renderDiffViewport = (
       bg: isLeftPadding ? DIFF_PAD_BG : leftBg,
       pointer: ' ', // no pointer on old side
       marker: '  ', // no annotation markers on old side
+      horizontalOffset: state.horizontalOffset,
     });
 
     // Render right pane
@@ -438,6 +446,7 @@ const renderDiffViewport = (
       bg: isRightPadding ? DIFF_PAD_BG : rightBg,
       pointer,
       marker: rightMarker,
+      horizontalOffset: state.horizontalOffset,
     });
 
     rows.push(`${CLEAR_LINE}${leftPane}${separator}${rightPane}`);

@@ -1309,7 +1309,7 @@ describe('reduce — toggle_view_mode', () => {
     expect(next.viewportOffset).toBeDefined();
   });
 
-  it('resets horizontal offset when toggling to diff', () => {
+  it('preserves horizontal offset when toggling to diff', () => {
     const state = makeState({
       viewMode: 'raw',
       diffMeta,
@@ -1318,7 +1318,7 @@ describe('reduce — toggle_view_mode', () => {
     });
     const next = reduce(state, { type: 'toggle_view_mode' });
     expect(next.viewMode).toBe('diff');
-    expect(next.horizontalOffset).toBe(0);
+    expect(next.horizontalOffset).toBe(20);
   });
 
   it('preserves horizontal offset when toggling to raw', () => {

@@ -453,18 +453,16 @@ export const handleBrowseKey = (
     return { state: reduce(state, { type: 'move_cursor', delta: hp }) };
   }
 
-  // Horizontal scroll (h/l or left/right arrows) — disabled in diff mode
-  if (state.viewMode !== 'diff') {
-    if (BROWSE.scrollLeft.match(key)) {
-      return { state: reduce(state, { type: 'scroll_horizontal', delta: -4 }) };
-    }
-    if (BROWSE.scrollRight.match(key)) {
-      return { state: reduce(state, { type: 'scroll_horizontal', delta: 4 }) };
-    }
-    // Reset horizontal scroll
-    if (BROWSE.resetHorizontal.match(key)) {
-      return { state: reduce(state, { type: 'reset_horizontal' }) };
-    }
+  // Horizontal scroll (h/l or left/right arrows)
+  if (BROWSE.scrollLeft.match(key)) {
+    return { state: reduce(state, { type: 'scroll_horizontal', delta: -4 }) };
+  }
+  if (BROWSE.scrollRight.match(key)) {
+    return { state: reduce(state, { type: 'scroll_horizontal', delta: 4 }) };
+  }
+  // Reset horizontal scroll
+  if (BROWSE.resetHorizontal.match(key)) {
+    return { state: reduce(state, { type: 'reset_horizontal' }) };
   }
 
   // Mouse wheel scroll — moves viewport, cursor stays unless off-screen
