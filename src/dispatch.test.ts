@@ -71,6 +71,7 @@ const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
   mode: 'browse',
   annotations: [],
   expandedAnnotations: new Set(),
+  focusedAnnotationId: null,
   ...overrides,
 });
 
@@ -326,6 +327,12 @@ describe('handleSelectKey', () => {
   it('PgDn extends by half page', () => {
     const result = handleSelectKey(key({ pageDown: true }), selectState);
     expect(result.state.selection?.active).toBe(20);
+  });
+
+  it('a confirms selection and enters annotate mode', () => {
+    const result = handleSelectKey(key({ char: 'a' }), selectState);
+    expect(result.state.mode).toBe('annotate');
+    expect(result.state.annotationFlow?.step).toBe('intent');
   });
 
   it('unknown key is a no-op', () => {
@@ -622,6 +629,7 @@ describe('handleBrowseKey — annotation interaction', () => {
     cursorLine: 10,
     annotations: [annotation],
     expandedAnnotations: new Set(['ann-1']),
+    focusedAnnotationId: 'ann-1',
   });
 
   it('Tab jumps to annotation line and expands', () => {
@@ -631,24 +639,28 @@ describe('handleBrowseKey — annotation interaction', () => {
     expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
   });
 
-  it('Tab on annotation line jumps to next (wraps to same if only one)', () => {
+  it('Tab on annotation line wraps to same annotation if only one', () => {
     const result = handleBrowseKey(key({ tab: true, char: '\t' }), stateWithExpanded, false);
-    // Only one annotation — wraps. Collapses current, re-expands same.
+    // Only one annotation — wraps to itself. Stays expanded and focused.
     expect(result.state.cursorLine).toBe(10);
     expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
+    expect(result.state.focusedAnnotationId).toBe('ann-1');
   });
 
-  it('Tab cycles through multiple annotations', () => {
+  it('Tab cycles through multiple annotations without collapsing previous', () => {
     const ann2 = { ...annotation, id: 'ann-2', startLine: 20, endLine: 20 };
     const state = makeState({
       cursorLine: 10,
       annotations: [annotation, ann2],
       expandedAnnotations: new Set(['ann-1']),
+      focusedAnnotationId: 'ann-1',
     });
     const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
     expect(result.state.cursorLine).toBe(20);
-    expect(result.state.expandedAnnotations.has('ann-1')).toBe(false);
+    // New behavior: Tab does not collapse previously focused annotation
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
     expect(result.state.expandedAnnotations.has('ann-2')).toBe(true);
+    expect(result.state.focusedAnnotationId).toBe('ann-2');
   });
 
   it('Tab with no annotations is no-op', () => {
@@ -731,6 +743,149 @@ describe('handleBrowseKey — annotation interaction', () => {
     const result = handleBrowseKey(key({ char: 'x' }), stateWithAnn, false);
     expect(result.state.mode).toBe('browse');
     expect(result.state.confirmFlow).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-annotation focus scenarios
+// ---------------------------------------------------------------------------
+
+describe('handleBrowseKey — multi-annotation focus', () => {
+  const ann1 = {
+    id: 'ann-1',
+    startLine: 5,
+    endLine: 5,
+    intent: 'comment',
+    comment: 'first',
+    source: 'user',
+  } as const;
+  const ann2 = {
+    id: 'ann-2',
+    startLine: 5,
+    endLine: 5,
+    intent: 'question',
+    comment: 'second',
+    source: 'agent',
+  } as const;
+  const ann3 = {
+    id: 'ann-3',
+    startLine: 15,
+    endLine: 15,
+    intent: 'instruct',
+    comment: 'third',
+    source: 'user',
+  } as const;
+
+  it('Tab cycles through individual annotations on the same line', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2, ann3],
+      expandedAnnotations: new Set(['ann-1']),
+      focusedAnnotationId: 'ann-1',
+    });
+    // First Tab: advances from ann-1 to ann-2 (same line)
+    const result1 = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    expect(result1.state.focusedAnnotationId).toBe('ann-2');
+    expect(result1.state.cursorLine).toBe(5);
+    expect(result1.state.expandedAnnotations.has('ann-2')).toBe(true);
+
+    // Second Tab: advances from ann-2 to ann-3 (different line)
+    const result2 = handleBrowseKey(key({ tab: true, char: '\t' }), result1.state, false);
+    expect(result2.state.focusedAnnotationId).toBe('ann-3');
+    expect(result2.state.cursorLine).toBe(15);
+    expect(result2.state.expandedAnnotations.has('ann-3')).toBe(true);
+
+    // Third Tab: wraps back to ann-1
+    const result3 = handleBrowseKey(key({ tab: true, char: '\t' }), result2.state, false);
+    expect(result3.state.focusedAnnotationId).toBe('ann-1');
+    expect(result3.state.cursorLine).toBe(5);
+  });
+
+  it('Shift+Tab cycles backward through annotations', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2, ann3],
+      expandedAnnotations: new Set(['ann-1']),
+      focusedAnnotationId: 'ann-1',
+    });
+    // Shift+Tab from ann-1 wraps to ann-3
+    const result = handleBrowseKey(key({ tab: true, shift: true, char: '\t' }), state, false);
+    expect(result.state.focusedAnnotationId).toBe('ann-3');
+    expect(result.state.cursorLine).toBe(15);
+  });
+
+  it('r targets focused annotation, not first expanded', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2],
+      expandedAnnotations: new Set(['ann-1', 'ann-2']),
+      focusedAnnotationId: 'ann-2',
+    });
+    const result = handleBrowseKey(key({ char: 'r' }), state, false);
+    expect(result.state.mode).toBe('reply');
+    expect(result.state.replyFlow?.annotationId).toBe('ann-2');
+  });
+
+  it('w targets focused annotation', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2],
+      expandedAnnotations: new Set(['ann-1', 'ann-2']),
+      focusedAnnotationId: 'ann-2',
+    });
+    const result = handleBrowseKey(key({ char: 'w' }), state, false);
+    expect(result.state.mode).toBe('edit');
+    expect(result.state.editFlow?.annotationId).toBe('ann-2');
+  });
+
+  it('x targets focused annotation', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2],
+      expandedAnnotations: new Set(['ann-1', 'ann-2']),
+      focusedAnnotationId: 'ann-2',
+    });
+    const result = handleBrowseKey(key({ char: 'x' }), state, false);
+    expect(result.state.mode).toBe('confirm');
+    expect(result.state.confirmFlow?.annotationId).toBe('ann-2');
+  });
+
+  it('r/w/x no-op when focusedAnnotationId is null', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2],
+      expandedAnnotations: new Set(['ann-1', 'ann-2']),
+      focusedAnnotationId: null,
+    });
+    expect(handleBrowseKey(key({ char: 'r' }), state, false).state.mode).toBe('browse');
+    expect(handleBrowseKey(key({ char: 'w' }), state, false).state.mode).toBe('browse');
+    expect(handleBrowseKey(key({ char: 'x' }), state, false).state.mode).toBe('browse');
+  });
+
+  it('c toggles all on cursor line and auto-focuses first expanded', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2],
+      expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
+    });
+    const result = handleBrowseKey(key({ char: 'c' }), state, false);
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
+    expect(result.state.expandedAnnotations.has('ann-2')).toBe(true);
+    expect(result.state.focusedAnnotationId).toBe('ann-1');
+  });
+
+  it('c collapse clears focus', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2],
+      expandedAnnotations: new Set(['ann-1', 'ann-2']),
+      focusedAnnotationId: 'ann-1',
+    });
+    const result = handleBrowseKey(key({ char: 'c' }), state, false);
+    expect(result.state.expandedAnnotations.has('ann-1')).toBe(false);
+    expect(result.state.expandedAnnotations.has('ann-2')).toBe(false);
+    expect(result.state.focusedAnnotationId).toBeNull();
   });
 });
 

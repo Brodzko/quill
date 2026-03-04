@@ -108,7 +108,7 @@ describe('renderAnnotationBox', () => {
   const opts = {
     maxWidth: 60,
     gutterPrefix: '     ',
-    isCursorLine: false,
+    isFocused: false,
   };
 
   it('returns array of strings', () => {
@@ -154,10 +154,10 @@ describe('renderAnnotationBox', () => {
     expect(plain).toContain('✗ dismissed');
   });
 
-  it('shows action hints when isCursorLine is true', () => {
+  it('shows action hints when isFocused', () => {
     const rows = renderAnnotationBox(makeAnnotation(), {
       ...opts,
-      isCursorLine: true,
+      isFocused: true,
     });
     const plain = rows.map(stripAnsi).join('\n');
     expect(plain).toContain('[r]eply');
@@ -165,10 +165,10 @@ describe('renderAnnotationBox', () => {
     expect(plain).toContain('[x] delete');
   });
 
-  it('does not show action hints when not cursor line', () => {
+  it('does not show action hints when not focused', () => {
     const rows = renderAnnotationBox(makeAnnotation(), {
       ...opts,
-      isCursorLine: false,
+      isFocused: false,
     });
     const plain = rows.map(stripAnsi).join('\n');
     expect(plain).not.toContain('[r]eply');

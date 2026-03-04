@@ -50,8 +50,6 @@ export type SessionConfig = {
   sourceLines: string[];
   /** Initial reducer state, fully resolved by the CLI layer. */
   initialState: SessionState;
-  /** Annotation id to visually focus (e.g. from --focus-annotation). */
-  focusAnnotationId?: string;
 };
 
 // --- gg two-key sequence timer ---
@@ -97,8 +95,7 @@ const createGgTimer = (timeoutMs = 300): GgTimer => {
  * with terminal cleanup).
  */
 export const runSession = (config: SessionConfig): void => {
-  const { filePath, lines, sourceLines, initialState, focusAnnotationId } =
-    config;
+  const { filePath, lines, sourceLines, initialState } = config;
 
   // --- Interactive input setup ---
   const input = resolveInteractiveInput();
@@ -147,7 +144,6 @@ export const runSession = (config: SessionConfig): void => {
       state,
       terminalRows: rows,
       terminalCols: cols,
-      focusAnnotation: focusAnnotationId,
     };
 
     const result = buildFrame(ctx);

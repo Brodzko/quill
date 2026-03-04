@@ -122,6 +122,10 @@ const command = defineCommand({
       const terminalRows = stderr.rows ?? 24;
       const initialViewportHeight = getViewportHeight(terminalRows);
 
+      const initialExpandedAnnotations = focusedAnnotation
+        ? new Set([focusedAnnotation.id])
+        : new Set<string>();
+
       const initialState: SessionState = {
         lineCount,
         maxLineWidth,
@@ -136,7 +140,8 @@ const command = defineCommand({
         horizontalOffset: 0,
         mode: 'browse',
         annotations: initialAnnotations,
-        expandedAnnotations: new Set(),
+        expandedAnnotations: initialExpandedAnnotations,
+        focusedAnnotationId: focusedAnnotation?.id ?? null,
       };
 
       // --- Launch interactive session ---
@@ -145,7 +150,6 @@ const command = defineCommand({
         lines,
         sourceLines,
         initialState,
-        focusAnnotationId: focusAnnotationArg,
       });
     } catch (error) {
       // Ensure we leave alt screen on crash

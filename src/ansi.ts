@@ -47,6 +47,10 @@ export const ANN_BORDER = `${ESC}38;2;88;95;108m`;
 export const AGENT_ACCENT = `${ESC}38;2;130;140;160m`;
 /** User source accent. */
 export const USER_ACCENT = CYAN;
+/** Focused annotation marker/border accent. */
+export const FOCUS_MARKER = `${ESC}38;2;97;175;239m`; // vivid blue
+/** Focused annotation border color. */
+export const FOCUS_BORDER = `${ESC}38;2;97;175;239m`; // same vivid blue
 
 // --- Formatting helpers ---
 

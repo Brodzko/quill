@@ -227,8 +227,8 @@ export const SELECT = {
     description: 'extend',
   },
   confirm: {
-    match: (k: Key): boolean => k.return,
-    hint: 'Enter',
+    match: (k: Key): boolean => k.return || k.char === 'a',
+    hint: 'Enter/a',
     description: 'annotate',
   },
   cancel: {

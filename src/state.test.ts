@@ -3,6 +3,7 @@ import type { Annotation } from './schema.js';
 import {
   type SessionState,
   clampLine,
+  computeFocus,
   computeViewportOffset,
   halfPage,
   reduce,
@@ -23,6 +24,7 @@ const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
   mode: 'browse',
   annotations: [],
   expandedAnnotations: new Set(),
+  focusedAnnotationId: null,
   ...overrides,
 });
 
@@ -908,5 +910,157 @@ describe('applyActions', () => {
     expect(next.mode).toBe('select');
     expect(next.selection).toEqual({ anchor: 10, active: 13 });
     expect(next.cursorLine).toBe(13);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeFocus
+// ---------------------------------------------------------------------------
+
+describe('computeFocus', () => {
+  const ann1 = makeAnnotation({ id: 'a1', startLine: 5, endLine: 8 });
+  const ann2 = makeAnnotation({ id: 'a2', startLine: 5, endLine: 10 });
+
+  it('returns null when no annotations on line', () => {
+    expect(computeFocus(1, [ann1], new Set(['a1']))).toBeNull();
+  });
+
+  it('returns null when annotations exist but none expanded', () => {
+    expect(computeFocus(5, [ann1], new Set())).toBeNull();
+  });
+
+  it('auto-focuses visually topmost expanded annotation on line', () => {
+    // ann1 has lower endLine (8 < 10) → visually on top
+    expect(computeFocus(5, [ann1, ann2], new Set(['a2']))).toBe('a2');
+    expect(computeFocus(5, [ann1, ann2], new Set(['a1', 'a2']))).toBe('a1');
+  });
+
+  it('is deterministic regardless of arrival direction', () => {
+    // Same result whether coming from above or below — no sticky focus
+    expect(computeFocus(6, [ann1, ann2], new Set(['a1', 'a2']))).toBe('a1');
+    expect(computeFocus(9, [ann1, ann2], new Set(['a1', 'a2']))).toBe('a2');
+  });
+
+  it('clears focus when only collapsed annotations on line', () => {
+    expect(computeFocus(5, [ann1, ann2], new Set())).toBeNull();
+  });
+
+  it('focuses visually topmost (lowest endLine) regardless of array order', () => {
+    // ann2 first in array, but ann1 has lower endLine → ann1 wins
+    expect(computeFocus(5, [ann2, ann1], new Set(['a1', 'a2']))).toBe('a1');
+  });
+
+  it('breaks endLine tie with startLine', () => {
+    const annA = makeAnnotation({ id: 'x', startLine: 3, endLine: 5 });
+    const annB = makeAnnotation({ id: 'y', startLine: 1, endLine: 5 });
+    // Both end at 5 → sort by startLine asc → annB (start=1) before annA (start=3)
+    expect(computeFocus(4, [annA, annB], new Set(['x', 'y']))).toBe('y');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// focusedAnnotationId integration
+// ---------------------------------------------------------------------------
+
+describe('focusedAnnotationId — reducer integration', () => {
+  const ann1 = makeAnnotation({ id: 'a1', startLine: 5, endLine: 8 });
+  const ann2 = makeAnnotation({ id: 'a2', startLine: 5, endLine: 10 });
+
+  it('move_cursor auto-focuses expanded annotation on new line', () => {
+    const state = makeState({
+      cursorLine: 1,
+      annotations: [ann1],
+      expandedAnnotations: new Set(['a1']),
+    });
+    const next = reduce(state, { type: 'move_cursor', delta: 4 });
+    expect(next.cursorLine).toBe(5);
+    expect(next.focusedAnnotationId).toBe('a1');
+  });
+
+  it('move_cursor clears focus when leaving annotated range', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1],
+      expandedAnnotations: new Set(['a1']),
+      focusedAnnotationId: 'a1',
+    });
+    const next = reduce(state, { type: 'set_cursor', line: 20 });
+    expect(next.focusedAnnotationId).toBeNull();
+  });
+
+  it('toggle_annotation updates focus after expanding', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1],
+      expandedAnnotations: new Set(),
+    });
+    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    expect(next.expandedAnnotations.has('a1')).toBe(true);
+    expect(next.focusedAnnotationId).toBe('a1');
+  });
+
+  it('toggle_annotation clears focus after collapsing last expanded', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1],
+      expandedAnnotations: new Set(['a1']),
+      focusedAnnotationId: 'a1',
+    });
+    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    expect(next.expandedAnnotations.has('a1')).toBe(false);
+    expect(next.focusedAnnotationId).toBeNull();
+  });
+
+  it('delete_annotation advances focus to next annotation on line', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2],
+      expandedAnnotations: new Set(['a1', 'a2']),
+      focusedAnnotationId: 'a1',
+    });
+    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    expect(next.focusedAnnotationId).toBe('a2');
+  });
+
+  it('delete_annotation clears focus when no annotations remain on line', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1],
+      expandedAnnotations: new Set(['a1']),
+      focusedAnnotationId: 'a1',
+    });
+    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    expect(next.focusedAnnotationId).toBeNull();
+  });
+
+  it('collapse_all clears focus', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1],
+      expandedAnnotations: new Set(['a1']),
+      focusedAnnotationId: 'a1',
+    });
+    const next = reduce(state, { type: 'collapse_all' });
+    expect(next.focusedAnnotationId).toBeNull();
+  });
+
+  it('expand_all auto-focuses first expanded annotation on cursor line', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2],
+      expandedAnnotations: new Set(),
+    });
+    const next = reduce(state, { type: 'expand_all' });
+    expect(next.focusedAnnotationId).toBe('a1');
+  });
+
+  it('focus_annotation sets focus directly', () => {
+    const state = makeState({
+      cursorLine: 5,
+      annotations: [ann1, ann2],
+      expandedAnnotations: new Set(['a1', 'a2']),
+    });
+    const next = reduce(state, { type: 'focus_annotation', annotationId: 'a2' });
+    expect(next.focusedAnnotationId).toBe('a2');
   });
 });

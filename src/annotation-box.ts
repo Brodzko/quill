@@ -12,6 +12,7 @@ import {
   BOLD,
   CLEAR_LINE,
   DIM,
+  FOCUS_BORDER,
   GREEN,
   ITALIC,
   RESET,
@@ -91,8 +92,8 @@ export type AnnotationBoxOptions = {
   maxWidth: number;
   /** Gutter prefix string (spaces matching line number gutter). */
   gutterPrefix: string;
-  /** Whether this annotation's line is the cursor line (shows action hints). */
-  isCursorLine: boolean;
+  /** Whether this annotation is the currently focused target for r/w/x actions. */
+  isFocused: boolean;
 };
 
 /**
@@ -103,10 +104,11 @@ export const renderAnnotationBox = (
   annotation: Annotation,
   options: AnnotationBoxOptions
 ): string[] => {
-  const { maxWidth, gutterPrefix, isCursorLine } = options;
+  const { maxWidth, gutterPrefix, isFocused } = options;
   // Inner width = maxWidth minus borders (│ + space on each side)
   const innerWidth = Math.max(20, maxWidth - 4);
   const rows: string[] = [];
+  const borderColor = isFocused ? FOCUS_BORDER : ANN_BORDER;
 
   // --- Header line ---
   const srcLabel = sourceLabel(annotation.source);
@@ -122,7 +124,7 @@ export const renderAnnotationBox = (
   const headerText = headerParts.join(' ');
   const headerVisLen = visibleLength(headerText);
   const fillLen = Math.max(0, innerWidth - headerVisLen - 1);
-  const topBorder = `${ANN_BORDER}${BOX.topLeft}${BOX.horizontal} ${headerText} ${ANN_BORDER}${BOX.horizontal.repeat(fillLen)}${BOX.topRight}${RESET}`;
+  const topBorder = `${borderColor}${BOX.topLeft}${BOX.horizontal} ${headerText} ${borderColor}${BOX.horizontal.repeat(fillLen)}${BOX.topRight}${RESET}`;
   rows.push(`${CLEAR_LINE}${gutterPrefix}${topBorder}`);
 
   // --- Comment body ---
@@ -132,7 +134,7 @@ export const renderAnnotationBox = (
     const content = `${commentStyle}${line}${commentStyle ? RESET : ''}`;
     const padded = padTo(` ${content} `, innerWidth + 2);
     rows.push(
-      `${CLEAR_LINE}${gutterPrefix}${ANN_BORDER}${BOX.vertical}${RESET}${padded}${ANN_BORDER}${BOX.vertical}${RESET}`
+      `${CLEAR_LINE}${gutterPrefix}${borderColor}${BOX.vertical}${RESET}${padded}${borderColor}${BOX.vertical}${RESET}`
     );
   }
 
@@ -140,7 +142,7 @@ export const renderAnnotationBox = (
   if (annotation.replies && annotation.replies.length > 0) {
     // Separator
     rows.push(
-      `${CLEAR_LINE}${gutterPrefix}${ANN_BORDER}${BOX.vertical}${RESET}${' '.repeat(innerWidth + 2)}${ANN_BORDER}${BOX.vertical}${RESET}`
+      `${CLEAR_LINE}${gutterPrefix}${borderColor}${BOX.vertical}${RESET}${' '.repeat(innerWidth + 2)}${borderColor}${BOX.vertical}${RESET}`
     );
     for (const reply of annotation.replies) {
       const replySrc = sourceLabel(reply.source);
@@ -153,7 +155,7 @@ export const renderAnnotationBox = (
         const content = `${linePrefix}${replyLines[i]}`;
         const padded = padTo(` ${content} `, innerWidth + 2);
         rows.push(
-          `${CLEAR_LINE}${gutterPrefix}${ANN_BORDER}${BOX.vertical}${RESET}${padded}${ANN_BORDER}${BOX.vertical}${RESET}`
+          `${CLEAR_LINE}${gutterPrefix}${borderColor}${BOX.vertical}${RESET}${padded}${borderColor}${BOX.vertical}${RESET}`
         );
       }
     }
@@ -164,7 +166,8 @@ export const renderAnnotationBox = (
   const status = statusIndicator(annotation.status);
   if (status) statusParts.push(status);
 
-  if (isCursorLine) {
+  // Action hints only when this annotation is focused
+  if (isFocused) {
     statusParts.push(
       `${DIM}[r]eply  [w] edit  [x] delete  [c] toggle${RESET}`
     );
@@ -173,17 +176,17 @@ export const renderAnnotationBox = (
   if (statusParts.length > 0) {
     // Blank separator line
     rows.push(
-      `${CLEAR_LINE}${gutterPrefix}${ANN_BORDER}${BOX.vertical}${RESET}${' '.repeat(innerWidth + 2)}${ANN_BORDER}${BOX.vertical}${RESET}`
+      `${CLEAR_LINE}${gutterPrefix}${borderColor}${BOX.vertical}${RESET}${' '.repeat(innerWidth + 2)}${borderColor}${BOX.vertical}${RESET}`
     );
     const actionText = statusParts.join('   ');
     const padded = padTo(` ${actionText} `, innerWidth + 2);
     rows.push(
-      `${CLEAR_LINE}${gutterPrefix}${ANN_BORDER}${BOX.vertical}${RESET}${padded}${ANN_BORDER}${BOX.vertical}${RESET}`
+      `${CLEAR_LINE}${gutterPrefix}${borderColor}${BOX.vertical}${RESET}${padded}${borderColor}${BOX.vertical}${RESET}`
     );
   }
 
   // --- Bottom border ---
-  const bottomBorder = `${ANN_BORDER}${BOX.bottomLeft}${BOX.horizontal.repeat(innerWidth + 2)}${BOX.bottomRight}${RESET}`;
+  const bottomBorder = `${borderColor}${BOX.bottomLeft}${BOX.horizontal.repeat(innerWidth + 2)}${BOX.bottomRight}${RESET}`;
   rows.push(`${CLEAR_LINE}${gutterPrefix}${bottomBorder}`);
 
   return rows;

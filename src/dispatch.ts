@@ -9,7 +9,7 @@
 import { randomUUID } from 'crypto';
 import * as R from 'remeda';
 import type { Key } from './keypress.js';
-import type { KnownCategory, KnownIntent, SessionResult } from './schema.js';
+import type { Annotation, KnownCategory, KnownIntent, SessionResult } from './schema.js';
 import {
   type AnnotationFlowState,
   type ConfirmFlowState,
@@ -244,17 +244,22 @@ export const handleAnnotateKey = (
       const range = state.selection
         ? selectionRange(state.selection)
         : { startLine: state.cursorLine, endLine: state.cursorLine };
-      const nextState = reduce(state, {
-        type: 'add_annotation',
-        annotation: {
-          id: randomUUID(),
-          ...range,
-          intent: flow.intent as KnownIntent,
-          category: flow.category as KnownCategory | undefined,
-          comment: trimmed,
-          source: 'user',
+      const newId = randomUUID();
+      const nextState = applyActions(state, [
+        {
+          type: 'add_annotation',
+          annotation: {
+            id: newId,
+            ...range,
+            intent: flow.intent as KnownIntent,
+            category: flow.category as KnownCategory | undefined,
+            comment: trimmed,
+            source: 'user',
+          },
         },
-      });
+        { type: 'toggle_annotation', annotationId: newId },
+        { type: 'focus_annotation', annotationId: newId },
+      ]);
       return {
         state: { ...nextState, mode: 'browse', selection: undefined, annotationFlow: undefined },
       };
@@ -344,9 +349,20 @@ export const handleSelectKey = (
 // --- Annotation jump helper ---
 
 /**
- * Jump to the next (direction=1) or previous (direction=-1) annotation line,
- * cycling through all annotated lines. Auto-expands annotations on the target
- * line and auto-collapses annotations on the departure line.
+ * Sort annotations in Tab-cycle order: by endLine asc, startLine asc, array index.
+ * Returns a new sorted array (does not mutate).
+ */
+const sortedAnnotations = (annotations: readonly Annotation[]): Annotation[] =>
+  annotations
+    .map((a, i) => ({ a, i }))
+    .sort((x, y) => x.a.endLine - y.a.endLine || x.a.startLine - y.a.startLine || x.i - y.i)
+    .map((x) => x.a);
+
+/**
+ * Jump to the next (direction=1) or previous (direction=-1) individual annotation,
+ * cycling through a flat sorted list. Moves cursor to the target annotation's endLine,
+ * expands it, and focuses it. Does NOT collapse the previously focused annotation
+ * (the user uses `c` for that).
  */
 const jumpToNextAnnotation = (
   state: SessionState,
@@ -354,47 +370,43 @@ const jumpToNextAnnotation = (
 ): DispatchResult => {
   if (state.annotations.length === 0) return { state };
 
-  // Collect unique annotation end-lines (where boxes render), sorted
-  const annotatedLines = R.pipe(
-    state.annotations,
-    R.map((a) => a.endLine),
-    R.unique(),
-    R.sort((a, b) => a - b),
-  );
+  const sorted = sortedAnnotations(state.annotations);
+  const currentIdx = state.focusedAnnotationId !== null
+    ? sorted.findIndex((a) => a.id === state.focusedAnnotationId)
+    : -1;
 
-  if (annotatedLines.length === 0) return { state };
-
-  // Find next line in direction, wrapping
-  const currentLine = state.cursorLine;
-  let targetLine: number;
-
-  if (direction === 1) {
-    const next = annotatedLines.find((l) => l > currentLine);
-    targetLine = next ?? annotatedLines[0]!;
+  let nextIdx: number;
+  if (currentIdx === -1) {
+    // No current focus — pick the first annotation after cursor line, or first overall
+    if (direction === 1) {
+      const after = sorted.findIndex((a) => a.endLine >= state.cursorLine);
+      nextIdx = after >= 0 ? after : 0;
+    } else {
+      const before = R.pipe(
+        sorted,
+        R.findLastIndex((a) => a.endLine <= state.cursorLine),
+      );
+      nextIdx = before >= 0 ? before : sorted.length - 1;
+    }
   } else {
-    const prev = R.pipe(
-      annotatedLines,
-      R.filter((l) => l < currentLine),
-      R.last(),
-    );
-    targetLine = prev ?? annotatedLines[annotatedLines.length - 1]!;
+    nextIdx = ((currentIdx + direction) % sorted.length + sorted.length) % sorted.length;
   }
 
-  // Collapse expanded annotations on departure line, move cursor, expand on target line
-  const collapseActions = annotationsOnLine(state.annotations, currentLine)
-    .filter((a) => state.expandedAnnotations.has(a.id))
-    .map((a) => ({ type: 'toggle_annotation' as const, annotationId: a.id }));
+  const target = sorted[nextIdx]!;
+  const targetLine = target.endLine;
 
-  const afterCollapse = applyActions(state, [
-    ...collapseActions,
+  // Expand the target annotation if not already expanded, move cursor, set focus
+  const expandAction = state.expandedAnnotations.has(target.id)
+    ? []
+    : [{ type: 'toggle_annotation' as const, annotationId: target.id }];
+
+  const nextState = applyActions(state, [
     { type: 'set_cursor', line: targetLine },
+    ...expandAction,
+    { type: 'focus_annotation', annotationId: target.id },
   ]);
 
-  const expandActions = annotationsOnLine(afterCollapse.annotations, targetLine)
-    .filter((a) => !afterCollapse.expandedAnnotations.has(a.id))
-    .map((a) => ({ type: 'toggle_annotation' as const, annotationId: a.id }));
-
-  return { state: applyActions(afterCollapse, expandActions) };
+  return { state: nextState };
 };
 
 // --- Browse mode ---
@@ -547,10 +559,11 @@ export const handleBrowseKey = (
     return { state: reduce(state, action) };
   }
 
-  // r — reply to expanded annotation on cursor line
+  // r — reply to focused annotation
   if (BROWSE.reply.match(key)) {
-    const target = annotationsOnLine(state.annotations, state.cursorLine)
-      .find((a) => state.expandedAnnotations.has(a.id));
+    const target = state.focusedAnnotationId !== null
+      ? state.annotations.find((a) => a.id === state.focusedAnnotationId && state.expandedAnnotations.has(a.id))
+      : undefined;
     if (target) {
       return {
         state: { ...reduce(state, { type: 'set_mode', mode: 'reply' }), replyFlow: INITIAL_REPLY_FLOW(target.id) },
@@ -558,10 +571,11 @@ export const handleBrowseKey = (
     }
   }
 
-  // w — edit (rewrite) expanded annotation on cursor line
+  // w — edit (rewrite) focused annotation
   if (BROWSE.editAnnotation.match(key)) {
-    const target = annotationsOnLine(state.annotations, state.cursorLine)
-      .find((a) => state.expandedAnnotations.has(a.id));
+    const target = state.focusedAnnotationId !== null
+      ? state.annotations.find((a) => a.id === state.focusedAnnotationId && state.expandedAnnotations.has(a.id))
+      : undefined;
     if (target) {
       return {
         state: { ...reduce(state, { type: 'set_mode', mode: 'edit' }), editFlow: INITIAL_EDIT_FLOW(target) },
@@ -569,10 +583,11 @@ export const handleBrowseKey = (
     }
   }
 
-  // x — confirm delete of expanded annotation on cursor line
+  // x — confirm delete of focused annotation
   if (BROWSE.deleteAnnotation.match(key)) {
-    const target = annotationsOnLine(state.annotations, state.cursorLine)
-      .find((a) => state.expandedAnnotations.has(a.id));
+    const target = state.focusedAnnotationId !== null
+      ? state.annotations.find((a) => a.id === state.focusedAnnotationId && state.expandedAnnotations.has(a.id))
+      : undefined;
     if (target) {
       return {
         state: { ...reduce(state, { type: 'set_mode', mode: 'confirm' }), confirmFlow: INITIAL_CONFIRM_FLOW(target.id) },

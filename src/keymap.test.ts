@@ -178,7 +178,7 @@ describe('pre-built help bars', () => {
 
   it('SELECT_HELP contains extend/confirm/cancel', () => {
     expect(SELECT_HELP).toContain('extend');
-    expect(SELECT_HELP).toContain('[Enter] annotate');
+    expect(SELECT_HELP).toContain('[Enter/a] annotate');
     expect(SELECT_HELP).toContain('[Esc] cancel');
   });
 });

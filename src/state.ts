@@ -129,6 +129,12 @@ export type SessionState = {
   readonly selection?: Selection;
   /** Set of annotation ids that are currently expanded inline. */
   readonly expandedAnnotations: ReadonlySet<string>;
+  /**
+   * The single annotation currently targeted by keyboard actions (r/w/x).
+   * Always refers to an annotation whose range covers the current cursorLine,
+   * or null when no annotation is focused.
+   */
+  readonly focusedAnnotationId: string | null;
   /** Persistent search state — survives mode transitions. */
   readonly search?: SearchState;
 
@@ -168,7 +174,8 @@ export type BrowseAction =
   | { type: 'scroll_horizontal'; delta: number }
   | { type: 'reset_horizontal' }
   | { type: 'collapse_all' }
-  | { type: 'expand_all' };
+  | { type: 'expand_all' }
+  | { type: 'focus_annotation'; annotationId: string | null };
 
 export const clampLine = (value: number, lineCount: number): number =>
   R.clamp(value, { min: 1, max: Math.max(1, lineCount) });
@@ -211,6 +218,40 @@ export const computeViewportOffset = (params: {
   return currentOffset;
 };
 
+/**
+ * Sort annotations covering a line in visual order: lowest endLine first
+ * (box renders higher), then lowest startLine, then insertion order.
+ * This matches the Tab-cycle sort in dispatch.ts.
+ */
+const visualSort = (annotations: readonly Annotation[]): Annotation[] =>
+  annotations
+    .map((a, i) => ({ a, i }))
+    .sort((x, y) => x.a.endLine - y.a.endLine || x.a.startLine - y.a.startLine || x.i - y.i)
+    .map((x) => x.a);
+
+/**
+ * Compute the appropriate focusedAnnotationId for a given cursor line.
+ *
+ * Always picks the visually topmost expanded annotation (lowest endLine,
+ * then lowest startLine, then insertion order). This keeps auto-focus
+ * deterministic — direction of arrival doesn't matter. Explicit focus
+ * (Tab / `focus_annotation`) overrides this via a separate dispatch.
+ */
+export const computeFocus = (
+  cursorLine: number,
+  annotations: readonly Annotation[],
+  expandedAnnotations: ReadonlySet<string>,
+): string | null => {
+  const onLine = annotations.filter(
+    (a) => cursorLine >= a.startLine && cursorLine <= a.endLine
+  );
+  if (onLine.length === 0) return null;
+
+  const sorted = visualSort(onLine);
+  const firstExpanded = sorted.find((a) => expandedAnnotations.has(a.id));
+  return firstExpanded?.id ?? null;
+};
+
 const recomputeOffset = (state: SessionState, viewportHeight: number): number =>
   computeViewportOffset({
     cursorLine: state.cursorLine,
@@ -232,7 +273,10 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
         viewportHeight: state.viewportHeight,
         lineCount: state.lineCount,
       });
-      return { ...state, cursorLine, viewportOffset };
+      const focusedAnnotationId = computeFocus(
+        cursorLine, state.annotations, state.expandedAnnotations
+      );
+      return { ...state, cursorLine, viewportOffset, focusedAnnotationId };
     }
     case 'set_cursor': {
       const cursorLine = clampLine(action.line, state.lineCount);
@@ -242,7 +286,10 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
         viewportHeight: state.viewportHeight,
         lineCount: state.lineCount,
       });
-      return { ...state, cursorLine, viewportOffset };
+      const focusedAnnotationId = computeFocus(
+        cursorLine, state.annotations, state.expandedAnnotations
+      );
+      return { ...state, cursorLine, viewportOffset, focusedAnnotationId };
     }
     case 'set_mode': {
       return { ...state, mode: action.mode };
@@ -297,15 +344,21 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       } else {
         next.add(action.annotationId);
       }
-      return { ...state, expandedAnnotations: next };
+      const focusedAnnotationId = computeFocus(
+        state.cursorLine, state.annotations, next
+      );
+      return { ...state, expandedAnnotations: next, focusedAnnotationId };
     }
     case 'delete_annotation': {
       const next = new Set(state.expandedAnnotations);
       next.delete(action.annotationId);
+      const remaining = state.annotations.filter((a) => a.id !== action.annotationId);
+      const focusedAnnotationId = computeFocus(state.cursorLine, remaining, next);
       return {
         ...state,
-        annotations: state.annotations.filter((a) => a.id !== action.annotationId),
+        annotations: remaining,
         expandedAnnotations: next,
+        focusedAnnotationId,
       };
     }
     case 'update_annotation': {
@@ -343,10 +396,14 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
         viewportHeight: state.viewportHeight,
         lineCount: state.lineCount,
       });
+      const focusedAnnotationId = computeFocus(
+        cursorLine, state.annotations, state.expandedAnnotations
+      );
       return {
         ...state,
         cursorLine,
         viewportOffset,
+        focusedAnnotationId,
         search: { pattern: action.pattern, matchLines: action.matchLines, currentMatchIndex: matchIdx },
       };
     }
@@ -364,10 +421,14 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
         viewportHeight: state.viewportHeight,
         lineCount: state.lineCount,
       });
+      const focusedAnnotationId = computeFocus(
+        cursorLine, state.annotations, state.expandedAnnotations
+      );
       return {
         ...state,
         cursorLine,
         viewportOffset,
+        focusedAnnotationId,
         search: { ...state.search, currentMatchIndex: nextIdx },
       };
     }
@@ -387,7 +448,10 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
         min: visTop,
         max: visBottom,
       });
-      return { ...state, viewportOffset, cursorLine };
+      const focusedAnnotationId = cursorLine !== state.cursorLine
+        ? computeFocus(cursorLine, state.annotations, state.expandedAnnotations)
+        : state.focusedAnnotationId;
+      return { ...state, viewportOffset, cursorLine, focusedAnnotationId };
     }
     case 'scroll_horizontal': {
       const maxHorizontal = Math.max(0, state.maxLineWidth + 20);
@@ -401,13 +465,17 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       return { ...state, horizontalOffset: 0 };
     }
     case 'collapse_all': {
-      return { ...state, expandedAnnotations: new Set<string>() };
+      return { ...state, expandedAnnotations: new Set<string>(), focusedAnnotationId: null };
     }
     case 'expand_all': {
-      return {
-        ...state,
-        expandedAnnotations: new Set(state.annotations.map((a) => a.id)),
-      };
+      const expanded = new Set(state.annotations.map((a) => a.id));
+      const focusedAnnotationId = computeFocus(
+        state.cursorLine, state.annotations, expanded
+      );
+      return { ...state, expandedAnnotations: expanded, focusedAnnotationId };
+    }
+    case 'focus_annotation': {
+      return { ...state, focusedAnnotationId: action.annotationId };
     }
   }
 };

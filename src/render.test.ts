@@ -23,6 +23,7 @@ const makeCtx = (overrides: Partial<RenderContext> = {}): RenderContext => {
     mode: 'browse',
     annotations: [],
     expandedAnnotations: new Set(),
+    focusedAnnotationId: null,
   };
   return {
     filePath: 'test.ts',
@@ -120,6 +121,7 @@ describe('buildFrame — decide mode', () => {
       mode: 'decide',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(makeCtx({
       state: { ...state, decideFlow: { ...INITIAL_DECIDE_FLOW } },
@@ -147,6 +149,7 @@ describe('buildFrame — goto mode', () => {
       mode: 'goto',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({ state: { ...state, gotoFlow: { input: '42' } } })
@@ -174,6 +177,7 @@ describe('buildFrame — annotation flow', () => {
       mode: 'annotate',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({
@@ -205,6 +209,7 @@ describe('buildFrame — select mode', () => {
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
       selection: { anchor: 3, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state })).frame;
@@ -223,6 +228,7 @@ describe('buildFrame — select mode', () => {
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
       selection: { anchor: 3, active: 7 },
     };
     const frame = buildFrame(makeCtx({ state })).frame;
@@ -242,6 +248,7 @@ describe('buildFrame — select mode', () => {
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
       selection: { anchor: 5, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state })).frame;
@@ -262,6 +269,7 @@ describe('buildFrame — select mode', () => {
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
       selection: { anchor: 3, active: 5 },
     };
     const frame = buildFrame(makeCtx({ state })).frame;
@@ -274,7 +282,7 @@ describe('buildFrame — select mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildFrame — annotation markers', () => {
-  it('shows ● on annotated lines', () => {
+  it('shows ▸ on collapsed annotated lines', () => {
     const annotation: Annotation = {
       id: 'a1',
       startLine: 3,
@@ -293,6 +301,7 @@ describe('buildFrame — annotation markers', () => {
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
@@ -300,10 +309,10 @@ describe('buildFrame — annotation markers', () => {
     const plain = stripAnsi(frame);
     const lines = plain.split('\n');
     const line3 = lines.find((l) => l.includes('line 3'));
-    expect(line3).toContain('●');
+    expect(line3).toContain('▸');
   });
 
-  it('shows ◎ for focused annotation', () => {
+  it('shows focused marker with accent color for focusedAnnotationId', () => {
     const annotation: Annotation = {
       id: 'focus-ann',
       startLine: 2,
@@ -316,23 +325,26 @@ describe('buildFrame — annotation markers', () => {
       lineCount: 10,
       maxLineWidth: 120,
       viewportHeight: 10,
-      cursorLine: 1,
+      cursorLine: 3,
       viewportOffset: 0,
       horizontalOffset: 0,
       mode: 'browse',
       annotations: [annotation],
-      expandedAnnotations: new Set(),
+      expandedAnnotations: new Set(['focus-ann']),
+      focusedAnnotationId: 'focus-ann',
     };
     const frame = buildFrame(
       makeCtx({
         state,
-        focusAnnotation: 'focus-ann',
         lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`),
       })
     ).frame;
     const plain = stripAnsi(frame);
     const line3 = plain.split('\n').find((l) => l.includes('line 3'));
-    expect(line3).toContain('◎');
+    // Focused expanded annotation shows ▾
+    expect(line3).toContain('▾');
+    // The raw frame should contain the FOCUS_MARKER color escape
+    expect(frame).toContain('\x1b[38;2;97;175;239m');
   });
 
   it('shows space marker on unannotated lines', () => {
@@ -346,13 +358,14 @@ describe('buildFrame — annotation markers', () => {
       mode: 'browse',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 5 }, (_, i) => `line ${i + 1}`) })
     ).frame;
     const plain = stripAnsi(frame);
-    expect(plain).not.toContain('●');
-    expect(plain).not.toContain('◎');
+    expect(plain).not.toContain('▸');
+    expect(plain).not.toContain('▾');
   });
 });
 
@@ -372,6 +385,7 @@ describe('buildFrame — viewport overflow', () => {
       mode: 'browse',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({
@@ -409,6 +423,7 @@ describe('buildFrame — expanded annotation box', () => {
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
@@ -419,7 +434,7 @@ describe('buildFrame — expanded annotation box', () => {
     expect(plain).toContain('└');
   });
 
-  it('shows ▼ marker on line with expanded annotation', () => {
+  it('shows ▾ marker on line with expanded annotation', () => {
     const annotation: Annotation = {
       id: 'a1',
       startLine: 3,
@@ -438,16 +453,17 @@ describe('buildFrame — expanded annotation box', () => {
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
     ).frame;
     const plain = stripAnsi(frame);
     const line3 = plain.split('\n').find((l) => l.includes('line 3'));
-    expect(line3).toContain('▼');
+    expect(line3).toContain('▾');
   });
 
-  it('shows action hints when cursor is on annotation line', () => {
+  it('shows action hints when annotation is focused', () => {
     const annotation: Annotation = {
       id: 'a1',
       startLine: 3,
@@ -466,6 +482,7 @@ describe('buildFrame — expanded annotation box', () => {
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
+      focusedAnnotationId: 'a1',
     };
     const frame = buildFrame(
       makeCtx({
@@ -498,6 +515,7 @@ describe('buildFrame — expanded annotation box', () => {
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
@@ -525,6 +543,7 @@ describe('buildFrame — expanded annotation box', () => {
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({ state, lines: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`) })
@@ -551,6 +570,7 @@ describe('buildFrame — reply mode', () => {
       mode: 'reply',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({
@@ -575,6 +595,7 @@ describe('buildFrame — edit mode', () => {
       mode: 'edit',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({
@@ -599,6 +620,7 @@ describe('buildFrame — annotation flow category step', () => {
       mode: 'annotate',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({
@@ -631,6 +653,7 @@ describe('buildFrame — annotation flow comment step', () => {
       mode: 'annotate',
       annotations: [],
       expandedAnnotations: new Set(),
+      focusedAnnotationId: null,
     };
     const frame = buildFrame(
       makeCtx({

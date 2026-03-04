@@ -25,6 +25,7 @@ import {
   CURSOR_BG,
   CYAN,
   DIM,
+  FOCUS_MARKER,
   GREEN,
   RED,
   RESET,
@@ -54,26 +55,35 @@ import { renderTextbox } from './textbox.js';
 
 // --- Line marker ---
 
+/**
+ * Gutter marker for a source line. Uses ▸/▾ triangles with count for multi-annotation.
+ * Returns a 2-char string: marker + optional count digit.
+ */
 const lineMarker = (
   lineNumber: number,
   annotations: readonly Annotation[],
   expandedAnnotations: ReadonlySet<string>,
-  focusAnnotation?: string
-): '▼' | '◎' | '●' | ' ' => {
+  focusedAnnotationId: string | null
+): string => {
   const lineAnns = annotations.filter(
     (a) => lineNumber >= a.startLine && lineNumber <= a.endLine
   );
-  if (lineAnns.length === 0) return ' ';
+  if (lineAnns.length === 0) return '  ';
 
   const hasExpanded = lineAnns.some((a) => expandedAnnotations.has(a.id));
-  if (hasExpanded) return '▼';
+  const triangle = hasExpanded ? '▾' : '▸';
+  const count = lineAnns.length > 1
+    ? lineAnns.length > 9 ? '+' : String(lineAnns.length)
+    : ' ';
 
-  if (typeof focusAnnotation === 'string') {
-    const hasFocus = lineAnns.some((a) => a.id === focusAnnotation);
-    if (hasFocus) return '◎';
+  const isFocusedLine = focusedAnnotationId !== null &&
+    lineAnns.some((a) => a.id === focusedAnnotationId);
+
+  if (isFocusedLine) {
+    return `${FOCUS_MARKER}${triangle}${RESET}${count}`;
   }
 
-  return '●';
+  return `${DIM}${triangle}${RESET}${count}`;
 };
 
 // --- Frame builders ---
@@ -92,7 +102,6 @@ const renderViewport = (
   state: SessionState,
   viewportHeight: number,
   cols: number,
-  focusAnnotation?: string,
   selection?: Selection,
   search?: SearchState
 ): ViewportResult => {
@@ -124,11 +133,11 @@ const renderViewport = (
       lineNumber,
       state.annotations,
       state.expandedAnnotations,
-      focusAnnotation
+      state.focusedAnnotationId
     );
     const paddedNum = String(lineNumber).padStart(gutterWidth, ' ');
-    const gutterStr = `${pointer}${paddedNum} ${marker} `;
-    // gutterStr visible width: 1 + gutterWidth + 1 + 1 + 1 = gutterWidth + 4
+    const gutterStr = `${pointer}${paddedNum} ${marker}`;
+    // gutterStr visible width: 1 + gutterWidth + 1 + 2 = gutterWidth + 4
     const gutterVisWidth = gutterWidth + 4;
 
     const isCurrentMatch =
@@ -181,7 +190,7 @@ const renderViewport = (
       const boxRows = renderAnnotationBox(ann, {
         maxWidth: boxMaxWidth,
         gutterPrefix: gutterPfx,
-        isCursorLine: isCursor,
+        isFocused: ann.id === state.focusedAnnotationId,
       });
       for (const boxRow of boxRows) {
         if (rows.length >= viewportHeight) break;
@@ -404,7 +413,6 @@ export type RenderContext = {
   state: SessionState;
   terminalRows: number;
   terminalCols: number;
-  focusAnnotation?: string;
 };
 
 /** Compute modal height for a given render context. */
@@ -468,7 +476,6 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
     ctx.state,
     viewportHeight,
     ctx.terminalCols,
-    ctx.focusAnnotation,
     ctx.state.selection,
     ctx.state.search
   );
