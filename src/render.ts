@@ -20,10 +20,20 @@ import type {
   SessionState,
 } from './state.js';
 import { selectionRange } from './state.js';
+import type { DiffData, AlignedRow } from './diff-align.js';
 import {
   CLEAR_LINE,
   CURSOR_BG,
   CYAN,
+  DIFF_ADDED_BG,
+  DIFF_ADDED_CURSOR_BG,
+  DIFF_HUNK_BG,
+  DIFF_MODIFIED_NEW_BG,
+  DIFF_MODIFIED_NEW_CURSOR_BG,
+  DIFF_MODIFIED_OLD_BG,
+  DIFF_PAD_BG,
+  DIFF_REMOVED_BG,
+  DIFF_SEPARATOR_FG,
   DIM,
   FOCUS_MARKER,
   GREEN,
@@ -45,7 +55,9 @@ import {
 } from './ansi.js';
 import { annotationsOnLine, renderAnnotationBox } from './annotation-box.js';
 import {
+  BROWSE_DIFF_HELP,
   BROWSE_HELP,
+  BROWSE_RAW_WITH_DIFF_HELP,
   BROWSE_SEARCH_HELP,
   BROWSE_EXPANDED_HELP,
   SELECT_HELP,
@@ -205,6 +217,259 @@ const renderViewport = (
   return { rows, rowToLine };
 };
 
+// --- Diff viewport ---
+
+/**
+ * Compute gutter width for a line count (number of digits needed).
+ */
+const gutterWidthFor = (lineCount: number): number =>
+  String(Math.max(1, lineCount)).length;
+
+/**
+ * Render a single pane (left or right) of a diff row.
+ *
+ * Returns a string exactly `paneWidth` visible characters wide.
+ * Layout within a pane: `[pointer][lineNum ][marker][code...]`
+ * - pointer: 1 char (only meaningful on the right/new pane)
+ * - lineNum: `gutterWidth` chars + 1 space
+ * - marker: 2 chars (annotation gutter)
+ * - code: remaining
+ */
+const renderDiffPane = (opts: {
+  paneWidth: number;
+  lineNumber: number | null;
+  content: string | null;
+  highlightedLine: string | undefined;
+  gutterWidth: number;
+  isPadding: boolean;
+  bg: string | undefined;
+  pointer: string;
+  marker: string;
+}): string => {
+  const { paneWidth, lineNumber, gutterWidth, isPadding, bg, pointer, marker } = opts;
+
+  if (isPadding) {
+    // Empty padding pane — fill with background
+    const padBg = bg ?? DIFF_PAD_BG;
+    return `${padBg}${' '.repeat(paneWidth)}${RESET}`;
+  }
+
+  const paddedNum = lineNumber !== null
+    ? String(lineNumber).padStart(gutterWidth, ' ')
+    : ' '.repeat(gutterWidth);
+  const gutterStr = `${pointer}${paddedNum} ${marker}`;
+  const gutterVisWidth = 1 + gutterWidth + 1 + 2; // pointer + num + space + marker(2)
+  const codeWidth = Math.max(1, paneWidth - gutterVisWidth);
+
+  // Use highlighted line if available, fall back to raw content
+  const code = opts.highlightedLine ?? opts.content ?? '';
+  const truncatedCode = truncateAnsi(code, codeWidth);
+
+  const row = `${gutterStr}${truncatedCode}`;
+  if (bg) {
+    return bgLine(row, bg, paneWidth);
+  }
+  // Context rows — pad to pane width without background
+  const padded = truncateAnsi(row, paneWidth);
+  const visLen = row.replace(/\x1b\[[0-9;]*m/g, '').length;
+  const trail = Math.max(0, paneWidth - visLen);
+  return `${padded}${' '.repeat(trail)}`;
+};
+
+/**
+ * Render the diff viewport — side-by-side split pane view.
+ *
+ * Called when `state.viewMode === 'diff'` and `diffData` is available.
+ * Consumes `DiffData.rows` indexed by `state.viewportOffset` (which in
+ * diff mode is a display row index into `DiffData.rows`).
+ */
+const renderDiffViewport = (
+  state: SessionState,
+  diffData: DiffData,
+  oldHighlightedLines: readonly string[] | null,
+  newHighlightedLines: readonly string[],
+  viewportHeight: number,
+  cols: number,
+  selection?: Selection,
+  search?: SearchState,
+): ViewportResult => {
+  const rows: string[] = [];
+  const rowToLine: (number | undefined)[] = [];
+
+  const separatorWidth = 1;
+  const leftPaneWidth = Math.floor((cols - separatorWidth) / 2);
+  const rightPaneWidth = cols - separatorWidth - leftPaneWidth;
+
+  // Gutter widths based on max line numbers in the diff
+  const maxOldLine = diffData.rows.reduce(
+    (mx, r) => (r.oldLineNumber !== null && r.oldLineNumber > mx ? r.oldLineNumber : mx), 0
+  );
+  const maxNewLine = diffData.rows.reduce(
+    (mx, r) => (r.newLineNumber !== null && r.newLineNumber > mx ? r.newLineNumber : mx), 0
+  );
+  const leftGutter = gutterWidthFor(maxOldLine);
+  const rightGutter = gutterWidthFor(maxNewLine);
+
+  const selRange = selection ? selectionRange(selection) : undefined;
+  const separator = `${DIFF_SEPARATOR_FG}│${RESET}`;
+
+  // Annotation gutter prefix for annotation boxes (right pane gutter width)
+  const rightGutterBlankWidth = 1 + rightGutter + 1 + 2; // pointer+num+space+marker
+  const boxGutterPfx = ' '.repeat(leftPaneWidth + separatorWidth + rightGutterBlankWidth);
+  const boxMaxWidth = Math.min(80, rightPaneWidth - rightGutterBlankWidth);
+
+  let rowIndex = state.viewportOffset;
+
+  while (rows.length < viewportHeight) {
+    if (rowIndex >= diffData.rows.length) {
+      // Past end of diff — empty row
+      rows.push(`${CLEAR_LINE}~`);
+      rowToLine.push(undefined);
+      rowIndex++;
+      continue;
+    }
+
+    const diffRow: AlignedRow = diffData.rows[rowIndex]!;
+    const newLine = diffRow.newLineNumber;
+
+    // Is the cursor on this row's new-file line?
+    const isCursor = newLine !== null && newLine === state.cursorLine;
+    const isSelected = newLine !== null && selRange !== undefined
+      && newLine >= selRange.startLine && newLine <= selRange.endLine;
+
+    // Search state for new-file lines
+    const isCurrentMatch = newLine !== null && search !== undefined
+      && search.currentMatchIndex >= 0
+      && search.matchLines[search.currentMatchIndex] === newLine;
+    const isMatch = !isCurrentMatch && newLine !== null && search !== undefined
+      && search.matchLines.length > 0 && search.matchLines.includes(newLine);
+
+    if (diffRow.type === 'hunk-header') {
+      // Full-width hunk separator row
+      const headerText = diffRow.header ?? '@@ ... @@';
+      const hunkRow = truncateAnsi(` ${DIM}${headerText}${RESET}`, cols);
+      rows.push(`${CLEAR_LINE}${bgLine(hunkRow, DIFF_HUNK_BG, cols)}`);
+      rowToLine.push(undefined);
+      rowIndex++;
+      continue;
+    }
+
+    // Determine backgrounds per side based on row type
+    let leftBg: string | undefined;
+    let rightBg: string | undefined;
+    const isLeftPadding = diffRow.oldContent === null && diffRow.type !== 'context';
+    const isRightPadding = diffRow.newContent === null && diffRow.type !== 'context';
+
+    switch (diffRow.type) {
+      case 'removed':
+        leftBg = DIFF_REMOVED_BG;
+        rightBg = DIFF_PAD_BG;
+        break;
+      case 'added':
+        leftBg = DIFF_PAD_BG;
+        rightBg = DIFF_ADDED_BG;
+        break;
+      case 'modified':
+        leftBg = DIFF_MODIFIED_OLD_BG;
+        rightBg = DIFF_MODIFIED_NEW_BG;
+        break;
+      case 'context':
+        // No background, or cursor/selection background on right
+        break;
+    }
+
+    // Override right-side background for cursor/selection/search
+    if (isSelected) {
+      rightBg = SELECT_BG;
+    } else if (isCurrentMatch) {
+      rightBg = SEARCH_CURRENT_LINE_BG;
+    } else if (isMatch) {
+      rightBg = SEARCH_LINE_BG;
+    } else if (isCursor) {
+      // Blend cursor with diff background so both signals are visible
+      if (rightBg === DIFF_ADDED_BG) rightBg = DIFF_ADDED_CURSOR_BG;
+      else if (rightBg === DIFF_MODIFIED_NEW_BG) rightBg = DIFF_MODIFIED_NEW_CURSOR_BG;
+      else rightBg = CURSOR_BG;
+    }
+
+    // Pointer — only on the right/new side
+    const pointer = isCursor ? '>' : ' ';
+
+    // Annotation markers — only on the right/new side
+    const rightMarker = newLine !== null
+      ? lineMarker(newLine, state.annotations, state.expandedAnnotations, state.focusedAnnotationId)
+      : '  ';
+
+    // Highlighted line lookup
+    const oldHL = diffRow.oldLineNumber !== null && oldHighlightedLines
+      ? oldHighlightedLines[diffRow.oldLineNumber - 1]
+      : undefined;
+    let newHL = diffRow.newLineNumber !== null
+      ? newHighlightedLines[diffRow.newLineNumber - 1]
+      : undefined;
+
+    // Apply inline search highlighting on new-side content
+    if (newHL && (isCurrentMatch || isMatch) && search) {
+      const inlineBg = isCurrentMatch ? SEARCH_CURRENT_MATCH_BG : SEARCH_MATCH_BG;
+      newHL = highlightSearchMatches(newHL, search.pattern, inlineBg);
+    }
+
+    // Render left pane
+    const leftPane = renderDiffPane({
+      paneWidth: leftPaneWidth,
+      lineNumber: diffRow.oldLineNumber,
+      content: diffRow.oldContent,
+      highlightedLine: oldHL,
+      gutterWidth: leftGutter,
+      isPadding: isLeftPadding,
+      bg: isLeftPadding ? DIFF_PAD_BG : leftBg,
+      pointer: ' ', // no pointer on old side
+      marker: '  ', // no annotation markers on old side
+    });
+
+    // Render right pane
+    const rightPane = renderDiffPane({
+      paneWidth: rightPaneWidth,
+      lineNumber: diffRow.newLineNumber,
+      content: diffRow.newContent,
+      highlightedLine: newHL,
+      gutterWidth: rightGutter,
+      isPadding: isRightPadding,
+      bg: isRightPadding ? DIFF_PAD_BG : rightBg,
+      pointer,
+      marker: rightMarker,
+    });
+
+    rows.push(`${CLEAR_LINE}${leftPane}${separator}${rightPane}`);
+    rowToLine.push(newLine ?? undefined);
+
+    // Render annotation boxes for expanded annotations ending on this line
+    if (newLine !== null) {
+      const expandedAnns = annotationsOnLine(state.annotations, newLine).filter(
+        (a) => state.expandedAnnotations.has(a.id) && a.endLine === newLine,
+      );
+
+      for (const ann of expandedAnns) {
+        if (rows.length >= viewportHeight) break;
+        const boxRows = renderAnnotationBox(ann, {
+          maxWidth: boxMaxWidth > 20 ? boxMaxWidth : rightPaneWidth,
+          gutterPrefix: boxGutterPfx,
+          isFocused: ann.id === state.focusedAnnotationId,
+        });
+        for (const boxRow of boxRows) {
+          if (rows.length >= viewportHeight) break;
+          rows.push(boxRow);
+          rowToLine.push(newLine);
+        }
+      }
+    }
+
+    rowIndex++;
+  }
+
+  return { rows, rowToLine };
+};
+
 // --- Status bar ---
 
 const MODE_COLORS: Record<Mode, string> = {
@@ -219,7 +484,7 @@ const MODE_COLORS: Record<Mode, string> = {
   search: YELLOW,
 };
 
-const renderStatusBar = (state: SessionState, filePath: string): string => {
+const renderStatusBar = (state: SessionState, filePath: string, diffLabel?: string): string => {
   const modeTag = colorBold(
     MODE_COLORS[state.mode],
     ` ${state.mode.toUpperCase()} `
@@ -238,8 +503,11 @@ const renderStatusBar = (state: SessionState, filePath: string): string => {
     : state.search && state.search.pattern.length > 0
       ? `  "${state.search.pattern}" 0 matches`
       : '';
+  const viewLabel = state.viewMode === 'diff' && diffLabel
+    ? `diff: ${diffLabel}`
+    : 'raw';
   const info = dim(
-    `  ln ${state.cursorLine}/${state.lineCount}${selInfo}  ${count} annotation${count === 1 ? '' : 's'}${searchInfo}  raw  ${filePath}`
+    `  ln ${state.cursorLine}/${state.lineCount}${selInfo}  ${count} annotation${count === 1 ? '' : 's'}${searchInfo}  ${viewLabel}  ${filePath}`
   );
   return `${CLEAR_LINE}${modeTag}${info}`;
 };
@@ -253,8 +521,15 @@ const renderHelpBar = (state: SessionState): string => {
     const hasExpanded = annotationsOnLine(state.annotations, state.cursorLine)
       .some((a) => state.expandedAnnotations.has(a.id));
     const hasSearch = state.search !== undefined && state.search.matchLines.length > 0;
-    const hints = hasExpanded ? BROWSE_EXPANDED_HELP : hasSearch ? BROWSE_SEARCH_HELP : BROWSE_HELP;
-    return `${CLEAR_LINE}${dim(hints)}`;
+    const hasDiffMeta = state.diffMeta !== undefined;
+
+    if (hasExpanded) return `${CLEAR_LINE}${dim(BROWSE_EXPANDED_HELP)}`;
+    if (hasSearch) return `${CLEAR_LINE}${dim(BROWSE_SEARCH_HELP)}`;
+    if (hasDiffMeta) {
+      const hints = state.viewMode === 'diff' ? BROWSE_DIFF_HELP : BROWSE_RAW_WITH_DIFF_HELP;
+      return `${CLEAR_LINE}${dim(hints)}`;
+    }
+    return `${CLEAR_LINE}${dim(BROWSE_HELP)}`;
   }
   return CLEAR_LINE;
 };
@@ -413,6 +688,10 @@ export type RenderContext = {
   state: SessionState;
   terminalRows: number;
   terminalCols: number;
+  /** Immutable diff data — undefined in raw-only sessions. */
+  diffData?: DiffData;
+  /** Old-file highlighted lines — undefined when old content unavailable. */
+  oldHighlightedLines?: readonly string[];
 };
 
 /** Compute modal height for a given render context. */
@@ -464,25 +743,40 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
 
   const frame: string[] = [];
 
-  // Title
-  frame.push(`${CLEAR_LINE}${bold(`Quill — ${ctx.filePath}`)}`);
+  // Title (includes diff label when in diff mode)
+  const titleSuffix = ctx.state.viewMode === 'diff' && ctx.diffData
+    ? ` (diff: ${ctx.diffData.label})`
+    : '';
+  frame.push(`${CLEAR_LINE}${bold(`Quill — ${ctx.filePath}${titleSuffix}`)}`);
 
   // viewportStartRow = number of chrome rows above viewport + 1 (1-based)
   const viewportStartRow = frame.length + 1; // currently 2 (title is row 1)
 
-  // Viewport
-  const viewport = renderViewport(
-    ctx.lines,
-    ctx.state,
-    viewportHeight,
-    ctx.terminalCols,
-    ctx.state.selection,
-    ctx.state.search
-  );
+  // Viewport — branch on view mode
+  const viewport = ctx.state.viewMode === 'diff' && ctx.diffData
+    ? renderDiffViewport(
+        ctx.state,
+        ctx.diffData,
+        ctx.oldHighlightedLines ?? null,
+        ctx.lines,
+        viewportHeight,
+        ctx.terminalCols,
+        ctx.state.selection,
+        ctx.state.search,
+      )
+    : renderViewport(
+        ctx.lines,
+        ctx.state,
+        viewportHeight,
+        ctx.terminalCols,
+        ctx.state.selection,
+        ctx.state.search,
+      );
   frame.push(...viewport.rows);
 
   // Status bar
-  frame.push(renderStatusBar(ctx.state, ctx.filePath));
+  const diffLabel = ctx.diffData?.label;
+  frame.push(renderStatusBar(ctx.state, ctx.filePath, diffLabel));
 
   // Help bar (browse/select only)
   if (!hasModal) {

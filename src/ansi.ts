@@ -52,6 +52,27 @@ export const FOCUS_MARKER = `${ESC}38;2;97;175;239m`; // vivid blue
 /** Focused annotation border color. */
 export const FOCUS_BORDER = `${ESC}38;2;97;175;239m`; // same vivid blue
 
+// --- Diff mode colors ---
+
+/** Diff: removed line background (subtle red tint). */
+export const DIFF_REMOVED_BG = `${ESC}48;2;50;30;30m`;
+/** Diff: added line background (subtle green tint). */
+export const DIFF_ADDED_BG = `${ESC}48;2;30;50;30m`;
+/** Diff: modified line old-side background (muted red). */
+export const DIFF_MODIFIED_OLD_BG = `${ESC}48;2;55;33;33m`;
+/** Diff: modified line new-side background (muted green). */
+export const DIFF_MODIFIED_NEW_BG = `${ESC}48;2;33;55;33m`;
+/** Diff: hunk header background (muted blue). */
+export const DIFF_HUNK_BG = `${ESC}48;2;35;40;50m`;
+/** Diff: padding (empty) cell background — slightly darker than terminal. */
+export const DIFF_PAD_BG = `${ESC}48;2;25;27;32m`;
+/** Diff: added line + cursor (brighter green tint). */
+export const DIFF_ADDED_CURSOR_BG = `${ESC}48;2;38;62;38m`;
+/** Diff: modified new-side + cursor (brighter green tint). */
+export const DIFF_MODIFIED_NEW_CURSOR_BG = `${ESC}48;2;42;66;42m`;
+/** Diff: center separator foreground. */
+export const DIFF_SEPARATOR_FG = `${ESC}38;2;60;65;75m`;
+
 // --- Formatting helpers ---
 
 export const bold = (s: string): string => `${BOLD}${s}${RESET}`;
