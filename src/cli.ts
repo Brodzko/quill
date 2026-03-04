@@ -59,30 +59,120 @@ import {
   readStdinIfPiped,
 } from './terminal.js';
 
+// ---------------------------------------------------------------------------
+// Help text — serves as the authoritative contract reference for both
+// humans and agents consuming quill programmatically.
+// ---------------------------------------------------------------------------
+
+const HELP_TEXT = `\
+Terminal file reviewer with structured annotations — JSON in, JSON out.
+
+Opens a syntax-highlighted, read-only viewer. Accepts annotations as JSON
+(stdin or --annotations file) and emits a JSON envelope to stdout on finish.
+
+EXAMPLES
+  quill src/app.ts                            View a file
+  quill src/app.ts --diff-ref main            Diff against main branch
+  quill src/app.ts --staged                   Review staged changes
+  quill src/app.ts --annotations review.json  Load annotations from file
+  cat input.json | quill src/app.ts           Pipe annotations via stdin
+
+DIFF MODES
+  --diff-ref <ref>   Side-by-side diff against any git ref (branch, tag, SHA).
+                     Old file content is retrieved via git show <ref>:<path>.
+  --staged           Diff the index (staged) vs HEAD.
+  --unstaged         Diff the working tree vs the index.
+  Only one diff flag may be used at a time. If no differences are found,
+  quill falls back to raw mode with a notice on stderr.
+
+INPUT CONTRACT (stdin or --annotations file)
+  JSON object with an "annotations" array. Extra top-level keys are ignored.
+  Malformed individual annotations are silently dropped.
+
+  {
+    "annotations": [
+      {
+        "id":        "<string>",          // optional — UUID generated if omitted
+        "startLine": <number>,            // required, 1-indexed integer
+        "endLine":   <number>,            // required, >= startLine
+        "intent":    "<string>",          // required (known: instruct, question, comment, praise)
+        "category":  "<string>",          // optional (known: bug, security, performance, design, style, nitpick)
+        "comment":   "<string>",          // required
+        "source":    "<string>",          // optional — defaults to "agent"
+        "status":    "approved"|"dismissed", // optional
+        "replies": [                      // optional
+          { "comment": "<string>", "source": "<string>" }
+        ]
+      }
+    ]
+  }
+
+  Lenient parsing: startLine/endLine accept string numbers (coerced).
+  source defaults to "agent". id defaults to a random UUID.
+  replies[].source defaults to "user".
+
+OUTPUT CONTRACT (stdout on finish)
+  Emitted as a single JSON object when the user approves or denies.
+
+  {
+    "file":       "<string>",           // file path as provided
+    "mode":       "raw"|"diff",         // which view mode was active
+    "decision":   "approve"|"deny",     // user's final decision
+    "diffRef":    "<string>",           // present only in diff mode
+    "annotations": [                    // all annotations (created, modified, or passed through)
+      {
+        "id":        "<string>",
+        "startLine": <number>,
+        "endLine":   <number>,
+        "intent":    "<string>",
+        "category":  "<string>",        // omitted if not set
+        "comment":   "<string>",
+        "source":    "<string>",
+        "status":    "approved"|"dismissed",  // omitted if not set
+        "replies":   [...]              // omitted if empty
+      }
+    ]
+  }
+
+EXIT CODES
+  0   Normal exit (approve or deny). Output JSON written to stdout.
+  1   Abort (Ctrl+C) or error. Nothing written to stdout.
+      Errors are written to stderr.
+
+EDGE CASES
+  Binary files (NUL in first 8 KB)   → exit 1 with error on stderr.
+  Lines > 10,000 chars               → truncated silently.
+  Files > 50,000 lines               → syntax highlighting disabled (warning on stderr).
+  Empty files / no trailing newline   → handled normally.
+  No diff differences found           → falls back to raw mode (notice on stderr).
+
+ENVIRONMENT
+  QUILL_DEBUG   Set to any value to emit debug info to stderr on startup.`;
+
 const command = defineCommand({
   meta: {
     name: 'quill',
     version: '0.0.1',
-    description: 'File review with structured annotations — JSON in, JSON out',
+    description: HELP_TEXT,
   },
   args: {
     file: {
       type: 'positional',
       required: true,
-      description: 'File to review',
+      description: 'File to review (path)',
     },
     line: {
       type: 'string',
-      description: 'Start with cursor at line N',
+      description: 'Start with cursor at line N (1-indexed)',
     },
     'focus-annotation': {
       type: 'string',
       description:
-        'Start focused on annotation id (falls back to --line / top)',
+        'Start focused on annotation by id (falls back to --line / top)',
     },
     annotations: {
       type: 'string',
-      description: 'Read annotations JSON from file instead of stdin',
+      description: 'Read annotations JSON from file path instead of stdin',
     },
     theme: {
       type: 'string',
@@ -91,15 +181,16 @@ const command = defineCommand({
     },
     'diff-ref': {
       type: 'string',
-      description: 'Diff against a git ref (e.g. main, HEAD~1)',
+      description:
+        'Diff against a git ref — branch, tag, or commit (e.g. main, HEAD~1, v1.0.0)',
     },
     staged: {
       type: 'boolean',
-      description: 'Diff staged changes',
+      description: 'Diff staged changes (index vs HEAD)',
     },
     unstaged: {
       type: 'boolean',
-      description: 'Diff unstaged changes',
+      description: 'Diff unstaged changes (working tree vs index)',
     },
   },
   async run({ args }) {

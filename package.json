@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "bin": {
     "quill": "dist/cli.js"
@@ -15,7 +16,7 @@
     "start": "node dist/cli.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "npm run build",
+    "prepare": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
