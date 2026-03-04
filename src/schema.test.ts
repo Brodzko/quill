@@ -172,6 +172,7 @@ describe('createOutput', () => {
 
     const output: OutputEnvelope = createOutput({
       filePath: 'src/test.ts',
+      mode: 'raw',
       decision: 'approve',
       annotations: [annotation],
     });
@@ -186,11 +187,57 @@ describe('createOutput', () => {
   it('produces empty annotations array when none provided', () => {
     const output = createOutput({
       filePath: 'test.ts',
+      mode: 'raw',
       decision: 'deny',
       annotations: [],
     });
     expect(output.annotations).toEqual([]);
     expect(output.decision).toBe('deny');
+  });
+
+  it('includes mode: diff and diffRef when in diff mode', () => {
+    const output = createOutput({
+      filePath: 'src/foo.ts',
+      mode: 'diff',
+      decision: 'approve',
+      annotations: [],
+      diffRef: 'main',
+    });
+    expect(output.mode).toBe('diff');
+    expect(output.diffRef).toBe('main');
+  });
+
+  it('omits diffRef when not provided in diff mode', () => {
+    const output = createOutput({
+      filePath: 'src/foo.ts',
+      mode: 'diff',
+      decision: 'deny',
+      annotations: [],
+    });
+    expect(output.mode).toBe('diff');
+    expect(output.diffRef).toBeUndefined();
+  });
+
+  it('preserves annotations with correct new-file line numbers in diff output', () => {
+    const ann: Annotation = {
+      id: 'diff-ann-1',
+      startLine: 10,
+      endLine: 12,
+      intent: 'comment',
+      comment: 'change looks good',
+      source: 'user',
+    };
+    const output = createOutput({
+      filePath: 'src/bar.ts',
+      mode: 'diff',
+      decision: 'approve',
+      annotations: [ann],
+      diffRef: 'feature-branch',
+    });
+    expect(output.annotations).toHaveLength(1);
+    expect(output.annotations[0]!.startLine).toBe(10);
+    expect(output.annotations[0]!.endLine).toBe(12);
+    expect(output.diffRef).toBe('feature-branch');
   });
 });
 

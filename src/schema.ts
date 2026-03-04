@@ -63,8 +63,9 @@ const inputEnvelopeSchema = z
 
 const outputEnvelopeSchema = z.object({
   file: z.string(),
-  mode: z.literal('raw'),
+  mode: z.enum(['raw', 'diff']),
   decision: z.enum(['approve', 'deny']),
+  diffRef: z.string().optional(),
   annotations: z.array(annotationSchema),
 });
 
@@ -157,11 +158,14 @@ export const tryParseInputEnvelope = (
 
 export const createOutput = (params: {
   filePath: string;
+  mode: 'raw' | 'diff';
   decision: Decision;
   annotations: readonly Annotation[];
+  diffRef?: string;
 }): OutputEnvelope => ({
   file: params.filePath,
-  mode: 'raw',
+  mode: params.mode,
   decision: params.decision,
+  ...(params.diffRef ? { diffRef: params.diffRef } : {}),
   annotations: [...params.annotations],
 });

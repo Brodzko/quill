@@ -54,6 +54,8 @@ export type SessionConfig = {
   diffData?: import('./diff-align.js').DiffData;
   /** Old-file highlighted lines — undefined when old content unavailable. */
   oldHighlightedLines?: readonly string[];
+  /** Diff reference label (e.g. 'main', 'staged') — used in output JSON. */
+  diffRef?: string;
 };
 
 // --- gg two-key sequence timer ---
@@ -99,7 +101,7 @@ const createGgTimer = (timeoutMs = 300): GgTimer => {
  * with terminal cleanup).
  */
 export const runSession = (config: SessionConfig): void => {
-  const { filePath, lines, sourceLines, initialState, diffData, oldHighlightedLines } = config;
+  const { filePath, lines, sourceLines, initialState, diffData, oldHighlightedLines, diffRef } = config;
 
   // --- Interactive input setup ---
   const input = resolveInteractiveInput();
@@ -172,8 +174,10 @@ export const runSession = (config: SessionConfig): void => {
 
     const output = createOutput({
       filePath,
+      mode: state.viewMode,
       decision: result.decision,
       annotations: result.annotations,
+      diffRef,
     });
     stdout.write(`${JSON.stringify(output, null, 2)}\n`);
     process.exit(0);

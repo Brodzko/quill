@@ -224,6 +224,7 @@ const command = defineCommand({
         initialState,
         diffData,
         oldHighlightedLines,
+        diffRef: diffData?.label,
       });
     } catch (error) {
       // Ensure we leave alt screen on crash
