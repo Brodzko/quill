@@ -91,6 +91,7 @@ describe('diff', () => {
     it('ref: calls git diff <ref> and git show <ref>:<file>', () => {
       mockedExecFileSync.mockImplementation((_cmd, args) => {
         const a = args as string[];
+        if (a[0] === 'rev-parse') return '/repo\n';
         if (a[0] === 'diff') return SAMPLE_DIFF;
         if (a[0] === 'show') return 'const a = 1;\nconst b = 2;\nconst d = 4;\n';
         return '';
@@ -107,6 +108,7 @@ describe('diff', () => {
     it('staged: calls git diff --staged and git show HEAD:<file>', () => {
       mockedExecFileSync.mockImplementation((_cmd, args) => {
         const a = args as string[];
+        if (a[0] === 'rev-parse') return '/repo\n';
         if (a[0] === 'diff' && a[1] === '--staged') return SAMPLE_DIFF;
         if (a[0] === 'show' && a[1] === 'HEAD:src/foo.ts') return 'old content';
         return '';
@@ -123,6 +125,7 @@ describe('diff', () => {
     it('unstaged: calls git diff and git show :<file>', () => {
       mockedExecFileSync.mockImplementation((_cmd, args) => {
         const a = args as string[];
+        if (a[0] === 'rev-parse') return '/repo\n';
         if (a[0] === 'diff' && a[1] === '--') return SAMPLE_DIFF;
         if (a[0] === 'show' && a[1] === ':src/foo.ts') return 'index content';
         return '';
@@ -139,6 +142,7 @@ describe('diff', () => {
     it('returns null oldContent when git show fails (new file)', () => {
       mockedExecFileSync.mockImplementation((_cmd, args) => {
         const a = args as string[];
+        if (a[0] === 'rev-parse') return '/repo\n';
         if (a[0] === 'diff') return SAMPLE_DIFF;
         if (a[0] === 'show') throw new Error('fatal: path not found');
         return '';

@@ -7,7 +7,7 @@
 
 import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
-import { basename } from 'path';
+import { basename, resolve } from 'path';
 
 /**
  * Describes where to obtain a unified diff.
@@ -40,24 +40,43 @@ export type DiffInput = {
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
 
 /**
+ * Get the repo-relative path for a file. Git commands like `git show ref:path`
+ * and `git diff -- path` need repo-relative paths, not absolute ones.
+ */
+const repoRelativePath = (filePath: string): string => {
+  try {
+    const abs = resolve(filePath);
+    const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      encoding: 'utf-8',
+      maxBuffer: MAX_BUFFER,
+    }).trim();
+    return abs.startsWith(root + '/') ? abs.slice(root.length + 1) : filePath;
+  } catch {
+    return filePath; // fallback — let git report the error
+  }
+};
+
+/**
  * Resolve a DiffSource into a DiffInput for a given file path.
  * Throws on unrecoverable git errors.
  */
 export const resolveDiff = (source: DiffSource, filePath: string): DiffInput => {
+  const relPath = repoRelativePath(filePath);
+
   switch (source.type) {
     case 'ref': {
-      const rawDiff = execGitDiff(['diff', source.ref, '--', filePath]);
-      const oldContent = execGitShow(`${source.ref}:${filePath}`);
+      const rawDiff = execGitDiff(['diff', source.ref, '--', relPath]);
+      const oldContent = execGitShow(`${source.ref}:${relPath}`);
       return { rawDiff, oldContent, label: source.ref };
     }
     case 'staged': {
-      const rawDiff = execGitDiff(['diff', '--staged', '--', filePath]);
-      const oldContent = execGitShow(`HEAD:${filePath}`);
+      const rawDiff = execGitDiff(['diff', '--staged', '--', relPath]);
+      const oldContent = execGitShow(`HEAD:${relPath}`);
       return { rawDiff, oldContent, label: 'staged' };
     }
     case 'unstaged': {
-      const rawDiff = execGitDiff(['diff', '--', filePath]);
-      const oldContent = execGitShow(`:${filePath}`);
+      const rawDiff = execGitDiff(['diff', '--', relPath]);
+      const oldContent = execGitShow(`:${relPath}`);
       return { rawDiff, oldContent, label: 'unstaged' };
     }
     case 'file':

@@ -94,21 +94,22 @@ add "Search mode" \
     "$QUILL $F/sample.ts" \
     "/ search, type 'annotation', matches highlighted, n/N cycle, Esc exits"
 
-# Diff mode (requires git history)
+# Diff mode (requires git history — uses repo-relative paths)
+# NOTE: These assume you have commits on main. Adjust refs if needed.
 add "Diff — against HEAD~1" \
-    "$QUILL $ROOT_DIR/src/render.ts --diff-ref HEAD~1" \
+    "$QUILL src/render.ts --diff-ref HEAD~1" \
     "Side-by-side panes, add/remove/modify colors, hunk headers, title (diff: HEAD~1)"
 add "Diff — toggle raw/diff" \
-    "$QUILL $ROOT_DIR/src/state.ts --diff-ref main" \
+    "$QUILL src/state.ts --diff-ref HEAD~3" \
     "d toggles raw↔diff, cursor snaps on toggle, help bar updates"
 add "Diff — horizontal scroll" \
-    "$QUILL $ROOT_DIR/src/render.ts --diff-ref HEAD~1" \
+    "$QUILL src/render.ts --diff-ref HEAD~1" \
     "h/l scrolls both panes, ← indicator, 0 resets"
 add "Diff — annotations in diff" \
-    "$QUILL $ROOT_DIR/src/render.ts --diff-ref HEAD~1" \
+    "$QUILL src/render.ts --diff-ref HEAD~1" \
     "v/j/a create annotation on diff line, box in right pane, Tab cycles, toggle preserves"
 add "Diff — no changes fallback" \
-    "$QUILL $ROOT_DIR/src/cli.ts --diff-ref HEAD" \
+    "$QUILL package.json --diff-ref HEAD" \
     "'No differences found' message, opens raw, d is no-op"
 
 # Resize / edge
