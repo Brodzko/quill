@@ -73,6 +73,39 @@ type FlowState = {
   searchFlow?: SearchFlowState;
 };
 
+// --- gg two-key sequence timer ---
+
+type GgTimer = {
+  readonly isPending: () => boolean;
+  readonly start: () => void;
+  readonly cancel: () => void;
+  readonly dispose: () => void;
+};
+
+const createGgTimer = (timeoutMs = 300): GgTimer => {
+  let pending = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const cancel = (): void => {
+    clearTimeout(timer);
+    pending = false;
+    timer = undefined;
+  };
+
+  return {
+    isPending: () => pending,
+    start: () => {
+      pending = true;
+      timer = setTimeout(() => {
+        pending = false;
+        timer = undefined;
+      }, timeoutMs);
+    },
+    cancel,
+    dispose: cancel,
+  };
+};
+
 // --- Session runner ---
 
 /**
@@ -146,6 +179,7 @@ export const runSession = (config: SessionConfig): void => {
 
   // --- Session exit ---
   const finish = (result: SessionResult): void => {
+    gg.dispose();
     input.setRawMode(false);
     input.pause();
     stderr.write(`${MOUSE_OFF}${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
@@ -165,8 +199,7 @@ export const runSession = (config: SessionConfig): void => {
   };
 
   // --- gg two-key sequence ---
-  let gPending = false;
-  let gTimer: ReturnType<typeof setTimeout> | undefined;
+  const gg = createGgTimer();
 
   // --- Dispatch result application ---
   const applyResult = (result: DispatchResult): void => {
@@ -184,15 +217,9 @@ export const runSession = (config: SessionConfig): void => {
     // Handle gg timer state from browse handler
     if (result.gg) {
       if (result.gg.pending) {
-        gPending = true;
-        gTimer = setTimeout(() => {
-          gPending = false;
-          gTimer = undefined;
-        }, 300);
+        gg.start();
       } else {
-        clearTimeout(gTimer);
-        gPending = false;
-        gTimer = undefined;
+        gg.cancel();
       }
     }
 
@@ -243,7 +270,7 @@ export const runSession = (config: SessionConfig): void => {
     } else if (state.mode === 'select') {
       applyResult(handleSelectKey(key, state));
     } else if (state.mode === 'browse') {
-      applyResult(handleBrowseKey(key, state, gPending));
+      applyResult(handleBrowseKey(key, state, gg.isPending()));
     } else if (state.mode === 'decide' && flows.decideFlow) {
       applyResult(handleDecideKey(key, state, flows.decideFlow));
     }
