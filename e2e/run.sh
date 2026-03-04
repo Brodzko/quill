@@ -21,6 +21,20 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 QUILL="node $ROOT_DIR/dist/cli.js"
 F="$SCRIPT_DIR/fixtures"
 
+# Diff test repo (created lazily, cleaned up on exit)
+DIFF_REPO=""
+setup_diff_repo() {
+  if [[ -z "$DIFF_REPO" ]]; then
+    DIFF_REPO=$("$SCRIPT_DIR/setup-diff-repo.sh")
+  fi
+}
+cleanup_diff_repo() {
+  if [[ -n "$DIFF_REPO" && -d "$DIFF_REPO" ]]; then
+    rm -rf "$DIFF_REPO"
+  fi
+}
+trap cleanup_diff_repo EXIT
+
 # Colors
 B='\033[1m'
 D='\033[2m'
@@ -94,22 +108,21 @@ add "Search mode" \
     "$QUILL $F/sample.ts" \
     "/ search, type 'annotation', matches highlighted, n/N cycle, Esc exits"
 
-# Diff mode (requires git history — uses repo-relative paths)
-# NOTE: These assume you have commits on main. Adjust refs if needed.
-add "Diff — against HEAD~1" \
-    "$QUILL src/render.ts --diff-ref HEAD~1" \
-    "Side-by-side panes, add/remove/modify colors, hunk headers, title (diff: HEAD~1)"
+# Diff mode (uses self-contained temp git repo — no dependency on project history)
+add "Diff — side-by-side view" \
+    '$QUILL $DIFF_REPO/code.ts --diff-ref base' \
+    "Side-by-side panes, add/remove/modify colors, hunk headers, title (diff: base)"
 add "Diff — toggle raw/diff" \
-    "$QUILL src/state.ts --diff-ref HEAD~3" \
+    '$QUILL $DIFF_REPO/code.ts --diff-ref base' \
     "d toggles raw↔diff, cursor snaps on toggle, help bar updates"
 add "Diff — horizontal scroll" \
-    "$QUILL src/render.ts --diff-ref HEAD~1" \
-    "h/l scrolls both panes, ← indicator, 0 resets"
+    '$QUILL $DIFF_REPO/code.ts --diff-ref base' \
+    "h/l scrolls both panes, ← indicator on long line, 0 resets"
 add "Diff — annotations in diff" \
-    "$QUILL src/render.ts --diff-ref HEAD~1" \
+    '$QUILL $DIFF_REPO/code.ts --diff-ref base' \
     "v/j/a create annotation on diff line, box in right pane, Tab cycles, toggle preserves"
 add "Diff — no changes fallback" \
-    "$QUILL package.json --diff-ref HEAD" \
+    '$QUILL $DIFF_REPO/code.ts --diff-ref HEAD' \
     "'No differences found' message, opens raw, d is no-op"
 
 # Resize / edge
@@ -149,6 +162,9 @@ run_scenario() {
   echo -e "${G}Check: ${CHECK[$idx]}${X}"
   echo -e "${D}Press Enter to launch, Ctrl+C to skip...${X}"
   read -r
+
+  # Lazy-init diff repo if any diff scenario needs it
+  setup_diff_repo
 
   echo -e "${C}Launching...${X}\n"
   eval "${CMD[$idx]}" || true
