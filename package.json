@@ -3,16 +3,19 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "bin": {
     "quill": "dist/cli.js"
   },
   "scripts": {
     "dev": "node --loader ts-node/esm --no-warnings src/cli.ts",
-    "build": "tsup src/cli.ts --format esm --target node20 --out-dir dist",
-    "build:tsc": "tsc --project tsconfig.build.json",
+    "build": "rm -rf dist && tsc --project tsconfig.build.json",
     "start": "node dist/cli.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "prepublishOnly": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -27,7 +30,6 @@
     "@types/node": "24.11.0",
     "prettier": "3.8.1",
     "ts-node": "10.9.2",
-    "tsup": "8.5.1",
     "typescript": "5.9.3",
     "vitest": "4.0.18"
   }
