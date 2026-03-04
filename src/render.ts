@@ -43,6 +43,12 @@ import {
   truncateAnsi,
 } from './ansi.js';
 import { annotationsOnLine, renderAnnotationBox } from './annotation-box.js';
+import {
+  BROWSE_HELP,
+  BROWSE_SEARCH_HELP,
+  BROWSE_EXPANDED_HELP,
+  SELECT_HELP,
+} from './keymap.js';
 import { renderPicker } from './picker.js';
 import { renderTextbox } from './textbox.js';
 
@@ -230,15 +236,6 @@ const renderStatusBar = (state: SessionState, filePath: string): string => {
 };
 
 // --- Help bar (browse/select only) ---
-
-const BROWSE_HELP =
-  '[j/k ↑↓] move  [h/l ←→] scroll  [v Shift+↑↓] select  [Tab/S-Tab] annotations  [/] search  [a] annotate  [:] goto  [q] finish';
-const BROWSE_SEARCH_HELP =
-  '[j/k ↑↓] move  [n/N] next/prev match  [/] new search  [Esc] clear  [a] annotate  [q] finish';
-const BROWSE_EXPANDED_HELP =
-  '[j/k ↑↓] move  [Tab/S-Tab] next/prev  [r]eply  [w] edit  [x] delete  [c] toggle  [C] toggle all  [a] new  [q] finish';
-const SELECT_HELP =
-  '[j/k ↑↓ Shift+↑↓] extend  [Enter] annotate  [Esc] cancel';
 
 const renderHelpBar = (state: SessionState): string => {
   if (state.mode === 'select') return `${CLEAR_LINE}${dim(SELECT_HELP)}`;

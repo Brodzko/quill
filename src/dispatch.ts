@@ -39,6 +39,7 @@ import {
   moveHighlight,
   CATEGORY_OPTIONS,
 } from './picker.js';
+import { BROWSE, SELECT, PICKER } from './keymap.js';
 import {
   deleteBack,
   deleteToLineStart,
@@ -139,19 +140,19 @@ export const handleAnnotateKey = (
   // --- Intent picker step ---
   if (flow.step === 'intent') {
     // Arrow navigation
-    if (key.upArrow || key.char === 'k') {
+    if (PICKER.up.match(key)) {
       return {
         state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) } },
       };
     }
-    if (key.downArrow || key.char === 'j') {
+    if (PICKER.down.match(key)) {
       return {
         state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) } },
       };
     }
 
     // Enter confirms highlighted
-    if (key.return) {
+    if (PICKER.confirm.match(key)) {
       const selected = getHighlighted(flow.picker);
       if (selected) {
         return {
@@ -191,19 +192,19 @@ export const handleAnnotateKey = (
   // --- Category picker step ---
   if (flow.step === 'category') {
     // Arrow navigation
-    if (key.upArrow || key.char === 'k') {
+    if (PICKER.up.match(key)) {
       return {
         state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) } },
       };
     }
-    if (key.downArrow || key.char === 'j') {
+    if (PICKER.down.match(key)) {
       return {
         state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) } },
       };
     }
 
     // Enter confirms highlighted or skips
-    if (key.return) {
+    if (PICKER.confirm.match(key)) {
       const selected = getHighlighted(flow.picker);
       return {
         state: {
@@ -311,28 +312,28 @@ export const handleSelectKey = (
   key: Key,
   state: SessionState
 ): DispatchResult => {
-  if (key.escape) {
+  if (SELECT.cancel.match(key)) {
     return { state: reduce(state, { type: 'cancel_select' }) };
   }
 
-  if (key.return) {
+  if (SELECT.confirm.match(key)) {
     return {
       state: { ...reduce(state, { type: 'confirm_select' }), annotationFlow: { ...INITIAL_ANNOTATION_FLOW } },
     };
   }
 
-  if (key.char === 'k' || key.upArrow) {
+  if (SELECT.extendUp.match(key)) {
     return { state: reduce(state, { type: 'extend_select', delta: -1 }) };
   }
-  if (key.char === 'j' || key.downArrow) {
+  if (SELECT.extendDown.match(key)) {
     return { state: reduce(state, { type: 'extend_select', delta: 1 }) };
   }
 
-  if (key.pageUp || (key.ctrl && key.char === 'u')) {
+  if (SELECT.extendHalfPageUp.match(key)) {
     const hp = halfPage(state.viewportHeight);
     return { state: reduce(state, { type: 'extend_select', delta: -hp }) };
   }
-  if (key.pageDown || (key.ctrl && key.char === 'd')) {
+  if (SELECT.extendHalfPageDown.match(key)) {
     const hp = halfPage(state.viewportHeight);
     return { state: reduce(state, { type: 'extend_select', delta: hp }) };
   }
@@ -404,18 +405,18 @@ export const handleBrowseKey = (
   ggPending: boolean
 ): DispatchResult => {
   // Escape clears active search highlights
-  if (key.escape && state.search) {
+  if (BROWSE.clearSearch.match(key) && state.search) {
     return { state: reduce(state, { type: 'clear_search' }) };
   }
 
   // Shift+arrows → start selection and extend
-  if (key.shift && key.upArrow) {
+  if (BROWSE.shiftSelectUp.match(key)) {
     return { state: applyActions(state, [
       { type: 'start_select' },
       { type: 'extend_select', delta: -1 },
     ]) };
   }
-  if (key.shift && key.downArrow) {
+  if (BROWSE.shiftSelectDown.match(key)) {
     return { state: applyActions(state, [
       { type: 'start_select' },
       { type: 'extend_select', delta: 1 },
@@ -423,69 +424,69 @@ export const handleBrowseKey = (
   }
 
   // Single-line movement
-  if (key.char === 'k' || key.upArrow) {
+  if (BROWSE.moveUp.match(key)) {
     return { state: reduce(state, { type: 'move_cursor', delta: -1 }) };
   }
-  if (key.char === 'j' || key.downArrow) {
+  if (BROWSE.moveDown.match(key)) {
     return { state: reduce(state, { type: 'move_cursor', delta: 1 }) };
   }
 
   // Half-page scroll
-  if (key.pageUp || (key.ctrl && key.char === 'u')) {
+  if (BROWSE.halfPageUp.match(key)) {
     const hp = halfPage(state.viewportHeight);
     return { state: reduce(state, { type: 'move_cursor', delta: -hp }) };
   }
-  if (key.pageDown || (key.ctrl && key.char === 'd')) {
+  if (BROWSE.halfPageDown.match(key)) {
     const hp = halfPage(state.viewportHeight);
     return { state: reduce(state, { type: 'move_cursor', delta: hp }) };
   }
 
   // Horizontal scroll (h/l or left/right arrows)
-  if (key.char === 'h' || key.leftArrow) {
+  if (BROWSE.scrollLeft.match(key)) {
     return { state: reduce(state, { type: 'scroll_horizontal', delta: -4 }) };
   }
-  if (key.char === 'l' || key.rightArrow) {
+  if (BROWSE.scrollRight.match(key)) {
     return { state: reduce(state, { type: 'scroll_horizontal', delta: 4 }) };
   }
   // Reset horizontal scroll
-  if (key.char === '0') {
+  if (BROWSE.resetHorizontal.match(key)) {
     return { state: reduce(state, { type: 'reset_horizontal' }) };
   }
 
   // Mouse wheel scroll — moves viewport, cursor stays unless off-screen
-  if (key.scrollUp) {
+  if (BROWSE.mouseScrollUp.match(key)) {
     return { state: reduce(state, { type: 'scroll_viewport', delta: -3 }) };
   }
-  if (key.scrollDown) {
+  if (BROWSE.mouseScrollDown.match(key)) {
     return { state: reduce(state, { type: 'scroll_viewport', delta: 3 }) };
   }
 
   // Mouse horizontal scroll (Shift+wheel / trackpad sideways)
-  if (key.scrollLeft) {
+  if (BROWSE.mouseScrollLeft.match(key)) {
     return { state: reduce(state, { type: 'scroll_horizontal', delta: -4 }) };
   }
-  if (key.scrollRight) {
+  if (BROWSE.mouseScrollRight.match(key)) {
     return { state: reduce(state, { type: 'scroll_horizontal', delta: 4 }) };
   }
 
   // Jump to top/bottom
-  if (key.home) {
+  if (BROWSE.jumpTop.match(key)) {
     return { state: reduce(state, { type: 'set_cursor', line: 1 }) };
   }
-  if (key.end) {
+  if (BROWSE.jumpBottom.match(key)) {
     return {
       state: reduce(state, { type: 'set_cursor', line: state.lineCount }),
     };
   }
 
   // Search navigation: Ctrl+N / Ctrl+P
-  if (key.ctrl && key.char === 'n') {
+  if (BROWSE.nextMatchCtrl.match(key)) {
     if (state.search && state.search.matchLines.length > 0) {
       return { state: reduce(state, { type: 'navigate_match', delta: 1 }) };
     }
     return { state };
   }
-  if (key.ctrl && key.char === 'p') {
+  if (BROWSE.prevMatchCtrl.match(key)) {
     if (state.search && state.search.matchLines.length > 0) {
       return { state: reduce(state, { type: 'navigate_match', delta: -1 }) };
     }
@@ -493,14 +494,14 @@ export const handleBrowseKey = (
   }
 
   // Goto line (must precede gg check — Ctrl+G has char='g' + ctrl=true)
-  if (key.char === ':' || (key.ctrl && key.char === 'g')) {
+  if (BROWSE.gotoLine.match(key)) {
     return {
       state: { ...reduce(state, { type: 'set_mode', mode: 'goto' }), gotoFlow: { ...INITIAL_GOTO_FLOW } },
     };
   }
 
   // gg — two-key sequence
-  if (key.char === 'g') {
+  if (BROWSE.startGg.match(key)) {
     if (ggPending) {
       return {
         state: reduce(state, { type: 'set_cursor', line: 1 }),
@@ -511,31 +512,34 @@ export const handleBrowseKey = (
   }
 
   // G — jump to bottom
-  if (key.char === 'G') {
+  if (BROWSE.jumpBottomG.match(key)) {
     return {
       state: reduce(state, { type: 'set_cursor', line: state.lineCount }),
     };
   }
 
   // Visual select
-  if (key.char === 'v') {
+  if (BROWSE.startSelect.match(key)) {
     return { state: reduce(state, { type: 'start_select' }) };
   }
 
   // Tab / Shift+Tab — cycle through annotation lines
-  if (key.tab) {
-    return jumpToNextAnnotation(state, key.shift ? -1 : 1);
+  if (BROWSE.prevAnnotation.match(key)) {
+    return jumpToNextAnnotation(state, -1);
+  }
+  if (BROWSE.nextAnnotation.match(key)) {
+    return jumpToNextAnnotation(state, 1);
   }
 
   // c — toggle annotations on cursor line (expand if collapsed, collapse if expanded)
-  if (key.char === 'c') {
+  if (BROWSE.toggleAnnotation.match(key)) {
     const toggleActions = annotationsOnLine(state.annotations, state.cursorLine)
       .map((a) => ({ type: 'toggle_annotation' as const, annotationId: a.id }));
     return { state: toggleActions.length > 0 ? applyActions(state, toggleActions) : state };
   }
 
   // C — toggle all: collapse all if any expanded, expand all if none expanded
-  if (key.char === 'C') {
+  if (BROWSE.toggleAllAnnotations.match(key)) {
     if (state.annotations.length === 0) return { state };
     const action = state.expandedAnnotations.size > 0
       ? { type: 'collapse_all' as const }
@@ -544,7 +548,7 @@ export const handleBrowseKey = (
   }
 
   // r — reply to expanded annotation on cursor line
-  if (key.char === 'r') {
+  if (BROWSE.reply.match(key)) {
     const target = annotationsOnLine(state.annotations, state.cursorLine)
       .find((a) => state.expandedAnnotations.has(a.id));
     if (target) {
@@ -555,7 +559,7 @@ export const handleBrowseKey = (
   }
 
   // w — edit (rewrite) expanded annotation on cursor line
-  if (key.char === 'w') {
+  if (BROWSE.editAnnotation.match(key)) {
     const target = annotationsOnLine(state.annotations, state.cursorLine)
       .find((a) => state.expandedAnnotations.has(a.id));
     if (target) {
@@ -566,7 +570,7 @@ export const handleBrowseKey = (
   }
 
   // x — confirm delete of expanded annotation on cursor line
-  if (key.char === 'x') {
+  if (BROWSE.deleteAnnotation.match(key)) {
     const target = annotationsOnLine(state.annotations, state.cursorLine)
       .find((a) => state.expandedAnnotations.has(a.id));
     if (target) {
@@ -577,21 +581,21 @@ export const handleBrowseKey = (
   }
 
   // Annotate (single-line)
-  if (key.char === 'a') {
+  if (BROWSE.annotate.match(key)) {
     return {
       state: { ...reduce(state, { type: 'set_mode', mode: 'annotate' }), annotationFlow: { ...INITIAL_ANNOTATION_FLOW } },
     };
   }
 
   // Search
-  if (key.char === '/') {
+  if (BROWSE.search.match(key)) {
     return {
       state: { ...reduce(state, { type: 'set_mode', mode: 'search' }), searchFlow: { ...INITIAL_SEARCH_FLOW } },
     };
   }
 
   // Next search match
-  if (key.char === 'n') {
+  if (BROWSE.nextMatch.match(key)) {
     if (state.search && state.search.matchLines.length > 0) {
       return { state: reduce(state, { type: 'navigate_match', delta: 1 }) };
     }
@@ -599,7 +603,7 @@ export const handleBrowseKey = (
   }
 
   // Previous search match
-  if (key.char === 'N') {
+  if (BROWSE.prevMatch.match(key)) {
     if (state.search && state.search.matchLines.length > 0) {
       return { state: reduce(state, { type: 'navigate_match', delta: -1 }) };
     }
@@ -607,7 +611,7 @@ export const handleBrowseKey = (
   }
 
   // Finish / decision picker
-  if (key.char === 'q') {
+  if (BROWSE.finish.match(key)) {
     return {
       state: { ...reduce(state, { type: 'set_mode', mode: 'decide' }), decideFlow: { ...INITIAL_DECIDE_FLOW } },
     };
@@ -701,26 +705,26 @@ export const handleConfirmKey = (
   state: SessionState,
   flow: ConfirmFlowState
 ): DispatchResult => {
-  if (key.escape) {
+  if (PICKER.cancel.match(key)) {
     return {
       state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), confirmFlow: undefined },
     };
   }
 
   // Arrow navigation
-  if (key.upArrow || key.char === 'k') {
+  if (PICKER.up.match(key)) {
     return {
       state: { ...state, confirmFlow: { ...flow, picker: moveHighlight(flow.picker, -1) } },
     };
   }
-  if (key.downArrow || key.char === 'j') {
+  if (PICKER.down.match(key)) {
     return {
       state: { ...state, confirmFlow: { ...flow, picker: moveHighlight(flow.picker, 1) } },
     };
   }
 
   // Enter confirms highlighted
-  if (key.return) {
+  if (PICKER.confirm.match(key)) {
     const selected = getHighlighted(flow.picker);
     if (selected?.id === 'yes') {
       return {
@@ -850,26 +854,26 @@ export const handleDecideKey = (
   state: SessionState,
   flow: DecideFlowState
 ): DispatchResult => {
-  if (key.escape) {
+  if (PICKER.cancel.match(key)) {
     return {
       state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), decideFlow: undefined },
     };
   }
 
   // Arrow navigation
-  if (key.upArrow || key.char === 'k') {
+  if (PICKER.up.match(key)) {
     return {
       state: { ...state, decideFlow: { picker: moveHighlight(flow.picker, -1) } },
     };
   }
-  if (key.downArrow || key.char === 'j') {
+  if (PICKER.down.match(key)) {
     return {
       state: { ...state, decideFlow: { picker: moveHighlight(flow.picker, 1) } },
     };
   }
 
   // Enter confirms highlighted
-  if (key.return) {
+  if (PICKER.confirm.match(key)) {
     const selected = getHighlighted(flow.picker);
     if (selected) {
       const decision = selected.id as 'approve' | 'deny';
