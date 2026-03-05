@@ -1,6 +1,6 @@
 import { openSync } from 'fs';
 import { stdin } from 'process';
-import { ReadStream as TtyReadStream } from 'tty';
+import { ReadStream as TtyReadStream, WriteStream as TtyWriteStream } from 'tty';
 
 // --- Terminal escape sequences ---
 
@@ -49,4 +49,16 @@ export const cleanupTerminal = (
   if (hasRawMode(input)) {
     input.setRawMode(false);
   }
+};
+
+/**
+ * Open `/dev/tty` as a writable TTY stream for TUI rendering.
+ *
+ * This bypasses any stdout/stderr pipes so the interactive UI always
+ * reaches the real terminal — critical when quill is spawned by a
+ * parent process that captures stdout (JSON) and stderr.
+ */
+export const resolveTtyOutput = (): TtyWriteStream => {
+  const fd = openSync('/dev/tty', 'w');
+  return new TtyWriteStream(fd);
 };

@@ -7,7 +7,7 @@
  * layer — no arg parsing or file I/O here.
  */
 
-import { stderr, stdout } from 'process';
+import { stdout } from 'process';
 import {
   type DispatchResult,
   handleAnnotateKey,
@@ -37,6 +37,7 @@ import {
   MOUSE_ON,
   cleanupTerminal,
   resolveInteractiveInput,
+  resolveTtyOutput,
 } from './terminal.js';
 
 // --- Session config ---
@@ -112,8 +113,11 @@ export const runSession = (config: SessionConfig): void => {
   input.setEncoding('utf-8');
   input.resume();
 
+  // --- TTY output — bypasses pipes so TUI always reaches the terminal ---
+  const ttyOut = resolveTtyOutput();
+
   // --- Alternate screen buffer ---
-  stderr.write(`${ALT_SCREEN_ON}${CURSOR_HIDE}${MOUSE_ON}`);
+  ttyOut.write(`${ALT_SCREEN_ON}${CURSOR_HIDE}${MOUSE_ON}`);
 
   // --- Mutable session state ---
   let state: SessionState = initialState;
@@ -135,8 +139,8 @@ export const runSession = (config: SessionConfig): void => {
   };
 
   const paint = (): void => {
-    const rows = stderr.rows ?? 24;
-    const cols = stderr.columns ?? 80;
+    const rows = ttyOut.rows ?? 24;
+    const cols = ttyOut.columns ?? 80;
 
     // Sync viewport height on resize
     const vh = getViewportHeight(rows);
@@ -157,7 +161,7 @@ export const runSession = (config: SessionConfig): void => {
     const result = buildFrame(ctx);
     lastRowToLine = result.rowToLine;
     lastViewportStartRow = result.viewportStartRow;
-    stderr.write(`${CURSOR_HOME}${result.frame}`);
+    ttyOut.write(`${CURSOR_HOME}${result.frame}`);
   };
 
   // --- Session exit ---
@@ -165,7 +169,7 @@ export const runSession = (config: SessionConfig): void => {
     gg.dispose();
     input.setRawMode(false);
     input.pause();
-    stderr.write(`${MOUSE_OFF}${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
+    ttyOut.write(`${MOUSE_OFF}${CURSOR_SHOW}${ALT_SCREEN_OFF}`);
     cleanupTerminal(input);
 
     if (result.type === 'abort') {
@@ -253,7 +257,7 @@ export const runSession = (config: SessionConfig): void => {
   };
 
   // --- Event wiring ---
-  stderr.on('resize', schedulePaint);
+  ttyOut.on('resize', schedulePaint);
   input.on('data', handleKeypress);
 
   // --- Initial paint ---

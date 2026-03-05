@@ -312,6 +312,7 @@ const command = defineCommand({
         );
       }
 
+      // Initial estimate — session.ts corrects on first paint via its own /dev/tty stream.
       const terminalRows = stderr.rows ?? 24;
       const initialViewportHeight = getViewportHeight(terminalRows);
 
