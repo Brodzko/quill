@@ -27,11 +27,13 @@ import {
   INITIAL_REPLY_FLOW,
   INITIAL_SEARCH_FLOW,
   applyActions,
+  computeExpandedExtraRows,
+  cursorDisplayRow,
   halfPage,
   reduce,
   selectionRange,
 } from './state.js';
-import { annotationsOnLine } from './annotation-box.js';
+import { annotationsOnLine, annotationBoxHeight } from './annotation-box.js';
 import {
   createPicker,
   findByShortcut,
@@ -406,6 +408,36 @@ const jumpToNextAnnotation = (
     { type: 'focus_annotation', annotationId: target.id },
   ]);
 
+  // Final nudge: ensure the focused annotation box (below endLine) plus
+  // padding fits in the viewport. Use display-row-aware check.
+  const boxHeight = annotationBoxHeight(target, { maxWidth: 80, isFocused: true });
+  const SCROLL_PADDING = 1;
+  const dr = cursorDisplayRow(
+    nextState.viewportOffset,
+    nextState.cursorLine,
+    nextState.annotations,
+    nextState.expandedAnnotations,
+  );
+  const bottomNeeded = dr + 1 + boxHeight + SCROLL_PADDING;
+
+  if (bottomNeeded > nextState.viewportHeight) {
+    const totalExtra = computeExpandedExtraRows(
+      nextState.annotations, nextState.expandedAnnotations,
+    );
+    const maxOffset = Math.max(0, nextState.lineCount + totalExtra - nextState.viewportHeight);
+    // Iteratively increase offset until the box fits
+    let adjusted = nextState.viewportOffset;
+    while (adjusted < maxOffset) {
+      adjusted++;
+      const d = cursorDisplayRow(
+        adjusted, nextState.cursorLine,
+        nextState.annotations, nextState.expandedAnnotations,
+      );
+      if (d + 1 + boxHeight + SCROLL_PADDING <= nextState.viewportHeight) break;
+    }
+    return { state: { ...nextState, viewportOffset: adjusted } };
+  }
+
   return { state: nextState };
 };
 
@@ -591,6 +623,27 @@ export const handleBrowseKey = (
     if (target) {
       return {
         state: { ...reduce(state, { type: 'set_mode', mode: 'confirm' }), confirmFlow: INITIAL_CONFIRM_FLOW(target.id) },
+      };
+    }
+  }
+
+  // s — cycle annotation status: none → approved → dismissed → none
+  if (BROWSE.cycleStatus.match(key)) {
+    const target = state.focusedAnnotationId !== null
+      ? state.annotations.find((a) => a.id === state.focusedAnnotationId && state.expandedAnnotations.has(a.id))
+      : undefined;
+    if (target) {
+      const nextStatus = target.status === undefined
+        ? 'approved' as const
+        : target.status === 'approved'
+          ? 'dismissed' as const
+          : undefined;
+      return {
+        state: reduce(state, {
+          type: 'update_annotation',
+          annotationId: target.id,
+          changes: { status: nextStatus },
+        }),
       };
     }
   }

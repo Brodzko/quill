@@ -48,7 +48,7 @@ import { runSession } from './session.js';
 import {
   clampLine,
   clampCursor,
-  computeViewportOffset,
+  computeRawViewportOffset,
   type DiffMeta,
   type SessionState,
 } from './state.js';
@@ -93,8 +93,8 @@ INPUT CONTRACT (stdin or --annotations file)
     "annotations": [
       {
         "id":        "<string>",          // optional — UUID generated if omitted
-        "startLine": <number>,            // required, 1-indexed integer
-        "endLine":   <number>,            // required, >= startLine
+        "startLine": <number>,            // required, 0-indexed (0 = file-level) or 1-indexed
+        "endLine":   <number>,            // required, >= startLine (0 = file-level)
         "intent":    "<string>",          // required (known: instruct, question, comment, praise)
         "category":  "<string>",          // optional (known: bug, security, performance, design, style, nitpick)
         "comment":   "<string>",          // required
@@ -110,6 +110,8 @@ INPUT CONTRACT (stdin or --annotations file)
   Lenient parsing: startLine/endLine accept string numbers (coerced).
   source defaults to "agent". id defaults to a random UUID.
   replies[].source defaults to "user".
+  File-level comments: set startLine: 0, endLine: 0. They are anchored to
+  line 1 for display and emitted back with 0/0 in the output.
 
 OUTPUT CONTRACT (stdout on finish)
   Emitted as a single JSON object when the user approves or denies.
@@ -122,17 +124,26 @@ OUTPUT CONTRACT (stdout on finish)
     "annotations": [                    // all annotations (created, modified, or passed through)
       {
         "id":        "<string>",
-        "startLine": <number>,
-        "endLine":   <number>,
+        "startLine": <number>,          // 0 for file-level comments
+        "endLine":   <number>,          // 0 for file-level comments
         "intent":    "<string>",
         "category":  "<string>",        // omitted if not set
         "comment":   "<string>",
         "source":    "<string>",
         "status":    "approved"|"dismissed",  // omitted if not set
+        "fileLevel": true,              // present only for file-level comments
         "replies":   [...]              // omitted if empty
       }
     ]
   }
+
+  File-level comments (startLine: 0, endLine: 0) are emitted back with 0/0
+  so consumers can distinguish them from line-anchored annotations.
+
+ANNOTATION STATUS
+  Individual annotations can be approved or dismissed inline:
+    [s]  Cycle status on the focused annotation: none → approved → dismissed → none.
+  The status is included in the output JSON "status" field.
 
 EXIT CODES
   0   Normal exit (approve or deny). Output JSON written to stdout.
@@ -321,17 +332,12 @@ const command = defineCommand({
         : new Set<string>();
 
       const initialViewMode = diffData ? 'diff' : 'raw';
-      const initialStateBase: SessionState = {
+      const initialStatePreOffset: SessionState = {
         lineCount,
         maxLineWidth,
         viewportHeight: initialViewportHeight,
         cursorLine: initialCursorLine,
-        viewportOffset: computeViewportOffset({
-          cursorLine: initialCursorLine,
-          currentOffset: 0,
-          viewportHeight: initialViewportHeight,
-          lineCount,
-        }),
+        viewportOffset: 0,
         horizontalOffset: 0,
         mode: 'browse',
         annotations: initialAnnotations,
@@ -339,6 +345,10 @@ const command = defineCommand({
         focusedAnnotationId: focusedAnnotation?.id ?? null,
         viewMode: initialViewMode,
         diffMeta,
+      };
+      const initialStateBase: SessionState = {
+        ...initialStatePreOffset,
+        viewportOffset: computeRawViewportOffset(initialStatePreOffset, initialCursorLine),
       };
 
       // In diff mode, clamp cursor to nearest visible diff line

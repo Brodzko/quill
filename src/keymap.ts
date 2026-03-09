@@ -156,6 +156,11 @@ export const BROWSE = {
     hint: 'x',
     description: 'delete',
   },
+  cycleStatus: {
+    match: (k: Key): boolean => k.char === 's',
+    hint: 's',
+    description: 'status',
+  },
   annotate: {
     match: (k: Key): boolean => k.char === 'a',
     hint: 'a',
@@ -314,6 +319,7 @@ export const BROWSE_SEARCH_HELP = helpBar([
 export const BROWSE_EXPANDED_HELP = helpBar([
   BROWSE.moveUp,
   { ...BROWSE.nextAnnotation, description: 'next/prev' },
+  BROWSE.cycleStatus,
   BROWSE.reply,
   BROWSE.editAnnotation,
   BROWSE.deleteAnnotation,
