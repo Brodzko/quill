@@ -3,10 +3,13 @@ import type { Annotation } from './schema.js';
 import {
   type DiffMeta,
   type SessionState,
+  annotationRowsAboveCursor,
   clampCursor,
   clampLine,
   computeFocus,
+  computeRawViewportOffset,
   computeViewportOffset,
+  cursorDisplayRow,
   findNearestVisibleIndex,
   halfPage,
   reduce,
@@ -137,6 +140,145 @@ describe('computeViewportOffset', () => {
       lineCount: 10,
     });
     expect(offset).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cursorDisplayRow / annotationRowsAboveCursor
+// ---------------------------------------------------------------------------
+
+describe('cursorDisplayRow', () => {
+  const ann = (id: string, endLine: number): Annotation => makeAnnotation({
+    id, startLine: endLine, endLine, comment: 'test comment for wrapping',
+  });
+
+  it('returns simple offset when no annotations are expanded', () => {
+    expect(cursorDisplayRow(0, 10, [], new Set())).toBe(9);
+    expect(cursorDisplayRow(5, 10, [], new Set())).toBe(4);
+  });
+
+  it('accounts for annotation box rows between viewport start and cursor', () => {
+    const annotations = [ann('a1', 5)];
+    const expanded = new Set(['a1']);
+    const boxRows = annotationRowsAboveCursor(0, 10, annotations, expanded);
+    expect(boxRows).toBeGreaterThan(0);
+    const dr = cursorDisplayRow(0, 10, annotations, expanded);
+    expect(dr).toBe(9 + boxRows);
+  });
+
+  it('does not count annotations on the cursor line itself', () => {
+    const annotations = [ann('a1', 10)];
+    const expanded = new Set(['a1']);
+    const dr = cursorDisplayRow(0, 10, annotations, expanded);
+    expect(dr).toBe(9);
+  });
+
+  it('does not count annotations above the viewport', () => {
+    const annotations = [ann('a1', 3)];
+    const expanded = new Set(['a1']);
+    const dr = cursorDisplayRow(5, 10, annotations, expanded);
+    expect(dr).toBe(4);
+  });
+
+  it('ignores collapsed annotations', () => {
+    const annotations = [ann('a1', 5)];
+    const expanded = new Set<string>();
+    const dr = cursorDisplayRow(0, 10, annotations, expanded);
+    expect(dr).toBe(9);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeRawViewportOffset — annotation-aware scrolling
+// ---------------------------------------------------------------------------
+
+describe('computeRawViewportOffset', () => {
+  const ann = (id: string, endLine: number): Annotation => makeAnnotation({
+    id, startLine: endLine, endLine, comment: 'test comment for wrapping',
+  });
+
+  it('scrolls down accounting for annotation box height', () => {
+    const annotations = [ann('a1', 10)];
+    const expanded = new Set(['a1']);
+    const state = makeState({
+      cursorLine: 18,
+      viewportOffset: 0,
+      viewportHeight: 20,
+      lineCount: 100,
+      annotations,
+      expandedAnnotations: expanded,
+    });
+    const offset = computeRawViewportOffset(state, 18);
+    const dr = cursorDisplayRow(offset, 18, annotations, expanded);
+    expect(dr).toBeGreaterThanOrEqual(3);
+    expect(dr).toBeLessThan(20 - 3);
+  });
+
+  it('behaves like basic computeViewportOffset when no annotations', () => {
+    const state = makeState({
+      cursorLine: 26,
+      viewportOffset: 5,
+      viewportHeight: 20,
+      lineCount: 100,
+    });
+    const offset = computeRawViewportOffset(state, 26);
+    const basicOffset = computeViewportOffset({
+      cursorLine: 26,
+      currentOffset: 5,
+      viewportHeight: 20,
+      lineCount: 100,
+    });
+    expect(offset).toBe(basicOffset);
+  });
+
+  it('keeps cursor visible when multiple annotations are expanded above', () => {
+    const annotations = [ann('a1', 5), ann('a2', 8), ann('a3', 12)];
+    const expanded = new Set(['a1', 'a2', 'a3']);
+    const state = makeState({
+      cursorLine: 15,
+      viewportOffset: 0,
+      viewportHeight: 20,
+      lineCount: 100,
+      annotations,
+      expandedAnnotations: expanded,
+    });
+    const offset = computeRawViewportOffset(state, 15);
+    const dr = cursorDisplayRow(offset, 15, annotations, expanded);
+    expect(dr).toBeGreaterThanOrEqual(3);
+    expect(dr).toBeLessThan(20 - 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduce — move_cursor with expanded annotations
+// ---------------------------------------------------------------------------
+
+describe('reduce — move_cursor with annotations', () => {
+  const ann = (id: string, endLine: number): Annotation => makeAnnotation({
+    id, startLine: endLine, endLine, comment: 'test comment for box height',
+  });
+
+  it('scrolls viewport when cursor approaches bottom past annotation boxes', () => {
+    const annotations = [ann('a1', 5)];
+    const expanded = new Set(['a1']);
+    const state = makeState({
+      cursorLine: 1,
+      viewportOffset: 0,
+      viewportHeight: 20,
+      lineCount: 100,
+      annotations,
+      expandedAnnotations: expanded,
+    });
+
+    let s = state;
+    for (let i = 0; i < 25; i++) {
+      s = reduce(s, { type: 'move_cursor', delta: 1 });
+      const dr = cursorDisplayRow(
+        s.viewportOffset, s.cursorLine, s.annotations, s.expandedAnnotations,
+      );
+      expect(dr).toBeGreaterThanOrEqual(0);
+      expect(dr).toBeLessThan(s.viewportHeight);
+    }
   });
 });
 

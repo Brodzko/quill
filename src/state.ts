@@ -9,6 +9,7 @@ import {
   DECISION_OPTIONS,
   INTENT_OPTIONS,
 } from './picker.js';
+import { annotationBoxHeight } from './annotation-box.js';
 
 // --- Flow sub-states ---
 // These describe modal UI flows that overlay the main browse state.
@@ -281,15 +282,79 @@ export const halfPage = (viewportHeight: number): number =>
 
 const SCROLL_OFF = 3;
 
+/**
+ * Compute extra display rows added by expanded annotation boxes.
+ * Each expanded annotation whose endLine falls within the file contributes
+ * its box height. Used to extend maxOffset so the viewport can scroll past
+ * the last source line to reveal boxes at the bottom.
+ */
+export const computeExpandedExtraRows = (
+  annotations: readonly Annotation[],
+  expandedAnnotations: ReadonlySet<string>,
+): number => {
+  let extra = 0;
+  for (const ann of annotations) {
+    if (expandedAnnotations.has(ann.id)) {
+      extra += annotationBoxHeight(ann, { maxWidth: 80, isFocused: true });
+    }
+  }
+  return extra;
+};
+
+/**
+ * Count display rows consumed by expanded annotation boxes that render
+ * between the viewport start and the cursor line. Only annotations whose
+ * endLine falls in [firstVisibleLine, cursorLine) are counted — they push
+ * the cursor further down in the viewport.
+ */
+export const annotationRowsAboveCursor = (
+  viewportOffset: number,
+  cursorLine: number,
+  annotations: readonly Annotation[],
+  expandedAnnotations: ReadonlySet<string>,
+): number => {
+  if (expandedAnnotations.size === 0) return 0;
+  const firstVisible = viewportOffset + 1; // 1-indexed
+  let extra = 0;
+  for (const ann of annotations) {
+    if (
+      expandedAnnotations.has(ann.id) &&
+      ann.endLine >= firstVisible &&
+      ann.endLine < cursorLine
+    ) {
+      extra += annotationBoxHeight(ann, { maxWidth: 80, isFocused: true });
+    }
+  }
+  return extra;
+};
+
+/**
+ * Compute the 0-indexed display row of the cursor within the viewport,
+ * accounting for expanded annotation boxes between the viewport start and
+ * the cursor.
+ */
+export const cursorDisplayRow = (
+  viewportOffset: number,
+  cursorLine: number,
+  annotations: readonly Annotation[],
+  expandedAnnotations: ReadonlySet<string>,
+): number =>
+  (cursorLine - 1 - viewportOffset) +
+  annotationRowsAboveCursor(viewportOffset, cursorLine, annotations, expandedAnnotations);
+
 export const computeViewportOffset = (params: {
   cursorLine: number;
   currentOffset: number;
   viewportHeight: number;
   lineCount: number;
+  /** Extra rows from expanded annotation boxes — extends maxOffset so the
+   *  viewport can scroll past the last source line. Defaults to 0. */
+  extraRows?: number;
 }): number => {
   const { cursorLine, currentOffset, viewportHeight, lineCount } = params;
   const cursorIndex = cursorLine - 1; // 0-indexed
-  const maxOffset = Math.max(0, lineCount - viewportHeight);
+  const effectiveLineCount = lineCount + (params.extraRows ?? 0);
+  const maxOffset = Math.max(0, effectiveLineCount - viewportHeight);
 
   if (cursorIndex < currentOffset + SCROLL_OFF) {
     return R.clamp(cursorIndex - SCROLL_OFF, { min: 0, max: maxOffset });
@@ -303,6 +368,61 @@ export const computeViewportOffset = (params: {
   }
 
   return currentOffset;
+};
+
+/**
+ * Annotation-aware viewport offset for raw mode. Uses the actual display row
+ * of the cursor (accounting for annotation boxes between viewport start and
+ * cursor) and iteratively adjusts the offset to keep the cursor within the
+ * scroll-off zone.
+ *
+ * Falls back to the fast `computeViewportOffset` when no annotations are
+ * expanded.
+ */
+export const computeRawViewportOffset = (
+  state: SessionState,
+  cursorLine: number,
+): number => {
+  const { annotations, expandedAnnotations, viewportHeight, lineCount } = state;
+  const totalExtra = computeExpandedExtraRows(annotations, expandedAnnotations);
+  const maxOffset = Math.max(0, lineCount + totalExtra - viewportHeight);
+
+  // Fast path — no expanded annotations
+  if (expandedAnnotations.size === 0) {
+    return computeViewportOffset({
+      cursorLine,
+      currentOffset: state.viewportOffset,
+      viewportHeight,
+      lineCount,
+    });
+  }
+
+  let offset = state.viewportOffset;
+
+  // Compute actual display row
+  const dr = cursorDisplayRow(offset, cursorLine, annotations, expandedAnnotations);
+
+  // Scroll up: cursor too close to top
+  if (dr < SCROLL_OFF) {
+    while (offset > 0) {
+      offset--;
+      const d = cursorDisplayRow(offset, cursorLine, annotations, expandedAnnotations);
+      if (d >= SCROLL_OFF) break;
+    }
+    return Math.min(offset, maxOffset);
+  }
+
+  // Scroll down: cursor too close to bottom
+  if (dr >= viewportHeight - SCROLL_OFF) {
+    while (offset < maxOffset) {
+      offset++;
+      const d = cursorDisplayRow(offset, cursorLine, annotations, expandedAnnotations);
+      if (d < viewportHeight - SCROLL_OFF) break;
+    }
+    return Math.min(offset, maxOffset);
+  }
+
+  return offset;
 };
 
 /**
@@ -339,6 +459,10 @@ export const computeFocus = (
   return firstExpanded?.id ?? null;
 };
 
+/** Extra rows from expanded annotations — shorthand for reducer use. */
+const extraRows = (state: SessionState): number =>
+  computeExpandedExtraRows(state.annotations, state.expandedAnnotations);
+
 const recomputeOffset = (state: SessionState, viewportHeight: number): number => {
   if (state.viewMode === 'diff' && state.diffMeta) {
     const displayRow = (state.diffMeta.newLineToRow.get(state.cursorLine) ?? 0) + 1;
@@ -349,12 +473,10 @@ const recomputeOffset = (state: SessionState, viewportHeight: number): number =>
       lineCount: state.diffMeta.rowCount,
     });
   }
-  return computeViewportOffset({
-    cursorLine: state.cursorLine,
-    currentOffset: state.viewportOffset,
-    viewportHeight,
-    lineCount: state.lineCount,
-  });
+  return computeRawViewportOffset(
+    { ...state, viewportHeight },
+    state.cursorLine,
+  );
 };
 
 export const reduce = (state: SessionState, action: BrowseAction): SessionState => {
@@ -366,12 +488,7 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
         : clampLine(state.cursorLine + action.delta, state.lineCount);
       const viewportOffset = inDiff
         ? computeDiffViewportOffset(state, cursorLine)
-        : computeViewportOffset({
-            cursorLine,
-            currentOffset: state.viewportOffset,
-            viewportHeight: state.viewportHeight,
-            lineCount: state.lineCount,
-          });
+        : computeRawViewportOffset({ ...state, cursorLine }, cursorLine);
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
@@ -384,12 +501,7 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
         : clampLine(action.line, state.lineCount);
       const viewportOffset = inDiff
         ? computeDiffViewportOffset(state, cursorLine)
-        : computeViewportOffset({
-            cursorLine,
-            currentOffset: state.viewportOffset,
-            viewportHeight: state.viewportHeight,
-            lineCount: state.lineCount,
-          });
+        : computeRawViewportOffset({ ...state, cursorLine }, cursorLine);
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
@@ -423,12 +535,7 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       const cursorLine = active;
       const viewportOffset = inDiff
         ? computeDiffViewportOffset(state, cursorLine)
-        : computeViewportOffset({
-            cursorLine,
-            currentOffset: state.viewportOffset,
-            viewportHeight: state.viewportHeight,
-            lineCount: state.lineCount,
-          });
+        : computeRawViewportOffset({ ...state, cursorLine }, cursorLine);
       return {
         ...state,
         cursorLine,
@@ -445,14 +552,43 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
     }
     case 'toggle_annotation': {
       const next = new Set(state.expandedAnnotations);
-      if (next.has(action.annotationId)) {
-        next.delete(action.annotationId);
-      } else {
+      const isExpanding = !next.has(action.annotationId);
+      if (isExpanding) {
         next.add(action.annotationId);
+      } else {
+        next.delete(action.annotationId);
       }
       const focusedAnnotationId = computeFocus(
         state.cursorLine, state.annotations, next
       );
+      // When expanding, nudge viewport so the box is fully visible
+      if (isExpanding) {
+        const ann = state.annotations.find((a) => a.id === action.annotationId);
+        if (ann) {
+          const boxH = annotationBoxHeight(ann, { maxWidth: 80, isFocused: true });
+          const padding = 1;
+          // Use display-row-aware check: compute where the cursor (endLine) actually
+          // sits in the viewport accounting for annotation boxes above it, then check
+          // whether the box below it fits.
+          const dr = cursorDisplayRow(
+            state.viewportOffset, ann.endLine,
+            state.annotations, next,
+          );
+          const bottomNeeded = dr + 1 + boxH + padding; // cursor row + box + padding
+          if (bottomNeeded > state.viewportHeight) {
+            const totalExtra = computeExpandedExtraRows(state.annotations, next);
+            const maxOff = Math.max(0, state.lineCount + totalExtra - state.viewportHeight);
+            // Iteratively increase offset until the box fits
+            let adjusted = state.viewportOffset;
+            while (adjusted < maxOff) {
+              adjusted++;
+              const d = cursorDisplayRow(adjusted, ann.endLine, state.annotations, next);
+              if (d + 1 + boxH + padding <= state.viewportHeight) break;
+            }
+            return { ...state, expandedAnnotations: next, focusedAnnotationId, viewportOffset: adjusted };
+          }
+        }
+      }
       return { ...state, expandedAnnotations: next, focusedAnnotationId };
     }
     case 'delete_annotation': {
@@ -500,12 +636,7 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       const cursorLine = inDiff ? clampCursor(state, rawCursorLine) : rawCursorLine;
       const viewportOffset = inDiff
         ? computeDiffViewportOffset(state, cursorLine)
-        : computeViewportOffset({
-            cursorLine,
-            currentOffset: state.viewportOffset,
-            viewportHeight: state.viewportHeight,
-            lineCount: state.lineCount,
-          });
+        : computeRawViewportOffset({ ...state, cursorLine }, cursorLine);
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
@@ -529,12 +660,7 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       const cursorLine = inDiff ? clampCursor(state, rawCursorLine) : rawCursorLine;
       const viewportOffset = inDiff
         ? computeDiffViewportOffset(state, cursorLine)
-        : computeViewportOffset({
-            cursorLine,
-            currentOffset: state.viewportOffset,
-            viewportHeight: state.viewportHeight,
-            lineCount: state.lineCount,
-          });
+        : computeRawViewportOffset({ ...state, cursorLine }, cursorLine);
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
@@ -548,7 +674,8 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
     }
     case 'scroll_viewport': {
       const inDiff = state.viewMode === 'diff' && state.diffMeta;
-      const effectiveLineCount = inDiff ? state.diffMeta!.rowCount : state.lineCount;
+      const baseLineCount = inDiff ? state.diffMeta!.rowCount : state.lineCount;
+      const effectiveLineCount = baseLineCount + (inDiff ? 0 : extraRows(state));
       const maxOffset = Math.max(0, effectiveLineCount - state.viewportHeight);
       const viewportOffset = R.clamp(state.viewportOffset + action.delta, {
         min: 0,
@@ -607,12 +734,10 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
         : state.cursorLine;
       const viewportOffset = nextMode === 'diff'
         ? computeDiffViewportOffset(nextState, cursorLine)
-        : computeViewportOffset({
+        : computeRawViewportOffset(
+            { ...nextState, cursorLine, viewportOffset: 0 }, // reset viewport on toggle
             cursorLine,
-            currentOffset: 0, // reset viewport on toggle
-            viewportHeight: state.viewportHeight,
-            lineCount: state.lineCount,
-          });
+          );
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
