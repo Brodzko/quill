@@ -343,6 +343,76 @@ rename to bar.ts`;
     });
   });
 
+  describe('whitespace / offset noise suppression', () => {
+    it('reclassifies modified rows with identical trimmed content as context', () => {
+      // Indentation change only: 2-space → 4-space
+      const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-  const b = 2;
++    const b = 2;
+ const c = 3;`);
+      const data = alignDiff(diff, 'main');
+
+      expect(types(data)).toEqual(['context', 'context', 'context']);
+      // Original content is preserved even though type changed
+      expect(data.rows[1]!.oldContent).toBe('  const b = 2;');
+      expect(data.rows[1]!.newContent).toBe('    const b = 2;');
+    });
+
+    it('reclassifies offset-only changes (identical content, different line numbers)', () => {
+      // Line was "moved" due to an addition above — content identical
+      const diff = makeDiff(`@@ -1,3 +1,4 @@
+ const a = 1;
++const inserted = true;
+-const b = 2;
++const b = 2;
+ const c = 3;`);
+      const data = alignDiff(diff, 'main');
+
+      // The del(b=2) + add(b=2) pair: identical content → context
+      const modifiedOrContext = data.rows.filter(
+        (r) => r.oldContent === 'const b = 2;' || r.newContent === 'const b = 2;'
+      );
+      for (const row of modifiedOrContext) {
+        if (row.oldContent !== null && row.newContent !== null) {
+          expect(row.type).toBe('context');
+        }
+      }
+    });
+
+    it('keeps genuinely modified rows as modified', () => {
+      const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;`);
+      const data = alignDiff(diff, 'main');
+
+      expect(types(data)).toEqual(['context', 'modified', 'context']);
+    });
+
+    it('reclassifies trailing-whitespace-only changes', () => {
+      // Trailing space removed
+      const diff = makeDiff(`@@ -1,1 +1,1 @@
+-const a = 1;   
++const a = 1;`);
+      const data = alignDiff(diff, 'main');
+
+      expect(types(data)).toEqual(['context']);
+    });
+
+    it('preserves line numbers on reclassified context rows', () => {
+      const diff = makeDiff(`@@ -5,1 +8,1 @@
+-  indented;
++    indented;`);
+      const data = alignDiff(diff, 'main');
+
+      expect(data.rows[0]!.type).toBe('context');
+      expect(data.rows[0]!.oldLineNumber).toBe(5);
+      expect(data.rows[0]!.newLineNumber).toBe(8);
+    });
+  });
+
   describe('complex interleaved changes', () => {
     it('handles del, del, del, add, add, normal, del, add, add', () => {
       // This is the example from PHASE_3_PLAN.md

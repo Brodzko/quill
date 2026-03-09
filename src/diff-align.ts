@@ -81,6 +81,24 @@ const stripPrefix = (content: string): string =>
     : content;
 
 /**
+ * Reclassify noise rows as context:
+ * - `modified` rows where trimmed content is identical (whitespace-only
+ *   or line-number-only offset changes).
+ */
+const suppressNoiseRows = (rows: AlignedRow[]): AlignedRow[] =>
+  rows.map((row) => {
+    if (
+      row.type === 'modified' &&
+      row.oldContent !== null &&
+      row.newContent !== null &&
+      row.oldContent.trim() === row.newContent.trim()
+    ) {
+      return { ...row, type: 'context' as const };
+    }
+    return row;
+  });
+
+/**
  * Parse a unified diff and align into side-by-side rows.
  *
  * Algorithm per hunk:
@@ -182,7 +200,7 @@ export const alignDiff = (rawDiff: string, label: string): DiffData => {
     flushDels();
   }
 
-  return buildDiffData(rows, label);
+  return buildDiffData(suppressNoiseRows(rows), label);
 };
 
 // --- DiffData construction ---

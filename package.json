@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "citty": "0.2.1",
-    "parse-diff": "^0.11.1",
+    "parse-diff": "0.11.1",
     "remeda": "2.33.0",
     "shiki": "4.0.1",
     "zod": "3.21.4"

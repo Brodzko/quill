@@ -25,13 +25,15 @@ git config user.name "e2e"
 
 # Commit 1: base version
 cp "$F/diff-base.ts" code.ts
-git add code.ts
+cp "$F/diff-whitespace-base.ts" whitespace.ts
+git add code.ts whitespace.ts
 git commit -q -m "base version"
 git tag base
 
 # Commit 2: modified version
 cp "$F/diff-modified.ts" code.ts
-git add code.ts
+cp "$F/diff-whitespace-modified.ts" whitespace.ts
+git add code.ts whitespace.ts
 git commit -q -m "modified version"
 
 echo "$REPO"

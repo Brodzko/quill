@@ -12,7 +12,7 @@ npm run build            # required — runs against dist/cli.js
 ./e2e/run.sh build       # build first, then pick
 ```
 
-## Scenarios (27)
+## Scenarios (29)
 
 ### Raw mode basics (1–5)
 Basic file viewing, cursor nav, horizontal scroll, tiny/empty files.
@@ -38,6 +38,9 @@ File-level comments (startLine: 0) with 📄 marker, per-annotation approve/dism
 ### Resize / edge cases (24–27)
 Terminal resize, narrow terminal, go-to-line, scroll-into-view for last-line annotations.
 
+### Diff noise suppression (28–29)
+Whitespace-only and offset-only changes rendered as context (no diff coloring).
+
 ## Fixtures
 
 | File | Purpose |
@@ -52,11 +55,12 @@ Terminal resize, narrow terminal, go-to-line, scroll-into-view for last-line ann
 | `fixtures/annotations-approve-dismiss.json` | Annotations with/without pre-set status for y/n toggle testing |
 | `fixtures/long-tail.ts` | 60-line file — tests annotation scroll-into-view at EOF |
 | `fixtures/annotations-long-tail.json` | Large annotation on last lines with replies — box height exceeds viewport |
+| `fixtures/diff-whitespace-base.ts` | Base file for whitespace/offset suppression testing |
+| `fixtures/diff-whitespace-modified.ts` | Modified file: re-indented block, added import (offset), real change mixed in |
 
 ## Notes
 
-- Diff scenarios (17–21) require the file to have git history. They use `src/*.ts`
-  from the actual repo instead of fixtures.
+- Diff scenarios (17–21, 28–29) use a temporary git repo created by `setup-diff-repo.sh`.
 - Each scenario shows a checklist of things to verify. After exiting Quill,
   you're prompted for pass/fail/skip.
 - `Ctrl+C` aborts the running Quill session (exit code 1, no output).

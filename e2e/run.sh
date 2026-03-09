@@ -125,6 +125,12 @@ add "Diff — annotations in diff" \
 add "Diff — no changes fallback" \
     '(cd $DIFF_REPO && $QUILL code.ts --diff-ref HEAD)' \
     "'No differences found' message, opens raw, d is no-op"
+add "Diff — whitespace-only changes suppressed" \
+    '(cd $DIFF_REPO && $QUILL whitespace.ts --diff-ref base)' \
+    "config block re-indentation (2→4 spaces) shows as context (no red/green bg), NOT as modified. Both old/new sides visible with different indent but no diff coloring."
+add "Diff — offset-only changes suppressed" \
+    '(cd $DIFF_REPO && $QUILL whitespace.ts --diff-ref base)' \
+    "Lines pushed down by the added import (greet, process, FORMAT, export) show as context, NOT as modified. Only the actual changes are highlighted: added import, added Array.isArray check, added log() call."
 
 # Resize / edge
 add "Terminal resize" \
