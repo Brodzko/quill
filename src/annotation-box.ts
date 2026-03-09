@@ -80,8 +80,8 @@ const sourceColor = (source: string): string =>
 
 /** Format the status indicator for an annotation. */
 const statusIndicator = (status?: 'approved' | 'dismissed'): string => {
-  if (status === 'approved') return `${GREEN}${BOLD}✓ approved${RESET}`;
-  if (status === 'dismissed') return `${DIM}✗ dismissed${RESET}`;
+  if (status === 'approved') return `${GREEN}${BOLD}👍 approved${RESET}`;
+  if (status === 'dismissed') return `${DIM}👎 dismissed${RESET}`;
   return '';
 };
 
@@ -120,6 +120,9 @@ export const renderAnnotationBox = (
   ];
   if (annotation.category) {
     headerParts.push(`${DIM}·${RESET}`, `${DIM}${annotation.category}${RESET}`);
+  }
+  if (annotation.fileLevel) {
+    headerParts.push(`${DIM}·${RESET}`, `${DIM}📄 file${RESET}`);
   }
   const headerText = headerParts.join(' ');
   const headerVisLen = visibleLength(headerText);
@@ -162,24 +165,28 @@ export const renderAnnotationBox = (
   }
 
   // --- Status + action hints ---
-  const statusParts: string[] = [];
+  // When focused: always render separator + hints (stable 2-line height).
+  // When not focused: render only if there's a status to show (1 line).
   const status = statusIndicator(annotation.status);
-  if (status) statusParts.push(status);
 
-  // Action hints only when this annotation is focused
   if (isFocused) {
-    statusParts.push(
-      `${DIM}[r]eply  [w] edit  [x] delete  [c] toggle${RESET}`
-    );
-  }
-
-  if (statusParts.length > 0) {
-    // Blank separator line
+    // Separator
     rows.push(
       `${CLEAR_LINE}${gutterPrefix}${borderColor}${BOX.vertical}${RESET}${' '.repeat(innerWidth + 2)}${borderColor}${BOX.vertical}${RESET}`
     );
-    const actionText = statusParts.join('   ');
+    // Inline status + action hints on one line
+    const statusPrefix = status ? `${status}   ` : '';
+    const actionText = `${statusPrefix}${DIM}[s]tatus  [r]eply  [w] edit  [x] delete  [c] toggle${RESET}`;
     const padded = padTo(` ${actionText} `, innerWidth + 2);
+    rows.push(
+      `${CLEAR_LINE}${gutterPrefix}${borderColor}${BOX.vertical}${RESET}${padded}${borderColor}${BOX.vertical}${RESET}`
+    );
+  } else if (status) {
+    // Not focused but has status — show it standalone
+    rows.push(
+      `${CLEAR_LINE}${gutterPrefix}${borderColor}${BOX.vertical}${RESET}${' '.repeat(innerWidth + 2)}${borderColor}${BOX.vertical}${RESET}`
+    );
+    const padded = padTo(` ${status} `, innerWidth + 2);
     rows.push(
       `${CLEAR_LINE}${gutterPrefix}${borderColor}${BOX.vertical}${RESET}${padded}${borderColor}${BOX.vertical}${RESET}`
     );
@@ -189,6 +196,42 @@ export const renderAnnotationBox = (
   const bottomBorder = `${borderColor}${BOX.bottomLeft}${BOX.horizontal.repeat(innerWidth + 2)}${BOX.bottomRight}${RESET}`;
   rows.push(`${CLEAR_LINE}${gutterPrefix}${bottomBorder}`);
 
+  return rows;
+};
+
+/**
+ * Compute the rendered height (number of terminal rows) of an annotation box
+ * without actually building the ANSI strings. Mirrors the structure of
+ * `renderAnnotationBox` — keep in sync.
+ */
+export const annotationBoxHeight = (
+  annotation: Annotation,
+  options: { maxWidth: number; isFocused: boolean }
+): number => {
+  const innerWidth = Math.max(20, options.maxWidth - 4);
+  let rows = 1; // top border
+
+  // Comment body
+  rows += wordWrap(annotation.comment, innerWidth).length;
+
+  // Replies
+  if (annotation.replies && annotation.replies.length > 0) {
+    rows += 1; // separator
+    for (const reply of annotation.replies) {
+      const prefix = `↳ ${reply.source === 'user' ? 'you' : reply.source}: `;
+      const replyLines = wordWrap(reply.comment, innerWidth - prefix.length);
+      rows += replyLines.length;
+    }
+  }
+
+  // Status + action hints
+  const hasStatus = annotation.status === 'approved' || annotation.status === 'dismissed';
+  if (hasStatus || options.isFocused) {
+    rows += 1; // separator
+    rows += 1; // action/status line
+  }
+
+  rows += 1; // bottom border
   return rows;
 };
 

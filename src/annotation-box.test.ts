@@ -145,13 +145,13 @@ describe('renderAnnotationBox', () => {
   it('shows approved status', () => {
     const rows = renderAnnotationBox(makeAnnotation({ status: 'approved' }), opts);
     const plain = rows.map(stripAnsi).join('\n');
-    expect(plain).toContain('✓ approved');
+    expect(plain).toContain('👍 approved');
   });
 
   it('shows dismissed status', () => {
     const rows = renderAnnotationBox(makeAnnotation({ status: 'dismissed' }), opts);
     const plain = rows.map(stripAnsi).join('\n');
-    expect(plain).toContain('✗ dismissed');
+    expect(plain).toContain('👎 dismissed');
   });
 
   it('shows action hints when isFocused', () => {
