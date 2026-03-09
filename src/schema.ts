@@ -29,8 +29,8 @@ const replyInputSchema = z.object({
 const annotationInputSchema = z
   .object({
     id: z.string().trim().min(1).optional(),
-    startLine: z.coerce.number().int().min(1),
-    endLine: z.coerce.number().int().min(1),
+    startLine: z.coerce.number().int().min(0),
+    endLine: z.coerce.number().int().min(0),
     intent: z.string().trim().min(1),
     category: z.string().trim().min(1).optional(),
     comment: z.string().trim().min(1),
@@ -52,6 +52,7 @@ const annotationSchema = z.object({
   comment: z.string().min(1),
   source: z.string().min(1),
   status: z.enum(['approved', 'dismissed']).optional(),
+  fileLevel: z.boolean().optional(),
   replies: z.array(replySchema).optional(),
 });
 
@@ -66,7 +67,11 @@ const outputEnvelopeSchema = z.object({
   mode: z.enum(['raw', 'diff']),
   decision: z.enum(['approve', 'deny']),
   diffRef: z.string().optional(),
-  annotations: z.array(annotationSchema),
+  annotations: z.array(annotationSchema.extend({
+    // In output, file-level annotations are emitted with startLine: 0 / endLine: 0
+    startLine: z.number().int().min(0),
+    endLine: z.number().int().min(0),
+  })),
 });
 
 export type AnnotationStatus = z.infer<typeof annotationSchema>['status'];
@@ -112,14 +117,18 @@ export const CATEGORY_BY_KEY = {
 const normalizeCandidate = (
   candidate: z.infer<typeof annotationInputSchema>
 ): Annotation => {
+  // File-level annotations (startLine: 0) are anchored to line 1 for
+  // rendering/navigation. The fileLevel flag preserves the original intent.
+  const isFileLevel = candidate.startLine === 0 && candidate.endLine === 0;
   const base: Annotation = {
     id: candidate.id ?? randomUUID(),
-    startLine: candidate.startLine,
-    endLine: candidate.endLine,
+    startLine: isFileLevel ? 1 : candidate.startLine,
+    endLine: isFileLevel ? 1 : candidate.endLine,
     intent: candidate.intent,
     category: candidate.category,
     comment: candidate.comment,
     source: candidate.source ?? 'agent',
+    ...(isFileLevel ? { fileLevel: true } : {}),
   };
   if (candidate.status) base.status = candidate.status;
   const replies = (candidate.replies ?? []).filter(R.isNonNullish).map((r) => ({
@@ -167,5 +176,7 @@ export const createOutput = (params: {
   mode: params.mode,
   decision: params.decision,
   ...(params.diffRef ? { diffRef: params.diffRef } : {}),
-  annotations: [...params.annotations],
+  annotations: params.annotations.map((a) =>
+    a.fileLevel ? { ...a, startLine: 0, endLine: 0 } : { ...a },
+  ),
 });
