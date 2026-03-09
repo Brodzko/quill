@@ -12,7 +12,7 @@ npm run build            # required — runs against dist/cli.js
 ./e2e/run.sh build       # build first, then pick
 ```
 
-## Scenarios (24)
+## Scenarios (27)
 
 ### Raw mode basics (1–5)
 Basic file viewing, cursor nav, horizontal scroll, tiny/empty files.
@@ -23,6 +23,7 @@ Loading annotations via `--annotations` file or stdin pipe, edge cases
 
 ### Annotation CRUD (11–15)
 Create (select → annotate), reply, edit, delete with confirm, approve/deny output.
+Per-annotation [s] cycles status: none → approved → dismissed → none.
 
 ### Search (16)
 Live search, match highlighting, n/N cycling.
@@ -31,8 +32,11 @@ Live search, match highlighting, n/N cycling.
 Side-by-side against git refs, horizontal scroll in diff, annotations in diff,
 toggle raw↔diff, no-changes fallback.
 
-### Resize / edge cases (22–24)
-Terminal resize, narrow terminal, go-to-line.
+### File-level & annotation status (22–23)
+File-level comments (startLine: 0) with 📄 marker, per-annotation approve/dismiss toggling.
+
+### Resize / edge cases (24–27)
+Terminal resize, narrow terminal, go-to-line, scroll-into-view for last-line annotations.
 
 ## Fixtures
 
@@ -44,6 +48,10 @@ Terminal resize, narrow terminal, go-to-line.
 | `fixtures/annotations-basic.json` | 4 annotations with replies — standard test set |
 | `fixtures/annotations-edge.json` | Edge cases: first line, multi on same line, string coercion |
 | `fixtures/annotations-empty.json` | Empty annotations array |
+| `fixtures/annotations-file-level.json` | File-level (startLine: 0) + line-anchored annotations |
+| `fixtures/annotations-approve-dismiss.json` | Annotations with/without pre-set status for y/n toggle testing |
+| `fixtures/long-tail.ts` | 60-line file — tests annotation scroll-into-view at EOF |
+| `fixtures/annotations-long-tail.json` | Large annotation on last lines with replies — box height exceeds viewport |
 
 ## Notes
 
@@ -53,3 +61,5 @@ Terminal resize, narrow terminal, go-to-line.
   you're prompted for pass/fail/skip.
 - `Ctrl+C` aborts the running Quill session (exit code 1, no output).
 - Approve (`Shift+A → a`) or deny (`Shift+A → d`) to get JSON output on stdout.
+- File-level comments use `startLine: 0, endLine: 0` in JSON — displayed on line 1 with 📄 marker.
+- Per-annotation `[s]` cycles status: none → 👍 approved → 👎 dismissed → none.

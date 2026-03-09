@@ -15,6 +15,12 @@ Quill integrates into pi via reference skill + workflow skills + custom tool.
 | [quill-gitlab converter](./quill-gitlab-converter.md) | Draft | Separate project for MR thread ↔ annotation conversion |
 | [Session persistence](./session-persistence.md) | Draft | Temp directory for multi-file review flows |
 
+## Diff rendering
+
+| Plan | Status | Summary |
+|---|---|---|
+| [Diff rendering improvements](./diff-rendering-improvements.md) | Draft | Ignore whitespace-only changes + ignore line-number-only (moved code) changes |
+
 ## Build order
 
 1. **Schema expansion** — metadata bag + reply IDs (unblocks converter design)

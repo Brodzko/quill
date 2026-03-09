@@ -1,0 +1,31 @@
+{
+  "annotations": [
+    {
+      "id": "tail-1",
+      "startLine": 5,
+      "endLine": 5,
+      "intent": "comment",
+      "comment": "First annotation near the top — Tab here first to orient.",
+      "source": "agent"
+    },
+    {
+      "id": "tail-2",
+      "startLine": 58,
+      "endLine": 60,
+      "intent": "instruct",
+      "category": "bug",
+      "comment": "This is a large annotation on the very last lines of the file.\n\nIt has multiple paragraphs to make the box tall enough that it would get clipped if the viewport cannot scroll past the last source line.\n\nParagraph three: verify that the entire box — including this text, the action hints row, and the bottom border — is fully visible after Tab-jumping here.\n\nParagraph four: extra content to push the box height even further. The viewport should accommodate all of this without any clipping at the bottom edge.",
+      "source": "agent",
+      "replies": [
+        {
+          "comment": "Acknowledged — this reply adds even more height to the box.",
+          "source": "user"
+        },
+        {
+          "comment": "Second reply for extra box height. All replies should be visible.",
+          "source": "agent"
+        }
+      ]
+    }
+  ]
+}

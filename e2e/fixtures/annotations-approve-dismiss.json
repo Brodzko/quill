@@ -1,0 +1,39 @@
+{
+  "annotations": [
+    {
+      "id": "ad-1",
+      "startLine": 12,
+      "endLine": 12,
+      "intent": "question",
+      "comment": "Should this be a discriminated union? Press [s] to cycle status.",
+      "source": "agent"
+    },
+    {
+      "id": "ad-2",
+      "startLine": 38,
+      "endLine": 40,
+      "intent": "instruct",
+      "category": "bug",
+      "comment": "Fix this validation logic. Cycle status with [s].",
+      "source": "agent"
+    },
+    {
+      "id": "ad-pre-approved",
+      "startLine": 50,
+      "endLine": 50,
+      "intent": "comment",
+      "comment": "Pre-approved — [s] should cycle to dismissed, then none.",
+      "source": "agent",
+      "status": "approved"
+    },
+    {
+      "id": "ad-pre-dismissed",
+      "startLine": 60,
+      "endLine": 60,
+      "intent": "comment",
+      "comment": "Pre-dismissed — [s] should cycle to none, then approved.",
+      "source": "agent",
+      "status": "dismissed"
+    }
+  ]
+}

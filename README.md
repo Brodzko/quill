@@ -65,6 +65,7 @@ The `--help` output is the authoritative reference for both humans and agents.
 | `Tab`/`Shift+Tab` | Next/previous annotation |
 | `c` | Toggle annotation expanded/collapsed |
 | `C` | Toggle all annotations |
+| `s` | Cycle annotation status: none → 👍 approved → 👎 dismissed → none |
 | `r` | Reply to focused annotation |
 | `w` | Edit focused annotation |
 | `x` | Delete focused annotation (with confirmation) |
@@ -77,6 +78,14 @@ The `--help` output is the authoritative reference for both humans and agents.
 1. **Intent** — `i` instruct · `q` question · `c` comment · `p` praise
 2. **Category** (optional) — `b` bug · `s` security · `f` performance · `d` design · `t` style · `k` nitpick · `Space` skip
 3. **Comment** — free-text, `Enter` to submit, `Esc` to cancel
+
+## File-Level Comments
+
+To attach a comment to the file as a whole (not a specific line), set
+`startLine: 0` and `endLine: 0` in the input JSON. These annotations are
+displayed on line 1 with a `📄 file` marker in the box header. They are
+emitted back with `0`/`0` in the output so consumers can distinguish them
+from line-anchored annotations.
 
 ## Requirements
 

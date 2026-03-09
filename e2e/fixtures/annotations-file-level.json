@@ -1,0 +1,29 @@
+{
+  "annotations": [
+    {
+      "id": "fl-1",
+      "startLine": 0,
+      "endLine": 0,
+      "intent": "comment",
+      "comment": "This file-level comment is not anchored to any line. It should display on line 1 with a 📄 file marker in the box header.",
+      "source": "agent"
+    },
+    {
+      "id": "fl-2",
+      "startLine": 0,
+      "endLine": 0,
+      "intent": "instruct",
+      "category": "design",
+      "comment": "Second file-level annotation — both should be visible on line 1, Tab should cycle to them.",
+      "source": "agent"
+    },
+    {
+      "id": "fl-line",
+      "startLine": 12,
+      "endLine": 12,
+      "intent": "question",
+      "comment": "This is a regular line-anchored annotation for contrast.",
+      "source": "agent"
+    }
+  ]
+}

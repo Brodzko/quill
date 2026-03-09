@@ -136,6 +136,15 @@ add "Narrow terminal (≤60 cols)" \
 add "Go-to-line" \
     "$QUILL $F/sample.ts" \
     ": goto, type number, Enter jumps, Esc cancels"
+add "File-level comments — display and output" \
+    "$QUILL $F/sample.ts --annotations $F/annotations-file-level.json" \
+    "Tab to fl-1/fl-2: boxes on L1 show 📄 file marker. Tab to fl-line (L12): normal box. Approve → check output: fl-1/fl-2 have startLine:0,endLine:0,fileLevel:true; fl-line has startLine:12"
+add "Annotation status cycle — [s] key" \
+    "$QUILL $F/sample.ts --annotations $F/annotations-approve-dismiss.json --focus-annotation ad-1" \
+    "ad-1 focused: [s] → 👍 approved, [s] → 👎 dismissed, [s] → cleared. Box height stays stable on each toggle. Tab to ad-pre-approved (L50): [s] cycles to dismissed then none. Approve → output JSON has correct status fields"
+add "Scroll into view — annotation on last line" \
+    "$QUILL $F/long-tail.ts --annotations $F/annotations-long-tail.json" \
+    "Tab to tail-2 (L58–60): entire box visible incl. replies, hints, bottom border. No clipping."
 
 TOTAL=${#DESC[@]}
 
