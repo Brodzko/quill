@@ -27,13 +27,12 @@ import {
   INITIAL_REPLY_FLOW,
   INITIAL_SEARCH_FLOW,
   applyActions,
-  computeExpandedExtraRows,
-  cursorDisplayRow,
   halfPage,
+  nudgeForAnnotationBox,
   reduce,
   selectionRange,
 } from './state.js';
-import { annotationsOnLine, annotationBoxHeight } from './annotation-box.js';
+import { annotationsOnLine } from './annotation-box.js';
 import {
   createPicker,
   findByShortcut,
@@ -409,32 +408,9 @@ const jumpToNextAnnotation = (
   ]);
 
   // Final nudge: ensure the focused annotation box (below endLine) plus
-  // padding fits in the viewport. Use display-row-aware check.
-  const boxHeight = annotationBoxHeight(target, { maxWidth: 80, isFocused: true });
-  const SCROLL_PADDING = 1;
-  const dr = cursorDisplayRow(
-    nextState.viewportOffset,
-    nextState.cursorLine,
-    nextState.annotations,
-    nextState.expandedAnnotations,
-  );
-  const bottomNeeded = dr + 1 + boxHeight + SCROLL_PADDING;
-
-  if (bottomNeeded > nextState.viewportHeight) {
-    const totalExtra = computeExpandedExtraRows(
-      nextState.annotations, nextState.expandedAnnotations,
-    );
-    const maxOffset = Math.max(0, nextState.lineCount + totalExtra - nextState.viewportHeight);
-    // Iteratively increase offset until the box fits
-    let adjusted = nextState.viewportOffset;
-    while (adjusted < maxOffset) {
-      adjusted++;
-      const d = cursorDisplayRow(
-        adjusted, nextState.cursorLine,
-        nextState.annotations, nextState.expandedAnnotations,
-      );
-      if (d + 1 + boxHeight + SCROLL_PADDING <= nextState.viewportHeight) break;
-    }
+  // padding fits in the viewport. Works for both raw and diff modes.
+  const adjusted = nudgeForAnnotationBox(nextState, target, nextState.expandedAnnotations);
+  if (adjusted !== nextState.viewportOffset) {
     return { state: { ...nextState, viewportOffset: adjusted } };
   }
 

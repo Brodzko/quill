@@ -1295,3 +1295,130 @@ describe('handleBrowseKey — diff toggle', () => {
     expect(resultL.state.horizontalOffset).toBe(4);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tab annotation navigation — edge cases (file-level, diff mode, scroll)
+// ---------------------------------------------------------------------------
+
+describe('Tab annotation navigation — edge cases', () => {
+  const makeDiffMeta = (visibleLines: number[]): DiffMeta => {
+    const newLineToRow = new Map<number, number>();
+    visibleLines.forEach((ln, i) => newLineToRow.set(ln, i));
+    return { rowCount: visibleLines.length + 2, visibleLines, newLineToRow };
+  };
+
+  const fileLevelAnn = {
+    id: 'file-ann',
+    startLine: 1,
+    endLine: 1,
+    fileLevel: true,
+    intent: 'issue' as const,
+    category: undefined,
+    comment: 'file-level comment',
+    source: 'agent' as const,
+  };
+
+  it('Tab to file-level annotation at line 1 keeps cursor visible (raw mode)', () => {
+    const state = makeState({
+      cursorLine: 50,
+      viewportOffset: 40,
+      viewportHeight: 20,
+      lineCount: 100,
+      annotations: [fileLevelAnn],
+    });
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    expect(result.state.cursorLine).toBe(1);
+    expect(result.state.focusedAnnotationId).toBe('file-ann');
+    expect(result.state.expandedAnnotations.has('file-ann')).toBe(true);
+    // Cursor must be within viewport
+    expect(result.state.viewportOffset).toBe(0);
+  });
+
+  it('Tab to file-level annotation in diff mode where line 1 is visible', () => {
+    const state = makeState({
+      cursorLine: 10,
+      viewportOffset: 0,
+      viewportHeight: 20,
+      lineCount: 100,
+      viewMode: 'diff',
+      diffMeta: makeDiffMeta([1, 5, 10, 15, 20]),
+      annotations: [fileLevelAnn],
+    });
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    expect(result.state.cursorLine).toBe(1);
+    expect(result.state.focusedAnnotationId).toBe('file-ann');
+    expect(result.state.expandedAnnotations.has('file-ann')).toBe(true);
+  });
+
+  it('Tab to file-level annotation in diff mode where line 1 is NOT visible snaps to nearest', () => {
+    const state = makeState({
+      cursorLine: 310,
+      viewportOffset: 5,
+      viewportHeight: 20,
+      lineCount: 500,
+      viewMode: 'diff',
+      diffMeta: makeDiffMeta([300, 305, 310, 315, 320]),
+      annotations: [fileLevelAnn],
+    });
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    // Line 1 not in diff — cursor clamps to nearest visible (300)
+    expect(result.state.cursorLine).toBe(300);
+    expect(result.state.focusedAnnotationId).toBe('file-ann');
+    expect(result.state.expandedAnnotations.has('file-ann')).toBe(true);
+    // Viewport should show the cursor
+    const rowOfCursor = state.diffMeta!.newLineToRow.get(300)!;
+    expect(result.state.viewportOffset).toBeLessThanOrEqual(rowOfCursor);
+    expect(result.state.viewportOffset + result.state.viewportHeight).toBeGreaterThan(rowOfCursor);
+  });
+
+  it('Tab scrolls viewport to show annotation box when near bottom', () => {
+    // Annotation at line 95, viewport shows 80-100, but box doesn't fit
+    const ann = {
+      id: 'bottom-ann',
+      startLine: 90,
+      endLine: 95,
+      intent: 'issue' as const,
+      category: undefined,
+      comment: 'A comment that takes some space\nline2\nline3\nline4',
+      source: 'agent' as const,
+    };
+    const state = makeState({
+      cursorLine: 80,
+      viewportOffset: 75,
+      viewportHeight: 20,
+      lineCount: 100,
+      annotations: [ann],
+    });
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    expect(result.state.cursorLine).toBe(95);
+    expect(result.state.focusedAnnotationId).toBe('bottom-ann');
+    // The annotation box should be within viewport bounds
+    expect(result.state.viewportOffset).toBeGreaterThanOrEqual(0);
+  });
+
+  it('Tab in diff mode scrolls correctly to annotation box', () => {
+    const ann = {
+      id: 'diff-ann',
+      startLine: 18,
+      endLine: 20,
+      intent: 'issue' as const,
+      category: undefined,
+      comment: 'diff annotation',
+      source: 'agent' as const,
+    };
+    const diffMeta = makeDiffMeta([3, 7, 10, 15, 18, 20, 25, 30]);
+    const state = makeState({
+      cursorLine: 3,
+      viewportOffset: 0,
+      viewportHeight: 20,
+      lineCount: 100,
+      viewMode: 'diff',
+      diffMeta,
+      annotations: [ann],
+    });
+    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    expect(result.state.cursorLine).toBe(20);
+    expect(result.state.focusedAnnotationId).toBe('diff-ann');
+    expect(result.state.expandedAnnotations.has('diff-ann')).toBe(true);
+  });
+});

@@ -1,0 +1,28 @@
+{
+  "annotations": [
+    {
+      "id": "diff-fl",
+      "startLine": 0,
+      "endLine": 0,
+      "intent": "comment",
+      "comment": "File-level annotation — should be reachable via Tab in diff mode even when line 1 is only context. Box should show 📄 marker.",
+      "source": "agent"
+    },
+    {
+      "id": "diff-mid",
+      "startLine": 24,
+      "endLine": 26,
+      "intent": "issue",
+      "comment": "Annotation on the new divide() function (middle of file). Tab from the file-level annotation should scroll here.",
+      "source": "agent"
+    },
+    {
+      "id": "diff-bottom",
+      "startLine": 70,
+      "endLine": 73,
+      "intent": "question",
+      "comment": "Annotation near the bottom (NEW_VERSION + formatOutput). This should be well out of the initial viewport — Tab must scroll it fully into view including the entire annotation box.",
+      "source": "agent"
+    }
+  ]
+}

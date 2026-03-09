@@ -131,6 +131,9 @@ add "Diff — whitespace-only changes suppressed" \
 add "Diff — offset-only changes suppressed" \
     '(cd $DIFF_REPO && $QUILL whitespace.ts --diff-ref base)' \
     "Lines pushed down by the added import (greet, process, FORMAT, export) show as context, NOT as modified. Only the actual changes are highlighted: added import, added Array.isArray check, added log() call."
+add "Diff — Tab annotation cycling with file-level annotation" \
+    '(cd $DIFF_REPO && $QUILL long.ts --diff-ref base --annotations $F/annotations-diff-tab.json)' \
+    "Tab cycles: diff-fl (file-level, L1) → diff-mid (L24-26, divide fn) → diff-bottom (L70-73, well off-screen). Each Tab scrolls box fully into view in right pane. File-level box shows 📄 marker. Shift+Tab reverses. No blank/empty screen on any Tab press. Bottom annotation must scroll into view from off-screen."
 
 # Resize / edge
 add "Terminal resize" \

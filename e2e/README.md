@@ -12,7 +12,7 @@ npm run build            # required — runs against dist/cli.js
 ./e2e/run.sh build       # build first, then pick
 ```
 
-## Scenarios (29)
+## Scenarios (30)
 
 ### Raw mode basics (1–5)
 Basic file viewing, cursor nav, horizontal scroll, tiny/empty files.
@@ -28,18 +28,17 @@ Per-annotation [s] cycles status: none → approved → dismissed → none.
 ### Search (16)
 Live search, match highlighting, n/N cycling.
 
-### Diff mode (17–21)
+### Diff mode (17–24)
 Side-by-side against git refs, horizontal scroll in diff, annotations in diff,
-toggle raw↔diff, no-changes fallback.
+toggle raw↔diff, no-changes fallback, whitespace/offset noise suppression,
+Tab annotation cycling with file-level annotation in diff mode.
 
-### File-level & annotation status (22–23)
-File-level comments (startLine: 0) with 📄 marker, per-annotation approve/dismiss toggling.
+### Resize / edge cases (25–27)
+Terminal resize, narrow terminal, go-to-line.
 
-### Resize / edge cases (24–27)
-Terminal resize, narrow terminal, go-to-line, scroll-into-view for last-line annotations.
-
-### Diff noise suppression (28–29)
-Whitespace-only and offset-only changes rendered as context (no diff coloring).
+### File-level & annotation status (28–30)
+File-level comments (startLine: 0) with 📄 marker, per-annotation approve/dismiss toggling,
+scroll-into-view for last-line annotations.
 
 ## Fixtures
 
@@ -57,10 +56,13 @@ Whitespace-only and offset-only changes rendered as context (no diff coloring).
 | `fixtures/annotations-long-tail.json` | Large annotation on last lines with replies — box height exceeds viewport |
 | `fixtures/diff-whitespace-base.ts` | Base file for whitespace/offset suppression testing |
 | `fixtures/diff-whitespace-modified.ts` | Modified file: re-indented block, added import (offset), real change mixed in |
+| `fixtures/diff-tab-base.ts` | Base file for diff Tab-cycling test — ~80 lines, changes at top/mid/bottom |
+| `fixtures/diff-tab-modified.ts` | Modified file: changed greet, replaced subtract→divide, added formatOutput |
+| `fixtures/annotations-diff-tab.json` | File-level + mid + bottom annotations for diff-mode Tab cycling |
 
 ## Notes
 
-- Diff scenarios (17–21, 28–29) use a temporary git repo created by `setup-diff-repo.sh`.
+- Diff scenarios (17–24) use a temporary git repo created by `setup-diff-repo.sh`.
 - Each scenario shows a checklist of things to verify. After exiting Quill,
   you're prompted for pass/fail/skip.
 - `Ctrl+C` aborts the running Quill session (exit code 1, no output).

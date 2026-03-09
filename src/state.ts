@@ -251,21 +251,162 @@ const moveCursorDiff = (state: SessionState, delta: number): number => {
 };
 
 /**
+ * Count display rows consumed by expanded annotation boxes between the
+ * viewport start and the cursor row in diff mode. Only annotations whose
+ * endLine maps to a diff row in [viewportOffset, cursorRow) are counted.
+ */
+const diffAnnotationRowsAboveCursor = (
+  viewportOffset: number,
+  cursorRow: number,
+  annotations: readonly Annotation[],
+  expandedAnnotations: ReadonlySet<string>,
+  newLineToRow: ReadonlyMap<number, number>,
+): number => {
+  if (expandedAnnotations.size === 0) return 0;
+  let extra = 0;
+  for (const ann of annotations) {
+    if (!expandedAnnotations.has(ann.id)) continue;
+    const row = newLineToRow.get(ann.endLine);
+    if (row === undefined) continue;
+    if (row >= viewportOffset && row < cursorRow) {
+      extra += annotationBoxHeight(ann, { maxWidth: 80, isFocused: true });
+    }
+  }
+  return extra;
+};
+
+/**
+ * Compute the 0-indexed visual row of the cursor within the diff viewport,
+ * accounting for expanded annotation boxes between viewport start and cursor.
+ */
+const cursorDiffDisplayRow = (
+  viewportOffset: number,
+  cursorRow: number,
+  annotations: readonly Annotation[],
+  expandedAnnotations: ReadonlySet<string>,
+  newLineToRow: ReadonlyMap<number, number>,
+): number =>
+  (cursorRow - viewportOffset) +
+  diffAnnotationRowsAboveCursor(viewportOffset, cursorRow, annotations, expandedAnnotations, newLineToRow);
+
+/**
  * Compute viewport offset in diff mode. Translates cursor (new-file line)
- * to a display row, then delegates to `computeViewportOffset`.
+ * to a display row, then adjusts the offset to keep the cursor within the
+ * scroll-off zone, accounting for expanded annotation boxes.
  */
 const computeDiffViewportOffset = (
   state: SessionState,
   cursorLine: number,
 ): number => {
   const meta = state.diffMeta!;
-  const displayRow = (meta.newLineToRow.get(cursorLine) ?? 0) + 1; // 1-indexed
-  return computeViewportOffset({
-    cursorLine: displayRow,
-    currentOffset: state.viewportOffset,
-    viewportHeight: state.viewportHeight,
-    lineCount: meta.rowCount,
-  });
+  const { annotations, expandedAnnotations, viewportHeight } = state;
+  const cursorRow = meta.newLineToRow.get(cursorLine) ?? 0; // 0-indexed row
+  const totalExtra = expandedAnnotations.size === 0
+    ? 0
+    : computeExpandedExtraRows(annotations, expandedAnnotations);
+  const maxOffset = Math.max(0, meta.rowCount + totalExtra - viewportHeight);
+
+  // Fast path — no expanded annotations
+  if (expandedAnnotations.size === 0) {
+    const displayRow = cursorRow + 1; // 1-indexed for computeViewportOffset
+    return computeViewportOffset({
+      cursorLine: displayRow,
+      currentOffset: state.viewportOffset,
+      viewportHeight,
+      lineCount: meta.rowCount,
+    });
+  }
+
+  let offset = state.viewportOffset;
+
+  const dr = cursorDiffDisplayRow(offset, cursorRow, annotations, expandedAnnotations, meta.newLineToRow);
+
+  // Scroll up: cursor too close to top
+  if (dr < SCROLL_OFF) {
+    while (offset > 0) {
+      offset--;
+      const d = cursorDiffDisplayRow(offset, cursorRow, annotations, expandedAnnotations, meta.newLineToRow);
+      if (d >= SCROLL_OFF) break;
+    }
+    return Math.min(offset, maxOffset);
+  }
+
+  // Scroll down: cursor too close to bottom
+  if (dr >= viewportHeight - SCROLL_OFF) {
+    while (offset < maxOffset) {
+      offset++;
+      const d = cursorDiffDisplayRow(offset, cursorRow, annotations, expandedAnnotations, meta.newLineToRow);
+      if (d < viewportHeight - SCROLL_OFF) break;
+    }
+    return Math.min(offset, maxOffset);
+  }
+
+  return offset;
+};
+
+/**
+ * Nudge viewport offset so that an annotation box (rendered below its endLine)
+ * is fully visible. Works in both raw and diff modes.
+ *
+ * Returns the adjusted viewportOffset, or the current one if no adjustment needed.
+ */
+export const nudgeForAnnotationBox = (
+  state: SessionState,
+  ann: Annotation,
+  expandedAnnotations: ReadonlySet<string>,
+): number => {
+  const boxH = annotationBoxHeight(ann, { maxWidth: 80, isFocused: true });
+  const padding = 1;
+  const inDiff = state.viewMode === 'diff' && state.diffMeta;
+
+  if (inDiff) {
+    const meta = state.diffMeta!;
+    const displayRow = meta.newLineToRow.get(state.cursorLine);
+    if (displayRow === undefined) return state.viewportOffset;
+    // displayRow is 0-indexed row in diff. viewportOffset is also a row index.
+    const relRow = displayRow - state.viewportOffset;
+    const bottomNeeded = relRow + 1 + boxH + padding;
+
+    if (relRow < 0) {
+      // Cursor is above viewport — scroll up to show it
+      return Math.max(0, displayRow - SCROLL_OFF);
+    }
+    if (bottomNeeded > state.viewportHeight) {
+      // Box extends below viewport — scroll down
+      const maxOff = Math.max(0, meta.rowCount - state.viewportHeight);
+      return Math.min(maxOff, displayRow - state.viewportHeight + 1 + boxH + padding);
+    }
+    return state.viewportOffset;
+  }
+
+  // Raw mode — use display-row-aware check
+  const dr = cursorDisplayRow(
+    state.viewportOffset, ann.endLine,
+    state.annotations, expandedAnnotations,
+  );
+  const bottomNeeded = dr + 1 + boxH + padding;
+
+  if (dr < 0) {
+    // Cursor scrolled above viewport — reset offset so cursor is near top
+    const totalExtra = computeExpandedExtraRows(state.annotations, expandedAnnotations);
+    const maxOff = Math.max(0, state.lineCount + totalExtra - state.viewportHeight);
+    let adjusted = Math.max(0, ann.endLine - 1 - SCROLL_OFF);
+    return Math.min(adjusted, maxOff);
+  }
+
+  if (bottomNeeded > state.viewportHeight) {
+    const totalExtra = computeExpandedExtraRows(state.annotations, expandedAnnotations);
+    const maxOff = Math.max(0, state.lineCount + totalExtra - state.viewportHeight);
+    let adjusted = state.viewportOffset;
+    while (adjusted < maxOff) {
+      adjusted++;
+      const d = cursorDisplayRow(adjusted, ann.endLine, state.annotations, expandedAnnotations);
+      if (d + 1 + boxH + padding <= state.viewportHeight) break;
+    }
+    return adjusted;
+  }
+
+  return state.viewportOffset;
 };
 
 /** Get the ordered [startLine, endLine] from a selection. */
@@ -465,13 +606,7 @@ const extraRows = (state: SessionState): number =>
 
 const recomputeOffset = (state: SessionState, viewportHeight: number): number => {
   if (state.viewMode === 'diff' && state.diffMeta) {
-    const displayRow = (state.diffMeta.newLineToRow.get(state.cursorLine) ?? 0) + 1;
-    return computeViewportOffset({
-      cursorLine: displayRow,
-      currentOffset: state.viewportOffset,
-      viewportHeight,
-      lineCount: state.diffMeta.rowCount,
-    });
+    return computeDiffViewportOffset({ ...state, viewportHeight }, state.cursorLine);
   }
   return computeRawViewportOffset(
     { ...state, viewportHeight },
@@ -565,26 +700,12 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       if (isExpanding) {
         const ann = state.annotations.find((a) => a.id === action.annotationId);
         if (ann) {
-          const boxH = annotationBoxHeight(ann, { maxWidth: 80, isFocused: true });
-          const padding = 1;
-          // Use display-row-aware check: compute where the cursor (endLine) actually
-          // sits in the viewport accounting for annotation boxes above it, then check
-          // whether the box below it fits.
-          const dr = cursorDisplayRow(
-            state.viewportOffset, ann.endLine,
-            state.annotations, next,
+          const adjusted = nudgeForAnnotationBox(
+            { ...state, expandedAnnotations: next },
+            ann,
+            next,
           );
-          const bottomNeeded = dr + 1 + boxH + padding; // cursor row + box + padding
-          if (bottomNeeded > state.viewportHeight) {
-            const totalExtra = computeExpandedExtraRows(state.annotations, next);
-            const maxOff = Math.max(0, state.lineCount + totalExtra - state.viewportHeight);
-            // Iteratively increase offset until the box fits
-            let adjusted = state.viewportOffset;
-            while (adjusted < maxOff) {
-              adjusted++;
-              const d = cursorDisplayRow(adjusted, ann.endLine, state.annotations, next);
-              if (d + 1 + boxH + padding <= state.viewportHeight) break;
-            }
+          if (adjusted !== state.viewportOffset) {
             return { ...state, expandedAnnotations: next, focusedAnnotationId, viewportOffset: adjusted };
           }
         }
@@ -675,7 +796,7 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
     case 'scroll_viewport': {
       const inDiff = state.viewMode === 'diff' && state.diffMeta;
       const baseLineCount = inDiff ? state.diffMeta!.rowCount : state.lineCount;
-      const effectiveLineCount = baseLineCount + (inDiff ? 0 : extraRows(state));
+      const effectiveLineCount = baseLineCount + extraRows(state);
       const maxOffset = Math.max(0, effectiveLineCount - state.viewportHeight);
       const viewportOffset = R.clamp(state.viewportOffset + action.delta, {
         min: 0,
