@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { alignDiff, type DiffData, type DiffLineType } from './diff-align.js';
+import {
+  alignDiff,
+  autoExpandForLine,
+  findRegionForLine,
+  isLineRevealed,
+  recomputeDiffMeta,
+  resolveEffectiveRows,
+  type CollapsedRegion,
+  type DiffData,
+  type DiffLineType,
+  type RegionExpansion,
+} from './diff-align.js';
 
 // --- Helpers ---
 
@@ -207,7 +218,7 @@ rename to bar.ts`;
   });
 
   describe('multiple hunks', () => {
-    it('emits hunk-header separator between hunks (not before first)', () => {
+    it('emits collapsed separator between hunks (not before first)', () => {
       const diff = makeDiff(`@@ -1,3 +1,3 @@
  const a = 1;
 -const b = 2;
@@ -222,17 +233,18 @@ rename to bar.ts`;
 
       expect(types(data)).toEqual([
         'context', 'modified', 'context',
-        'hunk-header',
+        'collapsed',
         'context', 'modified', 'context',
       ]);
 
-      // Hunk header row
-      const header = data.rows[3]!;
-      expect(header.oldLineNumber).toBeNull();
-      expect(header.newLineNumber).toBeNull();
-      expect(header.oldContent).toBeNull();
-      expect(header.newContent).toBeNull();
-      expect(header.header).toBe('@@ -10,3 +10,3 @@');
+      // Collapsed separator row
+      const separator = data.rows[3]!;
+      expect(separator.oldLineNumber).toBeNull();
+      expect(separator.newLineNumber).toBeNull();
+      expect(separator.oldContent).toBeNull();
+      expect(separator.newContent).toBeNull();
+      expect(separator.regionIndex).toBe(0);
+      expect(separator.hiddenLineCount).toBe(6); // lines 4-9
     });
   });
 
@@ -407,9 +419,11 @@ rename to bar.ts`;
 +    indented;`);
       const data = alignDiff(diff, 'main');
 
-      expect(data.rows[0]!.type).toBe('context');
-      expect(data.rows[0]!.oldLineNumber).toBe(5);
-      expect(data.rows[0]!.newLineNumber).toBe(8);
+      // First row is collapsed region (lines 1-7 hidden), second is the reclassified context
+      expect(data.rows[0]!.type).toBe('collapsed');
+      expect(data.rows[1]!.type).toBe('context');
+      expect(data.rows[1]!.oldLineNumber).toBe(5);
+      expect(data.rows[1]!.newLineNumber).toBe(8);
     });
   });
 
@@ -446,5 +460,447 @@ rename to bar.ts`;
         [null, 5],   // added overflow
       ]);
     });
+  });
+
+  // -------------------------------------------------------------------
+  // Collapsed regions
+  // -------------------------------------------------------------------
+
+  describe('collapsed regions', () => {
+    it('computes before-first-hunk region', () => {
+      const diff = makeDiff(`@@ -5,3 +5,3 @@
+ const a = 5;
+-const b = 6;
++const b = 66;
+ const c = 7;`);
+      const data = alignDiff(diff, 'test', 10);
+
+      expect(data.collapsedRegions.length).toBeGreaterThanOrEqual(1);
+      const before = data.collapsedRegions[0]!;
+      expect(before.newStartLine).toBe(1);
+      expect(before.newEndLine).toBe(4);
+      expect(before.oldStartLine).toBe(1);
+      expect(before.oldEndLine).toBe(4);
+      expect(before.lineCount).toBe(4);
+    });
+
+    it('computes between-hunks region', () => {
+      const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;
+@@ -10,3 +10,3 @@
+ const x = 10;
+-const y = 20;
++const y = 200;
+ const z = 30;`);
+      const data = alignDiff(diff, 'test');
+
+      // Between hunks: lines 4-9 (new-file), lines 4-9 (old-file)
+      const between = data.collapsedRegions.find(r => r.newStartLine === 4);
+      expect(between).toBeDefined();
+      expect(between!.newEndLine).toBe(9);
+      expect(between!.lineCount).toBe(6);
+    });
+
+    it('computes after-last-hunk region when lineCount provided', () => {
+      const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;`);
+      const data = alignDiff(diff, 'test', 20);
+
+      const after = data.collapsedRegions.find(r => r.newStartLine === 4);
+      expect(after).toBeDefined();
+      expect(after!.newEndLine).toBe(20);
+      expect(after!.lineCount).toBe(17);
+    });
+
+    it('does not emit after-last-hunk region without lineCount', () => {
+      const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;`);
+      const data = alignDiff(diff, 'test');
+
+      // No after-last region since no lineCount
+      expect(data.collapsedRegions.length).toBe(0);
+    });
+
+    it('skips zero-line collapsed regions', () => {
+      // When hunks are adjacent (no gap), no collapsed region should be emitted
+      const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;
+@@ -4,3 +4,3 @@
+ const d = 4;
+-const e = 5;
++const e = 55;
+ const f = 6;`);
+      const data = alignDiff(diff, 'test');
+
+      // Hunks are adjacent (lines 1-3 and 4-6), no gap
+      expect(data.collapsedRegions.length).toBe(0);
+    });
+
+    it('does not emit collapsed rows for zero-line regions', () => {
+      const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;
+@@ -4,3 +4,3 @@
+ const d = 4;
+-const e = 5;
++const e = 55;
+ const f = 6;`);
+      const data = alignDiff(diff, 'test');
+
+      // No collapsed rows when regions have 0 lines
+      expect(data.rows.filter(r => r.type === 'collapsed').length).toBe(0);
+    });
+
+    it('all-added file has no collapsed regions', () => {
+      const diff = makeDiff(`@@ -0,0 +1,3 @@
++const a = 1;
++const b = 2;
++const c = 3;`);
+      const data = alignDiff(diff, 'test', 3);
+
+      expect(data.collapsedRegions.length).toBe(0);
+    });
+
+    it('collapsed row carries regionIndex and hiddenLineCount', () => {
+      const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;
+@@ -10,3 +10,3 @@
+ const x = 10;
+-const y = 20;
++const y = 200;
+ const z = 30;`);
+      const data = alignDiff(diff, 'test');
+
+      const collapsedRows = data.rows.filter(r => r.type === 'collapsed');
+      expect(collapsedRows.length).toBe(1);
+      expect(collapsedRows[0]!.regionIndex).toBe(0);
+      expect(collapsedRows[0]!.hiddenLineCount).toBe(6);
+    });
+  });
+});
+
+// -------------------------------------------------------------------
+// resolveEffectiveRows
+// -------------------------------------------------------------------
+
+describe('resolveEffectiveRows', () => {
+  it('returns base rows when no expansions', () => {
+    const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;
+@@ -10,3 +10,3 @@
+ const x = 10;
+-const y = 20;
++const y = 200;
+ const z = 30;`);
+    const data = alignDiff(diff, 'test');
+    const result = resolveEffectiveRows(
+      data.rows, data.collapsedRegions,
+      new Map(), [''], undefined,
+    );
+    expect(result).toBe(data.rows);
+  });
+
+  it('expands lines from top edge', () => {
+    const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;
+@@ -10,3 +10,3 @@
+ const x = 10;
+-const y = 20;
++const y = 200;
+ const z = 30;`);
+    const data = alignDiff(diff, 'test');
+    const sourceLines = Array.from({ length: 15 }, (_, i) => `line ${i + 1}`);
+
+    const expansions = new Map<number, RegionExpansion>();
+    expansions.set(0, { fromTop: 2, fromBottom: 0 });
+
+    const result = resolveEffectiveRows(
+      data.rows, data.collapsedRegions,
+      expansions, sourceLines, undefined,
+    );
+
+    // Should have 2 expanded-context rows from top + 1 collapsed (remaining 4) + original rows
+    const expandedRows = result.filter(r => r.type === 'expanded-context');
+    expect(expandedRows.length).toBe(2);
+    expect(expandedRows[0]!.newLineNumber).toBe(4); // first expanded line
+    expect(expandedRows[1]!.newLineNumber).toBe(5);
+
+    // Collapsed row should have reduced count
+    const collapsedRows = result.filter(r => r.type === 'collapsed');
+    expect(collapsedRows.length).toBe(1);
+    expect(collapsedRows[0]!.hiddenLineCount).toBe(4); // 6 - 2 = 4
+  });
+
+  it('expands lines from bottom edge', () => {
+    const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;
+@@ -10,3 +10,3 @@
+ const x = 10;
+-const y = 20;
++const y = 200;
+ const z = 30;`);
+    const data = alignDiff(diff, 'test');
+    const sourceLines = Array.from({ length: 15 }, (_, i) => `line ${i + 1}`);
+
+    const expansions = new Map<number, RegionExpansion>();
+    expansions.set(0, { fromTop: 0, fromBottom: 3 });
+
+    const result = resolveEffectiveRows(
+      data.rows, data.collapsedRegions,
+      expansions, sourceLines, undefined,
+    );
+
+    const expandedRows = result.filter(r => r.type === 'expanded-context');
+    expect(expandedRows.length).toBe(3);
+    // Bottom 3 lines of region (lines 7, 8, 9)
+    expect(expandedRows[0]!.newLineNumber).toBe(7);
+    expect(expandedRows[1]!.newLineNumber).toBe(8);
+    expect(expandedRows[2]!.newLineNumber).toBe(9);
+
+    const collapsedRows = result.filter(r => r.type === 'collapsed');
+    expect(collapsedRows.length).toBe(1);
+    expect(collapsedRows[0]!.hiddenLineCount).toBe(3); // 6 - 3 = 3
+  });
+
+  it('fully expands when fromTop covers all lines', () => {
+    const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;
+@@ -10,3 +10,3 @@
+ const x = 10;
+-const y = 20;
++const y = 200;
+ const z = 30;`);
+    const data = alignDiff(diff, 'test');
+    const sourceLines = Array.from({ length: 15 }, (_, i) => `line ${i + 1}`);
+
+    const expansions = new Map<number, RegionExpansion>();
+    expansions.set(0, { fromTop: 6, fromBottom: 0 });
+
+    const result = resolveEffectiveRows(
+      data.rows, data.collapsedRegions,
+      expansions, sourceLines, undefined,
+    );
+
+    // No collapsed rows remain
+    const collapsedRows = result.filter(r => r.type === 'collapsed');
+    expect(collapsedRows.length).toBe(0);
+
+    // All 6 lines expanded
+    const expandedRows = result.filter(r => r.type === 'expanded-context');
+    expect(expandedRows.length).toBe(6);
+  });
+
+  it('uses oldSourceLines for old-side content when available', () => {
+    const diff = makeDiff(`@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 22;
+ const c = 3;
+@@ -10,3 +10,3 @@
+ const x = 10;
+-const y = 20;
++const y = 200;
+ const z = 30;`);
+    const data = alignDiff(diff, 'test');
+    const sourceLines = Array.from({ length: 15 }, (_, i) => `new ${i + 1}`);
+    const oldSourceLines = Array.from({ length: 15 }, (_, i) => `old ${i + 1}`);
+
+    const expansions = new Map<number, RegionExpansion>();
+    expansions.set(0, { fromTop: 1, fromBottom: 0 });
+
+    const result = resolveEffectiveRows(
+      data.rows, data.collapsedRegions,
+      expansions, sourceLines, oldSourceLines,
+    );
+
+    const expanded = result.find(r => r.type === 'expanded-context');
+    expect(expanded!.newContent).toBe('new 4');
+    expect(expanded!.oldContent).toBe('old 4');
+  });
+});
+
+// -------------------------------------------------------------------
+// recomputeDiffMeta
+// -------------------------------------------------------------------
+
+describe('recomputeDiffMeta', () => {
+  it('returns base values when no expansions', () => {
+    const diff = makeDiff(`@@ -1,3 +1,3 @@
+ a;
+-b;
++bb;
+ c;
+@@ -10,3 +10,3 @@
+ x;
+-y;
++yy;
+ z;`);
+    const data = alignDiff(diff, 'test');
+    const meta = recomputeDiffMeta(data, new Map());
+    expect(meta.rowCount).toBe(data.rows.length);
+    expect(meta.visibleLines).toEqual(data.visibleNewLines);
+  });
+
+  it('increases rowCount and visibleLines when regions expand', () => {
+    const diff = makeDiff(`@@ -1,3 +1,3 @@
+ a;
+-b;
++bb;
+ c;
+@@ -10,3 +10,3 @@
+ x;
+-y;
++yy;
+ z;`);
+    const data = alignDiff(diff, 'test');
+    const expansions = new Map<number, RegionExpansion>();
+    expansions.set(0, { fromTop: 3, fromBottom: 0 });
+
+    const meta = recomputeDiffMeta(data, expansions);
+    // Base rows + 3 expanded - but collapsed row either stays (if remaining) or goes
+    // Region has 6 lines, expanded 3 from top, so 3 remain → collapsed stays
+    expect(meta.rowCount).toBe(data.rows.length + 3); // 3 extra expanded lines
+    expect(meta.visibleLines.length).toBe(data.visibleNewLines.length + 3);
+  });
+
+  it('fully expanded region removes collapsed row', () => {
+    const diff = makeDiff(`@@ -1,3 +1,3 @@
+ a;
+-b;
++bb;
+ c;
+@@ -10,3 +10,3 @@
+ x;
+-y;
++yy;
+ z;`);
+    const data = alignDiff(diff, 'test');
+    const expansions = new Map<number, RegionExpansion>();
+    expansions.set(0, { fromTop: 6, fromBottom: 0 }); // fully expand the 6-line gap
+
+    const meta = recomputeDiffMeta(data, expansions);
+    // Collapsed row gone (-1), 6 expanded added
+    expect(meta.rowCount).toBe(data.rows.length - 1 + 6);
+  });
+});
+
+// -------------------------------------------------------------------
+// findRegionForLine
+// -------------------------------------------------------------------
+
+describe('findRegionForLine', () => {
+  const regions: CollapsedRegion[] = [
+    { index: 0, newStartLine: 1, newEndLine: 4, oldStartLine: 1, oldEndLine: 4, lineCount: 4, insertAfterRow: -1 },
+    { index: 1, newStartLine: 10, newEndLine: 15, oldStartLine: 10, oldEndLine: 15, lineCount: 6, insertAfterRow: 5 },
+  ];
+
+  it('finds region containing the line', () => {
+    expect(findRegionForLine(regions, 3)).toBe(regions[0]);
+    expect(findRegionForLine(regions, 12)).toBe(regions[1]);
+  });
+
+  it('finds region at boundary', () => {
+    expect(findRegionForLine(regions, 1)).toBe(regions[0]);
+    expect(findRegionForLine(regions, 4)).toBe(regions[0]);
+    expect(findRegionForLine(regions, 10)).toBe(regions[1]);
+    expect(findRegionForLine(regions, 15)).toBe(regions[1]);
+  });
+
+  it('returns undefined for lines not in any region', () => {
+    expect(findRegionForLine(regions, 5)).toBeUndefined();
+    expect(findRegionForLine(regions, 9)).toBeUndefined();
+    expect(findRegionForLine(regions, 20)).toBeUndefined();
+  });
+});
+
+// -------------------------------------------------------------------
+// isLineRevealed
+// -------------------------------------------------------------------
+
+describe('isLineRevealed', () => {
+  const region: CollapsedRegion = {
+    index: 0, newStartLine: 10, newEndLine: 20,
+    oldStartLine: 10, oldEndLine: 20, lineCount: 11, insertAfterRow: 0,
+  };
+
+  it('returns true for lines in top expansion', () => {
+    const exp: RegionExpansion = { fromTop: 3, fromBottom: 0 };
+    expect(isLineRevealed(region, exp, 10)).toBe(true);
+    expect(isLineRevealed(region, exp, 12)).toBe(true);
+    expect(isLineRevealed(region, exp, 13)).toBe(false);
+  });
+
+  it('returns true for lines in bottom expansion', () => {
+    const exp: RegionExpansion = { fromTop: 0, fromBottom: 2 };
+    expect(isLineRevealed(region, exp, 19)).toBe(true);
+    expect(isLineRevealed(region, exp, 20)).toBe(true);
+    expect(isLineRevealed(region, exp, 18)).toBe(false);
+  });
+
+  it('returns false when no expansion', () => {
+    const exp: RegionExpansion = { fromTop: 0, fromBottom: 0 };
+    expect(isLineRevealed(region, exp, 15)).toBe(false);
+  });
+});
+
+// -------------------------------------------------------------------
+// autoExpandForLine
+// -------------------------------------------------------------------
+
+describe('autoExpandForLine', () => {
+  const region: CollapsedRegion = {
+    index: 0, newStartLine: 10, newEndLine: 30,
+    oldStartLine: 10, oldEndLine: 30, lineCount: 21, insertAfterRow: 0,
+  };
+
+  it('expands from top when line is closer to top', () => {
+    const current: RegionExpansion = { fromTop: 0, fromBottom: 0 };
+    const result = autoExpandForLine(12, region, current);
+    // offsetFromTop = 12 - 10 = 2, needed = 2 + 1 + 3 = 6
+    expect(result.fromTop).toBe(6);
+    expect(result.fromBottom).toBe(0);
+  });
+
+  it('expands from bottom when line is closer to bottom', () => {
+    const current: RegionExpansion = { fromTop: 0, fromBottom: 0 };
+    const result = autoExpandForLine(28, region, current);
+    // offsetFromBottom = 30 - 28 = 2, needed = 2 + 1 + 3 = 6
+    expect(result.fromBottom).toBe(6);
+    expect(result.fromTop).toBe(0);
+  });
+
+  it('preserves existing expansion and takes max', () => {
+    const current: RegionExpansion = { fromTop: 10, fromBottom: 0 };
+    const result = autoExpandForLine(12, region, current);
+    expect(result.fromTop).toBe(10); // max(10, 6)
   });
 });

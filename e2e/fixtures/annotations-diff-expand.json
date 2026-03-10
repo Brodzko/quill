@@ -1,0 +1,28 @@
+{
+  "annotations": [
+    {
+      "id": "expand-visible",
+      "startLine": 18,
+      "endLine": 20,
+      "intent": "comment",
+      "comment": "This annotation is inside hunk 1 (visible by default). It targets the APP_VERSION change.",
+      "source": "agent"
+    },
+    {
+      "id": "expand-hidden-sec2",
+      "startLine": 60,
+      "endLine": 63,
+      "intent": "issue",
+      "comment": "This annotation targets the padLeft/padRight functions in section 2 — deep inside the 89-line collapsed region between hunks 1 and 2. Auto-expand should reveal it.",
+      "source": "agent"
+    },
+    {
+      "id": "expand-hidden-sec4",
+      "startLine": 170,
+      "endLine": 175,
+      "intent": "question",
+      "comment": "This annotation targets the median/standardDeviation functions in section 4 — deep inside the 84-line collapsed region between hunks 2 and 3. Auto-expand should reveal it.",
+      "source": "agent"
+    }
+  ]
+}

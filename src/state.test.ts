@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation } from './schema.js';
+import { alignDiff } from './diff-align.js';
 import {
   type DiffMeta,
   type SessionState,
@@ -11,9 +12,11 @@ import {
   computeViewportOffset,
   cursorDisplayRow,
   findNearestVisibleIndex,
+  getCursorVisualRow,
   halfPage,
   reduce,
   selectionRange,
+  stableViewportOffset,
 } from './state.js';
 
 // ---------------------------------------------------------------------------
@@ -140,6 +143,40 @@ describe('computeViewportOffset', () => {
       lineCount: 10,
     });
     expect(offset).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getCursorVisualRow / stableViewportOffset
+// ---------------------------------------------------------------------------
+
+describe('getCursorVisualRow', () => {
+  it('returns row relative to viewport offset', () => {
+    expect(getCursorVisualRow(0, 5)).toBe(5);
+    expect(getCursorVisualRow(3, 5)).toBe(2);
+    expect(getCursorVisualRow(5, 5)).toBe(0);
+  });
+});
+
+describe('stableViewportOffset', () => {
+  it('pins target at desired visual row', () => {
+    // Target is at display row 10, want it at visual row 5 → offset = 5
+    expect(stableViewportOffset(10, 5, 20, 100)).toBe(5);
+  });
+
+  it('clamps to 0 when desired row exceeds target row', () => {
+    // Target at row 2, desired visual row 5 → offset would be -3, clamped to 0
+    expect(stableViewportOffset(2, 5, 20, 100)).toBe(0);
+  });
+
+  it('clamps to max offset when result would exceed', () => {
+    // 50 total rows, viewport 20 → max offset = 30
+    // Target at row 48, desired visual 5 → offset = 43, but max is 30
+    expect(stableViewportOffset(48, 5, 20, 50)).toBe(30);
+  });
+
+  it('handles zero total rows', () => {
+    expect(stableViewportOffset(0, 0, 20, 0)).toBe(0);
   });
 });
 
@@ -802,6 +839,7 @@ describe('reduce — set_search', () => {
       pattern: 'foo',
       matchLines: [5, 15, 25],
       currentMatchIndex: 1,
+      hiddenMatchCount: 0,
     });
     expect(next.cursorLine).toBe(15);
   });
@@ -828,6 +866,7 @@ describe('reduce — set_search', () => {
       pattern: 'notfound',
       matchLines: [],
       currentMatchIndex: -1,
+      hiddenMatchCount: 0,
     });
     expect(next.cursorLine).toBe(10); // cursor unchanged
   });
@@ -1506,6 +1545,179 @@ describe('reduce — toggle_view_mode', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Stable viewport position (cursor pinned at same visual row)
+// ---------------------------------------------------------------------------
+
+describe('stable viewport — toggle_view_mode', () => {
+  const diffMeta = makeDiffMeta([3, 7, 10, 15, 20]);
+
+  it('preserves cursor visual row when toggling raw → diff', () => {
+    // Cursor at line 7 (0-indexed: 6), viewport offset 2 → visual row = 4
+    const state = makeState({
+      viewMode: 'raw',
+      diffMeta,
+      cursorLine: 7,
+      viewportOffset: 2,
+    });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.viewMode).toBe('diff');
+    expect(next.cursorLine).toBe(7); // visible in diff
+    // In diff, cursor row = newLineToRow.get(7). Visual row should ≈ 4 (same as before).
+    const newCursorRow = next.diffMeta!.newLineToRow.get(7)!;
+    const newVisualRow = newCursorRow - next.viewportOffset;
+    // Should be close to original visual row (4), allowing clamping
+    expect(newVisualRow).toBeGreaterThanOrEqual(0);
+    expect(newVisualRow).toBeLessThan(next.viewportHeight);
+  });
+
+  it('preserves cursor visual row when toggling diff → raw', () => {
+    // In diff mode, cursor on line 10. Let's compute visual row and verify it's preserved.
+    const diffRow = diffMeta.newLineToRow.get(10)!;
+    const viewportOffset = diffRow - 5; // put cursor at visual row 5
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta,
+      cursorLine: 10,
+      viewportOffset: Math.max(0, viewportOffset),
+    });
+    const next = reduce(state, { type: 'toggle_view_mode' });
+    expect(next.viewMode).toBe('raw');
+    // In raw mode, cursor row = cursorLine - 1 = 9. Visual row should be same.
+    const rawVisualRow = (next.cursorLine - 1) - next.viewportOffset;
+    const oldVisualRow = diffRow - state.viewportOffset;
+    expect(rawVisualRow).toBe(oldVisualRow);
+  });
+});
+
+describe('stable viewport — set_cursor', () => {
+  it('pins cursor at same visual row when jumping in raw mode', () => {
+    // Cursor at line 10, viewport offset 5 → visual row = 4
+    const state = makeState({ cursorLine: 10, viewportOffset: 5 });
+    const next = reduce(state, { type: 'set_cursor', line: 50 });
+    // New cursor at line 50 (row 49). Visual row should be 4 → offset = 45
+    expect(next.cursorLine).toBe(50);
+    expect(next.viewportOffset).toBe(45);
+  });
+
+  it('pins cursor at same visual row when jumping in diff mode', () => {
+    // Enough visible lines so jump target stays within scrollable range
+    const lines = Array.from({ length: 30 }, (_, i) => (i + 1) * 3);
+    const diffMeta = makeDiffMeta(lines); // 30 vis lines → rowCount 32, enough for viewport 8
+    const cursorRow = diffMeta.newLineToRow.get(6)!; // early line
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta,
+      cursorLine: 6,
+      viewportOffset: 0,
+      viewportHeight: 8,
+    });
+    const oldVisualRow = cursorRow - state.viewportOffset;
+    // Jump to a mid-range line (well within scrollable area)
+    const next = reduce(state, { type: 'set_cursor', line: 45 });
+    expect(next.cursorLine).toBe(45); // visible in diff
+    const newRow = next.diffMeta!.newLineToRow.get(45)!;
+    const newVisualRow = newRow - next.viewportOffset;
+    expect(newVisualRow).toBe(oldVisualRow); // preserved
+  });
+
+  it('clamps viewport offset to 0 when pinning near file start', () => {
+    const state = makeState({ cursorLine: 50, viewportOffset: 45 }); // visual row 4
+    const next = reduce(state, { type: 'set_cursor', line: 2 });
+    // Line 2 → row 1, desired visual row 4 → offset = -3 → clamped to 0
+    expect(next.cursorLine).toBe(2);
+    expect(next.viewportOffset).toBe(0);
+  });
+});
+
+describe('stable viewport — expand_region', () => {
+  const makeDiffState = () => {
+    const diff = `diff --git a/foo.ts b/foo.ts
+index abc1234..def5678 100644
+--- a/foo.ts
++++ b/foo.ts
+@@ -1,3 +1,3 @@
+ a;
+-b;
++bb;
+ c;
+@@ -10,3 +10,3 @@
+ x;
+-y;
++yy;
+ z;`;
+    const diffData = alignDiff(diff, 'test');
+    const dm: DiffMeta = {
+      rowCount: diffData.rows.length,
+      visibleLines: diffData.visibleNewLines,
+      newLineToRow: diffData.newLineToRowIndex,
+      collapsedRegions: diffData.collapsedRegions,
+      baseRowCount: diffData.rows.length,
+    };
+    return makeState({
+      viewMode: 'diff',
+      diffMeta: dm,
+      baseDiffData: diffData,
+      cursorLine: 3,
+      viewportOffset: 0,
+    });
+  };
+
+  it('preserves cursor visual row after expand_region', () => {
+    const state = makeDiffState();
+    const cursorRow = state.diffMeta!.newLineToRow.get(state.cursorLine)!;
+    const visualRowBefore = cursorRow - state.viewportOffset;
+
+    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 3 });
+    const nextCursorRow = next.diffMeta!.newLineToRow.get(next.cursorLine)!;
+    const visualRowAfter = nextCursorRow - next.viewportOffset;
+
+    expect(visualRowAfter).toBe(visualRowBefore);
+  });
+
+  it('preserves cursor visual row after expand_all_regions', () => {
+    const state = makeDiffState();
+    const cursorRow = state.diffMeta!.newLineToRow.get(state.cursorLine)!;
+    const visualRowBefore = cursorRow - state.viewportOffset;
+
+    const next = reduce(state, { type: 'expand_all_regions' });
+    const nextCursorRow = next.diffMeta!.newLineToRow.get(next.cursorLine)!;
+    const visualRowAfter = nextCursorRow - next.viewportOffset;
+
+    expect(visualRowAfter).toBe(visualRowBefore);
+  });
+
+  it('preserves cursor visual row after collapse_all_regions', () => {
+    const state = makeDiffState();
+    // First expand all
+    const expanded = reduce(state, { type: 'expand_all_regions' });
+    const expandedCursorRow = expanded.diffMeta!.newLineToRow.get(expanded.cursorLine)!;
+    const visualRowBefore = expandedCursorRow - expanded.viewportOffset;
+
+    // Then collapse
+    const collapsed = reduce(expanded, { type: 'collapse_all_regions' });
+    const collapsedCursorRow = collapsed.diffMeta!.newLineToRow.get(collapsed.cursorLine)!;
+    const visualRowAfter = collapsedCursorRow - collapsed.viewportOffset;
+
+    expect(visualRowAfter).toBe(visualRowBefore);
+  });
+});
+
+describe('stable viewport — navigate_match', () => {
+  it('pins cursor at same visual row when navigating matches in raw mode', () => {
+    const state = makeState({
+      cursorLine: 10,
+      viewportOffset: 5,
+      search: { pattern: 'foo', matchLines: [10, 50, 80], currentMatchIndex: 0 },
+    });
+    // Visual row = cursorRow - viewportOffset = (10-1) - 5 = 4
+    const next = reduce(state, { type: 'navigate_match', delta: 1 });
+    expect(next.cursorLine).toBe(50);
+    // New visual row should be the same: (50-1) - offset = 4 → offset = 45
+    expect(next.viewportOffset).toBe(45);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // reduce — extend_select in diff mode
 // ---------------------------------------------------------------------------
 
@@ -1568,5 +1780,167 @@ describe('reduce — scroll_viewport (diff mode)', () => {
     });
     const next = reduce(state, { type: 'scroll_viewport', delta: 1 });
     expect(next.cursorLine).toBe(7); // unchanged
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Region expansion actions
+// ---------------------------------------------------------------------------
+
+describe('reduce — expand_region', () => {
+  // Build a proper DiffData + state with collapsed regions
+  const makeDiffState = () => {
+    // Simulate: region 0 at lines 4-9 (6 lines), between two hunks
+    const diff = `diff --git a/foo.ts b/foo.ts
+index abc1234..def5678 100644
+--- a/foo.ts
++++ b/foo.ts
+@@ -1,3 +1,3 @@
+ a;
+-b;
++bb;
+ c;
+@@ -10,3 +10,3 @@
+ x;
+-y;
++yy;
+ z;`;
+    const diffData = alignDiff(diff, 'test');
+    const dm: DiffMeta = {
+      rowCount: diffData.rows.length,
+      visibleLines: diffData.visibleNewLines,
+      newLineToRow: diffData.newLineToRowIndex,
+      collapsedRegions: diffData.collapsedRegions,
+      baseRowCount: diffData.rows.length,
+    };
+    return makeState({
+      viewMode: 'diff',
+      diffMeta: dm,
+      baseDiffData: diffData,
+      cursorLine: 3,
+    });
+  };
+
+  it('expands region from top (direction=down)', () => {
+    const state = makeDiffState();
+    const regions = state.diffMeta!.collapsedRegions!;
+    expect(regions.length).toBeGreaterThan(0);
+
+    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 3 });
+    expect(next.expandedRegions).toBeDefined();
+    const exp = next.expandedRegions!.get(0);
+    expect(exp).toBeDefined();
+    expect(exp!.fromTop).toBe(3);
+    expect(exp!.fromBottom).toBe(0);
+    // DiffMeta should be recomputed with more visible lines
+    expect(next.diffMeta!.visibleLines.length).toBeGreaterThan(state.diffMeta!.visibleLines.length);
+  });
+
+  it('expands region from bottom (direction=up)', () => {
+    const state = makeDiffState();
+    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'up', step: 2 });
+    const exp = next.expandedRegions!.get(0);
+    expect(exp!.fromTop).toBe(0);
+    expect(exp!.fromBottom).toBe(2);
+  });
+
+  it('clamps expansion to remaining lines', () => {
+    const state = makeDiffState();
+    const region = state.diffMeta!.collapsedRegions![0]!;
+    // Expand more than available
+    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 100 });
+    const exp = next.expandedRegions!.get(0);
+    expect(exp!.fromTop).toBe(region.lineCount);
+  });
+
+  it('no-op when region is fully expanded', () => {
+    const state = makeDiffState();
+    const region = state.diffMeta!.collapsedRegions![0]!;
+    // First expand fully
+    const expanded = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: region.lineCount });
+    // Then try again
+    const next = reduce(expanded, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 5 });
+    expect(next).toBe(expanded); // unchanged
+  });
+
+  it('no-op without baseDiffData', () => {
+    const state = makeState({ viewMode: 'diff' });
+    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 5 });
+    expect(next).toBe(state);
+  });
+});
+
+describe('reduce — expand_all_regions', () => {
+  it('fully expands all regions', () => {
+    const diff = `diff --git a/foo.ts b/foo.ts
+index abc1234..def5678 100644
+--- a/foo.ts
++++ b/foo.ts
+@@ -1,3 +1,3 @@
+ a;
+-b;
++bb;
+ c;
+@@ -10,3 +10,3 @@
+ x;
+-y;
++yy;
+ z;`;
+    const diffData = alignDiff(diff, 'test', 20);
+    const dm: DiffMeta = {
+      rowCount: diffData.rows.length,
+      visibleLines: diffData.visibleNewLines,
+      newLineToRow: diffData.newLineToRowIndex,
+      collapsedRegions: diffData.collapsedRegions,
+      baseRowCount: diffData.rows.length,
+    };
+    const state = makeState({ viewMode: 'diff', diffMeta: dm, baseDiffData: diffData, cursorLine: 1 });
+
+    const next = reduce(state, { type: 'expand_all_regions' });
+    // All regions should be fully expanded
+    for (const region of diffData.collapsedRegions) {
+      const exp = next.expandedRegions!.get(region.index);
+      expect(exp).toBeDefined();
+      expect(exp!.fromTop).toBe(region.lineCount);
+    }
+  });
+});
+
+describe('reduce — collapse_all_regions', () => {
+  it('clears all expansions and clamps cursor', () => {
+    const diff = `diff --git a/foo.ts b/foo.ts
+index abc1234..def5678 100644
+--- a/foo.ts
++++ b/foo.ts
+@@ -1,3 +1,3 @@
+ a;
+-b;
++bb;
+ c;
+@@ -10,3 +10,3 @@
+ x;
+-y;
++yy;
+ z;`;
+    const diffData = alignDiff(diff, 'test');
+    const dm: DiffMeta = {
+      rowCount: diffData.rows.length,
+      visibleLines: diffData.visibleNewLines,
+      newLineToRow: diffData.newLineToRowIndex,
+      collapsedRegions: diffData.collapsedRegions,
+      baseRowCount: diffData.rows.length,
+    };
+    const state = makeState({ viewMode: 'diff', diffMeta: dm, baseDiffData: diffData, cursorLine: 1 });
+
+    // First expand
+    const expanded = reduce(state, { type: 'expand_all_regions' });
+    // Set cursor to an expanded-context line
+    const expandedWithCursor = { ...expanded, cursorLine: 5 };
+
+    // Collapse
+    const next = reduce(expandedWithCursor, { type: 'collapse_all_regions' });
+    expect(next.expandedRegions!.size).toBe(0);
+    // Cursor should be clamped to nearest visible line (not 5 which is in collapsed region)
+    expect(next.diffMeta!.visibleLines).toContain(next.cursorLine);
   });
 });

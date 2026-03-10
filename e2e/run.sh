@@ -135,6 +135,55 @@ add "Diff — Tab annotation cycling with file-level annotation" \
     '(cd $DIFF_REPO && $QUILL long.ts --diff-ref base --annotations $F/annotations-diff-tab.json)' \
     "Tab cycles: diff-fl (file-level, L1) → diff-mid (L24-26, divide fn) → diff-bottom (L70-73, well off-screen). Each Tab scrolls box fully into view in right pane. File-level box shows 📄 marker. Shift+Tab reverses. No blank/empty screen on any Tab press. Bottom annotation must scroll into view from off-screen."
 
+# Expandable collapsed regions — uses expand.ts (311 lines, 7 hunks, 6 collapsed
+# regions including two large gaps: ~89 lines between sections 1↔3 and ~84
+# lines between sections 3↔5)
+add "Diff — collapsed region display (large gaps)" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Multiple collapsed separators visible with @@ hunk headers: e.g. '@@ -34,89 +34,89 @@ ··· 89 lines hidden ···'. The two largest should show ~89 and ~84 hidden lines (sections 2 and 4 — string/math utils). Help bar shows [[/]] expand hint. j/k cursor movement skips over collapsed rows. Scroll through all hunks to verify separators between each."
+add "Diff — expand down (] key) on large region" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Start at top (hunk 1: config changes). Press G to go near bottom of hunk 1. Press ] → first 20 lines of the 89-line gap expand with distinct blue-gray bg (capitalize, camelCase, snakeCase…). Separator updates to show ~69 hidden. Press ] again → 20 more expand (~49 hidden). Press ] twice more → region fully expanded, separator disappears. Expanded lines show section 2 string utility functions."
+add "Diff — expand up ([ key) on large region" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Navigate to hunk 2 (section 3: array utils ~line 123). Press [ → bottom 20 lines of the 89-line gap expand upward (reverse, isPalindrome, countOccurrences…). Separator updates to ~69 hidden. Cursor stays on the same hunk line. Repeated [ reveals more lines from the bottom edge of the gap."
+add "Diff — expand all / collapse all (E key) with many regions" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Press E: ALL 6 collapsed regions expand — entire 311-line file visible in diff mode. Expanded sections (string utils, math utils) show with expanded-context bg. Scroll through to verify all content present. Press E again: all regions collapse back, separators return with original line counts. Cursor snaps to nearest visible hunk line."
+add "Diff — expand persists across raw/diff toggle" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Press ] a couple times to expand part of the 89-line string utils gap. Note which functions are visible (e.g. capitalize through padRight). Press d to toggle to raw mode — see full file. Press d again to return to diff mode. The same expanded lines are still visible, separator still shows correct reduced hidden count."
+add "Diff — annotation auto-expand on Tab (hidden annotations)" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base --annotations $F/annotations-diff-expand.json)' \
+    "Three annotations loaded: expand-visible (L18-20, inside hunk 1), expand-hidden-sec2 (L60-63, padLeft/padRight area inside 89-line gap), expand-hidden-sec4 (L170-175, median area inside 84-line gap). Tab to expand-visible: normal, already in hunk. Tab to expand-hidden-sec2: region auto-expands surgically around lines 60-63 with padding, annotation box visible. Tab to expand-hidden-sec4: second large region expands around lines 170-175. Both collapsed regions partially expand — some lines still hidden on edges."
+add "Diff — goto auto-expand (:N) into collapsed region" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Press : then type 50 Enter → line 50 is deep inside the 89-line collapsed gap (truncate function). Region auto-expands to reveal line 50, cursor lands on it. Collapsed separator updates to show fewer hidden lines. Try :180 Enter → inside the 84-line math gap (factorial area). That region also auto-expands. Both regions now partially expanded."
+add "Diff — pre-loaded annotations auto-expand at startup" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base --annotations $F/annotations-diff-expand.json)' \
+    "On launch (diff mode), the two annotations targeting collapsed regions (expand-hidden-sec2 at L60-63, expand-hidden-sec4 at L170-175) cause their regions to auto-expand immediately. Scroll to see: the 89-line gap shows some expanded lines around padLeft/padRight area with annotation box. The 84-line gap shows expanded lines around median area with annotation box. No manual expand needed — annotation boxes visible from the start."
+add "Diff — search with hidden matches in large gaps" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "/ search for 'return' — matches exist in visible hunks AND in collapsed sections 2 and 4. Status bar shows total match count with '(N hidden)' indicator where N is substantial (many return statements in the ~170 hidden lines). n/N only jumps between visible matches. Press E to expand all, search again — all matches now navigable, hidden count drops to 0."
+add "Diff — expanded context cursor navigation and interaction" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Press ] to expand top of first gap. j/k moves cursor through expanded-context lines (capitalize, camelCase functions). Can navigate smoothly between hunk 1 context → expanded lines → collapsed separator → hunk 2 context. Try v to start selection on an expanded line, extend with j, press a to create annotation — annotation is created on expanded-context lines. Expanded lines are fully interactive, not read-only."
+add "Diff — stable cursor position on expand ([/])" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Move cursor to a hunk line (e.g. j j j to line 3). Note cursor's visual position on screen. Press ] to expand nearest region below. Cursor stays on the SAME SCREEN ROW — viewport scrolls so the cursor doesn't jump. Press ] again — same behavior. Press [ — cursor stays pinned at same screen row. Press E to expand all — cursor stays visually stable."
+add "Diff — stable cursor position on raw/diff toggle (d)" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Scroll down to a mid-file hunk. Note cursor's visual position (e.g. middle of screen). Press d to toggle to raw mode. The same line should appear at the same vertical position on screen — no jump to top or scroll-off repositioning. Press d again to go back to diff — cursor stays at same screen position."
+add "Diff — stable cursor position on goto (:N)" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Move cursor to roughly middle of viewport. Press :100 Enter. Line 100 should appear at the SAME screen row where the cursor was, not at scroll-off position. Try :200 — same behavior. The viewport scrolls such that the target line lands exactly where your cursor was."
+add "Diff — stable cursor position on search navigation (n/N)" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Search for 'const'. Cursor lands on first match. Note screen row. Press n — next match appears at same screen row, viewport scrolls to accommodate. Press N — previous match at same screen position. Rapid n/N should feel like the cursor is pinned and content scrolls past it."
+add "Diff — expand keys no-op in select mode" \
+    '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
+    "Navigate to hunk 1. Press v to enter select mode. Press ] — no expansion happens, no crash. Press [ — same, no-op. Press E — no-op. Press Esc to exit select. Now press ] — expansion works normally. Select mode blocks expand keys."
+
 # Resize / edge
 add "Terminal resize" \
     "$QUILL $F/sample.ts --annotations $F/annotations-basic.json" \

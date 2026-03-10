@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DIFF_ADDED_BG,
+  DIFF_EXPANDED_BG,
   DIFF_HUNK_BG,
   DIFF_MODIFIED_NEW_BG,
   DIFF_MODIFIED_OLD_BG,
@@ -8,7 +9,7 @@ import {
   DIFF_REMOVED_BG,
   stripAnsi,
 } from './ansi.js';
-import type { DiffData, AlignedRow } from './diff-align.js';
+import type { DiffData, AlignedRow, CollapsedRegion } from './diff-align.js';
 import type { Annotation } from './schema.js';
 import type { DiffMeta, SessionState } from './state.js';
 import { INITIAL_ANNOTATION_FLOW, INITIAL_DECIDE_FLOW } from './state.js';
@@ -19,6 +20,7 @@ import {
   buildFrame,
   getViewportHeight,
 } from './render.js';
+import { BROWSE_DIFF_HELP } from './keymap.js';
 
 const makeCtx = (overrides: Partial<RenderContext> = {}): RenderContext => {
   const lines = overrides.lines ?? Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
@@ -725,7 +727,7 @@ const makeDiffData = (rows: AlignedRow[], label = 'test'): DiffData => {
     }
   }
 
-  return { rows, rowToNewLine, newLineToRowIndex, visibleNewLines, label };
+  return { rows, rowToNewLine, newLineToRowIndex, visibleNewLines, label, collapsedRegions: [] };
 };
 
 /** Helper: build a DiffMeta from DiffData. */
@@ -754,6 +756,7 @@ const makeDiffCtx = (overrides: {
   terminalCols?: number;
   filePath?: string;
   oldHighlightedLines?: readonly string[];
+  effectiveDiffRows?: readonly AlignedRow[];
 } = {}): RenderContext => {
   const dd = overrides.diffData ?? sampleDiffData;
   const meta = makeDiffMeta(dd);
@@ -781,6 +784,7 @@ const makeDiffCtx = (overrides: {
     terminalCols: overrides.terminalCols ?? 120,
     diffData: dd,
     oldHighlightedLines: overrides.oldHighlightedLines,
+    effectiveDiffRows: overrides.effectiveDiffRows,
   };
 };
 
@@ -871,22 +875,22 @@ describe('buildFrame — diff mode', () => {
     expect(tildes.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('renders hunk headers with hunk background', () => {
+  it('renders collapsed separator with hunk background', () => {
     const rows: AlignedRow[] = [
       { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
-      { type: 'hunk-header', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, header: '@@ -10,5 +10,7 @@' },
+      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 42 },
       { type: 'added', oldLineNumber: null, newLineNumber: 10, oldContent: null, newContent: 'new line' },
     ];
     const dd = makeDiffData(rows, 'hunk-test');
     const { frame } = buildFrame(makeDiffCtx({ diffData: dd, lines: Array(10).fill('x') }));
     expect(frame).toContain(DIFF_HUNK_BG);
     const plain = stripAnsi(frame);
-    expect(plain).toContain('@@ -10,5 +10,7 @@');
+    expect(plain).toContain('42 lines hidden');
   });
 
-  it('hunk header rows map to undefined in rowToLine', () => {
+  it('collapsed rows map to undefined in rowToLine', () => {
     const rows: AlignedRow[] = [
-      { type: 'hunk-header', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, header: '@@' },
+      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 10 },
       { type: 'added', oldLineNumber: null, newLineNumber: 1, oldContent: null, newContent: 'x' },
     ];
     const dd = makeDiffData(rows, 'h');
@@ -980,5 +984,94 @@ describe('buildFrame — diff mode', () => {
     const { frame } = buildFrame(ctx);
     const plain = stripAnsi(frame);
     expect(plain).not.toContain('(diff:');
+  });
+
+  it('renders expanded-context rows with expanded background', () => {
+    const rows: AlignedRow[] = [
+      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
+      { type: 'expanded-context', oldLineNumber: 2, newLineNumber: 2, oldContent: 'expanded line', newContent: 'expanded line' },
+      { type: 'added', oldLineNumber: null, newLineNumber: 3, oldContent: null, newContent: 'new' },
+    ];
+    const dd = makeDiffData(rows, 'expand-test');
+    const ctx = makeDiffCtx({
+      diffData: dd,
+      lines: ['a', 'expanded line', 'new'],
+      effectiveDiffRows: rows,
+    });
+    const { frame } = buildFrame(ctx);
+    expect(frame).toContain(DIFF_EXPANDED_BG);
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('expanded line');
+  });
+
+  it('renders collapsed row with hidden line count', () => {
+    const rows: AlignedRow[] = [
+      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
+      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 1 },
+      { type: 'added', oldLineNumber: null, newLineNumber: 5, oldContent: null, newContent: 'new' },
+    ];
+    const dd = makeDiffData(rows, 'single-test');
+    const ctx = makeDiffCtx({ diffData: dd, lines: Array(5).fill('x') });
+    const { frame } = buildFrame(ctx);
+    const plain = stripAnsi(frame);
+    expect(plain).toContain('1 line hidden'); // singular
+  });
+
+  it('renders collapsed separator with @@ hunk header when collapsedRegions available', () => {
+    const region: CollapsedRegion = {
+      index: 0,
+      newStartLine: 4,
+      newEndLine: 45,
+      oldStartLine: 4,
+      oldEndLine: 45,
+      lineCount: 42,
+      insertAfterRow: 0,
+    };
+    const rows: AlignedRow[] = [
+      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
+      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 42 },
+      { type: 'added', oldLineNumber: null, newLineNumber: 50, oldContent: null, newContent: 'new line' },
+    ];
+    const dd: DiffData = {
+      ...makeDiffData(rows, 'hunk-header-test'),
+      collapsedRegions: [region],
+    };
+    const meta: DiffMeta = {
+      rowCount: dd.rows.length,
+      visibleLines: dd.visibleNewLines,
+      newLineToRow: dd.newLineToRowIndex,
+      collapsedRegions: [region],
+    };
+    const ctx = makeDiffCtx({
+      diffData: dd,
+      lines: Array(50).fill('x'),
+      state: { diffMeta: meta },
+    });
+    const { frame } = buildFrame(ctx);
+    const plain = stripAnsi(frame);
+    // Should include the @@ hunk header with line ranges
+    expect(plain).toContain('@@ -4,42 +4,42 @@');
+    // Should also include the hidden count
+    expect(plain).toContain('42 lines hidden');
+  });
+
+  it('renders collapsed separator without @@ header when collapsedRegions empty', () => {
+    const rows: AlignedRow[] = [
+      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
+      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 5 },
+      { type: 'added', oldLineNumber: null, newLineNumber: 10, oldContent: null, newContent: 'new' },
+    ];
+    const dd = makeDiffData(rows, 'no-region');
+    const ctx = makeDiffCtx({ diffData: dd, lines: Array(10).fill('x') });
+    const { frame } = buildFrame(ctx);
+    const plain = stripAnsi(frame);
+    // Falls back to plain format without @@
+    expect(plain).toContain('5 lines hidden');
+    expect(plain).not.toContain('@@');
+  });
+
+  it('diff mode help bar includes expand hint', () => {
+    expect(BROWSE_DIFF_HELP).toContain('expand');
+    expect(BROWSE_DIFF_HELP).toContain('[/]');
   });
 });

@@ -10,6 +10,13 @@ import {
   INTENT_OPTIONS,
 } from './picker.js';
 import { annotationBoxHeight } from './annotation-box.js';
+import type { CollapsedRegion, DiffData, RegionExpansion } from './diff-align.js';
+import {
+  recomputeDiffMeta,
+  findRegionForLine as findRegionForLineHelper,
+  isLineRevealed as isLineRevealedHelper,
+  autoExpandForLine as autoExpandForLineHelper,
+} from './diff-align.js';
 
 // --- Flow sub-states ---
 // These describe modal UI flows that overlay the main browse state.
@@ -95,6 +102,8 @@ export type SearchState = {
   readonly matchLines: readonly number[];
   /** Index into matchLines for the current/focused match (-1 = none). */
   readonly currentMatchIndex: number;
+  /** Number of matches hidden in collapsed regions (diff mode only). */
+  readonly hiddenMatchCount?: number;
 };
 
 export const INITIAL_CONFIRM_FLOW = (annotationId: string): ConfirmFlowState => ({
@@ -121,12 +130,16 @@ export type Selection = {
  * needing the full DiffData. Undefined when no diff data exists.
  */
 export type DiffMeta = {
-  /** Total display rows (DiffData.rows.length). */
+  /** Total display rows (DiffData.rows.length or effective rows when expanded). */
   readonly rowCount: number;
   /** Sorted new-file line numbers visible in the diff (from DiffData.visibleNewLines). */
   readonly visibleLines: readonly number[];
   /** Maps new-file line number (1-indexed) → display row index. */
   readonly newLineToRow: ReadonlyMap<number, number>;
+  /** Collapsed regions — immutable reference from DiffData. Needed for expand/collapse. */
+  readonly collapsedRegions?: readonly CollapsedRegion[];
+  /** Base row count from the immutable DiffData (before any expansion). */
+  readonly baseRowCount?: number;
 };
 
 export type SessionState = {
@@ -154,8 +167,12 @@ export type SessionState = {
   readonly search?: SearchState;
   /** Current view — 'raw' (default) or 'diff' (side-by-side). */
   readonly viewMode: 'raw' | 'diff';
-  /** Diff display metadata. Set once at startup when diff data exists; undefined otherwise. */
+  /** Diff display metadata. Recomputed when regions expand/collapse. */
   readonly diffMeta?: DiffMeta;
+  /** Per-region expansion state for diff collapsed regions. Key = region index. */
+  readonly expandedRegions?: ReadonlyMap<number, RegionExpansion>;
+  /** Base DiffData reference — immutable, set once at startup. Needed by reducer for region expansion. */
+  readonly baseDiffData?: DiffData;
 
   // --- Modal flow sub-states ---
   // Present when the corresponding mode is active; undefined otherwise.
@@ -195,7 +212,11 @@ export type BrowseAction =
   | { type: 'collapse_all' }
   | { type: 'expand_all' }
   | { type: 'focus_annotation'; annotationId: string | null }
-  | { type: 'toggle_view_mode' };
+  | { type: 'toggle_view_mode' }
+  | { type: 'expand_region'; regionIndex: number; direction: 'up' | 'down'; step: number }
+  | { type: 'expand_all_regions' }
+  | { type: 'collapse_all_regions' }
+  | { type: 'set_expanded_regions'; expandedRegions: ReadonlyMap<number, import('./diff-align.js').RegionExpansion> };
 
 export const clampLine = (value: number, lineCount: number): number =>
   R.clamp(value, { min: 1, max: Math.max(1, lineCount) });
@@ -424,6 +445,33 @@ export const halfPage = (viewportHeight: number): number =>
 const SCROLL_OFF = 3;
 
 /**
+ * Compute the 0-indexed visual row of the cursor within the viewport.
+ * Works for both raw and diff modes. In diff mode pass the 0-indexed
+ * display row from `newLineToRow`, in raw mode pass `cursorLine - 1`.
+ */
+export const getCursorVisualRow = (viewportOffset: number, cursorRow: number): number =>
+  cursorRow - viewportOffset;
+
+/**
+ * Compute viewport offset that pins a target display row at a desired
+ * visual row within the viewport. Clamps to valid range.
+ *
+ * @param targetRow - 0-indexed display row of the target line.
+ * @param desiredVisualRow - 0-indexed visual row where the target should appear.
+ * @param viewportHeight - viewport height in rows.
+ * @param totalRows - total display rows (lineCount for raw, rowCount for diff).
+ */
+export const stableViewportOffset = (
+  targetRow: number,
+  desiredVisualRow: number,
+  viewportHeight: number,
+  totalRows: number,
+): number => {
+  const maxOffset = Math.max(0, totalRows - viewportHeight);
+  return R.clamp(targetRow - desiredVisualRow, { min: 0, max: maxOffset });
+};
+
+/**
  * Compute extra display rows added by expanded annotation boxes.
  * Each expanded annotation whose endLine falls within the file contributes
  * its box height. Used to extend maxOffset so the viewport can scroll past
@@ -604,6 +652,27 @@ export const computeFocus = (
 const extraRows = (state: SessionState): number =>
   computeExpandedExtraRows(state.annotations, state.expandedAnnotations);
 
+/**
+ * Apply region expansion to state, recomputing DiffMeta.
+ * Uses baseDiffData to pass to recomputeDiffMeta for structural metadata.
+ * Preserves collapsedRegions and baseRowCount on the resulting DiffMeta.
+ */
+const applyRegionExpansion = (
+  state: SessionState,
+  expandedRegions: ReadonlyMap<number, RegionExpansion>,
+  baseDiffData: DiffData,
+): SessionState => {
+  const meta = recomputeDiffMeta(baseDiffData, expandedRegions);
+  const diffMeta: DiffMeta = {
+    rowCount: meta.rowCount,
+    visibleLines: meta.visibleLines,
+    newLineToRow: meta.newLineToRow,
+    collapsedRegions: baseDiffData.collapsedRegions,
+    baseRowCount: baseDiffData.rows.length,
+  };
+  return { ...state, expandedRegions, diffMeta };
+};
+
 const recomputeOffset = (state: SessionState, viewportHeight: number): number => {
   if (state.viewMode === 'diff' && state.diffMeta) {
     return computeDiffViewportOffset({ ...state, viewportHeight }, state.cursorLine);
@@ -634,9 +703,22 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       const cursorLine = inDiff
         ? clampCursor(state, action.line)
         : clampLine(action.line, state.lineCount);
-      const viewportOffset = inDiff
-        ? computeDiffViewportOffset(state, cursorLine)
-        : computeRawViewportOffset({ ...state, cursorLine }, cursorLine);
+
+      // Pin new cursor at the same visual row as the old cursor
+      const oldCursorRow = inDiff
+        ? (state.diffMeta!.newLineToRow.get(state.cursorLine) ?? 0)
+        : (state.cursorLine - 1);
+      const oldVisualRow = getCursorVisualRow(state.viewportOffset, oldCursorRow);
+      const newCursorRow = inDiff
+        ? (state.diffMeta!.newLineToRow.get(cursorLine) ?? 0)
+        : (cursorLine - 1);
+      const totalRows = inDiff
+        ? state.diffMeta!.rowCount + extraRows(state)
+        : state.lineCount + extraRows(state);
+      const viewportOffset = stableViewportOffset(
+        newCursorRow, oldVisualRow, state.viewportHeight, totalRows,
+      );
+
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
@@ -693,24 +775,46 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       } else {
         next.delete(action.annotationId);
       }
-      const focusedAnnotationId = computeFocus(
-        state.cursorLine, state.annotations, next
-      );
-      // When expanding, nudge viewport so the box is fully visible
-      if (isExpanding) {
+
+      // When expanding, auto-expand collapsed region if endLine is hidden
+      let stateWithRegion: SessionState = { ...state, expandedAnnotations: next };
+      if (isExpanding && state.baseDiffData && state.diffMeta?.collapsedRegions) {
         const ann = state.annotations.find((a) => a.id === action.annotationId);
         if (ann) {
-          const adjusted = nudgeForAnnotationBox(
-            { ...state, expandedAnnotations: next },
-            ann,
-            next,
-          );
-          if (adjusted !== state.viewportOffset) {
-            return { ...state, expandedAnnotations: next, focusedAnnotationId, viewportOffset: adjusted };
+          const region = findRegionForLineHelper(state.diffMeta.collapsedRegions, ann.endLine);
+          if (region) {
+            const expandedRegions = state.expandedRegions ?? new Map<number, RegionExpansion>();
+            const current = expandedRegions.get(region.index) ?? { fromTop: 0, fromBottom: 0 };
+            if (!isLineRevealedHelper(region, current, ann.endLine)) {
+              const expansion = autoExpandForLineHelper(ann.endLine, region, current);
+              const nextMap = new Map(expandedRegions);
+              nextMap.set(region.index, expansion);
+              stateWithRegion = applyRegionExpansion(
+                stateWithRegion, nextMap, state.baseDiffData
+              );
+            }
           }
         }
       }
-      return { ...state, expandedAnnotations: next, focusedAnnotationId };
+
+      const focusedAnnotationId = computeFocus(
+        stateWithRegion.cursorLine, stateWithRegion.annotations, next
+      );
+      // When expanding, nudge viewport so the box is fully visible
+      if (isExpanding) {
+        const ann = stateWithRegion.annotations.find((a) => a.id === action.annotationId);
+        if (ann) {
+          const adjusted = nudgeForAnnotationBox(
+            { ...stateWithRegion, focusedAnnotationId },
+            ann,
+            next,
+          );
+          if (adjusted !== stateWithRegion.viewportOffset) {
+            return { ...stateWithRegion, focusedAnnotationId, viewportOffset: adjusted };
+          }
+        }
+      }
+      return { ...stateWithRegion, focusedAnnotationId };
     }
     case 'delete_annotation': {
       const next = new Set(state.expandedAnnotations);
@@ -746,14 +850,31 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       if (action.matchLines.length === 0) {
         return {
           ...state,
-          search: { pattern: action.pattern, matchLines: [], currentMatchIndex: -1 },
+          search: { pattern: action.pattern, matchLines: [], currentMatchIndex: -1, hiddenMatchCount: 0 },
         };
       }
       const inDiff = state.viewMode === 'diff' && state.diffMeta;
+
+      // In diff mode, filter matches to visible lines only and count hidden
+      let visibleMatchLines = action.matchLines;
+      let hiddenMatchCount = 0;
+      if (inDiff) {
+        const visibleSet = new Set(state.diffMeta!.visibleLines);
+        visibleMatchLines = action.matchLines.filter(l => visibleSet.has(l));
+        hiddenMatchCount = action.matchLines.length - visibleMatchLines.length;
+      }
+
+      if (visibleMatchLines.length === 0) {
+        return {
+          ...state,
+          search: { pattern: action.pattern, matchLines: visibleMatchLines, currentMatchIndex: -1, hiddenMatchCount },
+        };
+      }
+
       // Find the first match at or after the current cursor line
-      const idx = action.matchLines.findIndex((l) => l >= state.cursorLine);
+      const idx = visibleMatchLines.findIndex((l) => l >= state.cursorLine);
       const matchIdx = idx >= 0 ? idx : 0;
-      const rawCursorLine = action.matchLines[matchIdx]!;
+      const rawCursorLine = visibleMatchLines[matchIdx]!;
       const cursorLine = inDiff ? clampCursor(state, rawCursorLine) : rawCursorLine;
       const viewportOffset = inDiff
         ? computeDiffViewportOffset(state, cursorLine)
@@ -766,7 +887,7 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
         cursorLine,
         viewportOffset,
         focusedAnnotationId,
-        search: { pattern: action.pattern, matchLines: action.matchLines, currentMatchIndex: matchIdx },
+        search: { pattern: action.pattern, matchLines: visibleMatchLines, currentMatchIndex: matchIdx, hiddenMatchCount },
       };
     }
     case 'clear_search': {
@@ -779,9 +900,22 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
       const nextIdx = ((state.search.currentMatchIndex + action.delta) % len + len) % len;
       const rawCursorLine = state.search.matchLines[nextIdx]!;
       const cursorLine = inDiff ? clampCursor(state, rawCursorLine) : rawCursorLine;
-      const viewportOffset = inDiff
-        ? computeDiffViewportOffset(state, cursorLine)
-        : computeRawViewportOffset({ ...state, cursorLine }, cursorLine);
+
+      // Pin cursor at same visual row
+      const oldCursorRowNav = inDiff
+        ? (state.diffMeta!.newLineToRow.get(state.cursorLine) ?? 0)
+        : (state.cursorLine - 1);
+      const oldVisualRowNav = getCursorVisualRow(state.viewportOffset, oldCursorRowNav);
+      const newCursorRowNav = inDiff
+        ? (state.diffMeta!.newLineToRow.get(cursorLine) ?? 0)
+        : (cursorLine - 1);
+      const totalRowsNav = inDiff
+        ? state.diffMeta!.rowCount + extraRows(state)
+        : state.lineCount + extraRows(state);
+      const viewportOffset = stableViewportOffset(
+        newCursorRowNav, oldVisualRowNav, state.viewportHeight, totalRowsNav,
+      );
+
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
@@ -849,20 +983,139 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
     case 'toggle_view_mode': {
       if (!state.diffMeta) return state; // no-op without diff data
       const nextMode = state.viewMode === 'raw' ? 'diff' : 'raw';
+
+      // Capture current visual row of cursor before mode change
+      const oldCursorRow = state.viewMode === 'diff'
+        ? (state.diffMeta.newLineToRow.get(state.cursorLine) ?? 0)
+        : (state.cursorLine - 1);
+      const oldVisualRow = getCursorVisualRow(state.viewportOffset, oldCursorRow);
+
       const nextState = { ...state, viewMode: nextMode } as SessionState;
       const cursorLine = nextMode === 'diff'
         ? clampCursor(nextState, state.cursorLine)
         : state.cursorLine;
-      const viewportOffset = nextMode === 'diff'
-        ? computeDiffViewportOffset(nextState, cursorLine)
-        : computeRawViewportOffset(
-            { ...nextState, cursorLine, viewportOffset: 0 }, // reset viewport on toggle
-            cursorLine,
-          );
+
+      // Pin new cursor at same visual row
+      const newCursorRow = nextMode === 'diff'
+        ? (nextState.diffMeta!.newLineToRow.get(cursorLine) ?? 0)
+        : (cursorLine - 1);
+      const totalRows = nextMode === 'diff'
+        ? nextState.diffMeta!.rowCount + extraRows(nextState)
+        : state.lineCount + extraRows(nextState);
+      const viewportOffset = stableViewportOffset(
+        newCursorRow, oldVisualRow, state.viewportHeight, totalRows,
+      );
       const focusedAnnotationId = computeFocus(
         cursorLine, state.annotations, state.expandedAnnotations
       );
       return { ...nextState, cursorLine, viewportOffset, focusedAnnotationId };
+    }
+    case 'expand_region': {
+      if (!state.baseDiffData || !state.diffMeta?.collapsedRegions) return state;
+      const regions = state.diffMeta.collapsedRegions;
+      const region = regions[action.regionIndex];
+      if (!region) return state;
+
+      const currentMap = state.expandedRegions ?? new Map<number, RegionExpansion>();
+      const current = currentMap.get(region.index) ?? { fromTop: 0, fromBottom: 0 };
+      const remaining = region.lineCount - Math.min(current.fromTop, region.lineCount) -
+        Math.min(current.fromBottom, Math.max(0, region.lineCount - current.fromTop));
+
+      if (remaining <= 0) return state; // fully expanded already
+
+      let next: RegionExpansion;
+      if (action.direction === 'down') {
+        const step = Math.min(action.step, remaining);
+        next = { ...current, fromTop: current.fromTop + step };
+      } else {
+        const step = Math.min(action.step, remaining);
+        next = { ...current, fromBottom: current.fromBottom + step };
+      }
+
+      // Capture current visual row of cursor before expansion
+      const oldCursorRow = state.diffMeta.newLineToRow.get(state.cursorLine) ?? 0;
+      const oldVisualRow = getCursorVisualRow(state.viewportOffset, oldCursorRow);
+
+      const nextMap = new Map(currentMap);
+      nextMap.set(region.index, next);
+      const expanded = applyRegionExpansion(state, nextMap, state.baseDiffData);
+
+      // Pin cursor at same visual row after expansion
+      const newCursorRow = expanded.diffMeta!.newLineToRow.get(expanded.cursorLine) ?? 0;
+      const totalRowsExp = expanded.diffMeta!.rowCount + extraRows(expanded);
+      const viewportOffset = stableViewportOffset(
+        newCursorRow, oldVisualRow, state.viewportHeight, totalRowsExp,
+      );
+      return { ...expanded, viewportOffset };
+    }
+    case 'expand_all_regions': {
+      if (!state.baseDiffData || !state.diffMeta?.collapsedRegions) return state;
+      const regions = state.diffMeta.collapsedRegions;
+      if (regions.length === 0) return state;
+
+      // Capture current visual row
+      const oldCursorRowAll = state.diffMeta.newLineToRow.get(state.cursorLine) ?? 0;
+      const oldVisualRowAll = getCursorVisualRow(state.viewportOffset, oldCursorRowAll);
+
+      const nextMap = new Map<number, RegionExpansion>();
+      for (const region of regions) {
+        nextMap.set(region.index, { fromTop: region.lineCount, fromBottom: 0 });
+      }
+      const expanded = applyRegionExpansion(state, nextMap, state.baseDiffData);
+
+      // Pin cursor at same visual row
+      const newCursorRowAll = expanded.diffMeta!.newLineToRow.get(expanded.cursorLine) ?? 0;
+      const totalRowsAll = expanded.diffMeta!.rowCount + extraRows(expanded);
+      const viewportOffset = stableViewportOffset(
+        newCursorRowAll, oldVisualRowAll, state.viewportHeight, totalRowsAll,
+      );
+      return { ...expanded, viewportOffset };
+    }
+    case 'collapse_all_regions': {
+      if (!state.baseDiffData || !state.diffMeta?.collapsedRegions) return state;
+
+      // Capture current visual row before collapse
+      const oldCursorRowC = state.diffMeta.newLineToRow.get(state.cursorLine) ?? 0;
+      const oldVisualRowC = getCursorVisualRow(state.viewportOffset, oldCursorRowC);
+
+      const nextMap = new Map<number, RegionExpansion>();
+      const collapsed = applyRegionExpansion(state, nextMap, state.baseDiffData);
+      // Cursor may be on an expanded line that disappears — clamp it
+      const cursorLine = clampCursor(collapsed, collapsed.cursorLine);
+
+      // Pin cursor at same visual row
+      const newCursorRowC = collapsed.diffMeta!.newLineToRow.get(cursorLine) ?? 0;
+      const totalRowsC = collapsed.diffMeta!.rowCount + extraRows(collapsed);
+      const viewportOffset = stableViewportOffset(
+        newCursorRowC, oldVisualRowC, state.viewportHeight, totalRowsC,
+      );
+      const focusedAnnotationId = computeFocus(
+        cursorLine, collapsed.annotations, collapsed.expandedAnnotations
+      );
+      return { ...collapsed, cursorLine, viewportOffset, focusedAnnotationId };
+    }
+    case 'set_expanded_regions': {
+      if (!state.baseDiffData) return state;
+
+      // Capture current visual row
+      const oldCursorRowSet = state.viewMode === 'diff' && state.diffMeta
+        ? (state.diffMeta.newLineToRow.get(state.cursorLine) ?? 0)
+        : (state.cursorLine - 1);
+      const oldVisualRowSet = getCursorVisualRow(state.viewportOffset, oldCursorRowSet);
+
+      const expanded = applyRegionExpansion(state, action.expandedRegions, state.baseDiffData);
+
+      // Pin cursor at same visual row
+      const newCursorRowSet = expanded.diffMeta
+        ? (expanded.diffMeta.newLineToRow.get(expanded.cursorLine) ?? 0)
+        : (expanded.cursorLine - 1);
+      const totalRowsSet = expanded.diffMeta
+        ? expanded.diffMeta.rowCount + extraRows(expanded)
+        : expanded.lineCount + extraRows(expanded);
+      const viewportOffset = stableViewportOffset(
+        newCursorRowSet, oldVisualRowSet, state.viewportHeight, totalRowsSet,
+      );
+      return { ...expanded, viewportOffset };
     }
   }
 };

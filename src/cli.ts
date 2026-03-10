@@ -12,7 +12,8 @@ import { stderr } from 'process';
 import * as R from 'remeda';
 import { defineCommand, runMain } from 'citty';
 import { visibleLength } from './ansi.js';
-import { alignDiff, type DiffData } from './diff-align.js';
+import { alignDiff, autoExpandForLine, findRegionForLine, isLineRevealed, type DiffData, type RegionExpansion } from './diff-align.js';
+import { recomputeDiffMeta } from './diff-align.js';
 import { resolveDiff } from './diff.js';
 import {
   type BundledTheme,
@@ -260,6 +261,7 @@ const command = defineCommand({
       let diffData: DiffData | undefined;
       let diffMeta: DiffMeta | undefined;
       let oldHighlightedLines: string[] | undefined;
+      let oldSourceLines: string[] | undefined;
 
       const diffFlagCount = [diffRef, staged, unstaged].filter(Boolean).length;
       if (diffFlagCount > 1) {
@@ -276,15 +278,18 @@ const command = defineCommand({
         if (diffInput.rawDiff.trim().length === 0) {
           stderr.write('No differences found — opening in raw mode\n');
         } else {
-          diffData = alignDiff(diffInput.rawDiff, diffInput.label);
+          diffData = alignDiff(diffInput.rawDiff, diffInput.label, lineCount);
           diffMeta = {
             rowCount: diffData.rows.length,
             visibleLines: diffData.visibleNewLines,
             newLineToRow: diffData.newLineToRowIndex,
+            collapsedRegions: diffData.collapsedRegions,
+            baseRowCount: diffData.rows.length,
           };
 
           // Highlight old file content if available
           if (diffInput.oldContent) {
+            oldSourceLines = diffInput.oldContent.split('\n');
             try {
               oldHighlightedLines = await highlightCode({
                 code: diffInput.oldContent,
@@ -332,6 +337,34 @@ const command = defineCommand({
         : new Set<string>();
 
       const initialViewMode = diffData ? 'diff' : 'raw';
+
+      // --- Auto-expand regions for pre-loaded annotations ---
+      let initialExpandedRegions: ReadonlyMap<number, RegionExpansion> | undefined;
+      if (diffData && diffData.collapsedRegions.length > 0 && initialAnnotations.length > 0) {
+        const regionMap = new Map<number, RegionExpansion>();
+        for (const ann of initialAnnotations) {
+          const region = findRegionForLine(diffData.collapsedRegions, ann.endLine);
+          if (region) {
+            const current = regionMap.get(region.index) ?? { fromTop: 0, fromBottom: 0 };
+            if (!isLineRevealed(region, current, ann.endLine)) {
+              regionMap.set(region.index, autoExpandForLine(ann.endLine, region, current));
+            }
+          }
+        }
+        if (regionMap.size > 0) {
+          initialExpandedRegions = regionMap;
+          // Recompute DiffMeta with expanded regions
+          const meta = recomputeDiffMeta(diffData, regionMap);
+          diffMeta = {
+            rowCount: meta.rowCount,
+            visibleLines: meta.visibleLines,
+            newLineToRow: meta.newLineToRow,
+            collapsedRegions: diffData.collapsedRegions,
+            baseRowCount: diffData.rows.length,
+          };
+        }
+      }
+
       const initialStatePreOffset: SessionState = {
         lineCount,
         maxLineWidth,
@@ -345,6 +378,8 @@ const command = defineCommand({
         focusedAnnotationId: focusedAnnotation?.id ?? null,
         viewMode: initialViewMode,
         diffMeta,
+        expandedRegions: initialExpandedRegions,
+        baseDiffData: diffData,
       };
       const initialStateBase: SessionState = {
         ...initialStatePreOffset,
@@ -367,6 +402,7 @@ const command = defineCommand({
         initialState,
         diffData,
         oldHighlightedLines,
+        oldSourceLines,
         diffRef: diffData?.label,
       });
     } catch (error) {

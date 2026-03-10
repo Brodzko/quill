@@ -27,7 +27,8 @@ git config user.name "e2e"
 cp "$F/diff-base.ts" code.ts
 cp "$F/diff-whitespace-base.ts" whitespace.ts
 cp "$F/diff-tab-base.ts" long.ts
-git add code.ts whitespace.ts long.ts
+cp "$F/diff-expand-base.ts" expand.ts
+git add code.ts whitespace.ts long.ts expand.ts
 git commit -q -m "base version"
 git tag base
 
@@ -35,7 +36,8 @@ git tag base
 cp "$F/diff-modified.ts" code.ts
 cp "$F/diff-whitespace-modified.ts" whitespace.ts
 cp "$F/diff-tab-modified.ts" long.ts
-git add code.ts whitespace.ts long.ts
+cp "$F/diff-expand-modified.ts" expand.ts
+git add code.ts whitespace.ts long.ts expand.ts
 git commit -q -m "modified version"
 
 echo "$REPO"

@@ -30,6 +30,7 @@ import {
 } from './state.js';
 import { createBuffer, getText } from './text-buffer.js';
 import { createPicker, CATEGORY_OPTIONS } from './picker.js';
+import { alignDiff } from './diff-align.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1420,5 +1421,108 @@ describe('Tab annotation navigation — edge cases', () => {
     expect(result.state.cursorLine).toBe(20);
     expect(result.state.focusedAnnotationId).toBe('diff-ann');
     expect(result.state.expandedAnnotations.has('diff-ann')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Region expand/collapse keybindings
+// ---------------------------------------------------------------------------
+
+describe('handleBrowseKey — region expand/collapse', () => {
+  // Helper to build state with collapsed regions
+  const makeDiffStateWithRegions = () => {
+    const diff = `diff --git a/foo.ts b/foo.ts
+index abc1234..def5678 100644
+--- a/foo.ts
++++ b/foo.ts
+@@ -1,3 +1,3 @@
+ a;
+-b;
++bb;
+ c;
+@@ -10,3 +10,3 @@
+ x;
+-y;
++yy;
+ z;`;
+    const diffData = alignDiff(diff, 'test');
+    const dm: DiffMeta = {
+      rowCount: diffData.rows.length,
+      visibleLines: diffData.visibleNewLines,
+      newLineToRow: diffData.newLineToRowIndex,
+      collapsedRegions: diffData.collapsedRegions,
+      baseRowCount: diffData.rows.length,
+    };
+    return makeState({
+      viewMode: 'diff',
+      diffMeta: dm,
+      baseDiffData: diffData,
+      cursorLine: 3, // on context line before collapsed region
+    });
+  };
+
+  it('] key expands region below cursor', () => {
+    const state = makeDiffStateWithRegions();
+    const result = handleBrowseKey(key({ char: ']' }), state, false);
+    // Should have expanded the region between hunks
+    expect(result.state.expandedRegions).toBeDefined();
+    expect(result.state.expandedRegions!.size).toBe(1);
+    const exp = result.state.expandedRegions!.get(0);
+    expect(exp).toBeDefined();
+    expect(exp!.fromTop).toBe(6); // min(20, 6) — region has only 6 lines
+  });
+
+  it('[ key expands region above cursor', () => {
+    const state = makeDiffStateWithRegions();
+    // Move cursor to line 10 (in second hunk, after the collapsed region)
+    const stateAtLine10 = { ...state, cursorLine: 10 };
+    const result = handleBrowseKey(key({ char: '[' }), stateAtLine10, false);
+    expect(result.state.expandedRegions).toBeDefined();
+    const exp = result.state.expandedRegions!.get(0);
+    expect(exp).toBeDefined();
+    expect(exp!.fromBottom).toBe(6); // min(20, 6)
+  });
+
+  it('E key expands all regions', () => {
+    const state = makeDiffStateWithRegions();
+    const result = handleBrowseKey(key({ char: 'E' }), state, false);
+    expect(result.state.expandedRegions).toBeDefined();
+    // All regions should be fully expanded
+    for (const region of state.diffMeta!.collapsedRegions!) {
+      const exp = result.state.expandedRegions!.get(region.index);
+      expect(exp).toBeDefined();
+    }
+  });
+
+  it('E key collapses when all regions already expanded', () => {
+    const state = makeDiffStateWithRegions();
+    // First expand all
+    const expanded = handleBrowseKey(key({ char: 'E' }), state, false);
+    // Then toggle — should collapse
+    const collapsed = handleBrowseKey(key({ char: 'E' }), expanded.state, false);
+    expect(collapsed.state.expandedRegions!.size).toBe(0);
+  });
+
+  it('E key collapses first when any region is partially expanded', () => {
+    const state = makeDiffStateWithRegions();
+    // Partially expand one region via ]
+    const partial = handleBrowseKey(key({ char: ']' }), state, false);
+    const hasExpansion = partial.state.expandedRegions && partial.state.expandedRegions.size > 0;
+    expect(hasExpansion).toBe(true);
+    // E should collapse (undo expansion), not expand all
+    const result = handleBrowseKey(key({ char: 'E' }), partial.state, false);
+    expect(result.state.expandedRegions!.size).toBe(0);
+  });
+
+  it('] is no-op in raw mode', () => {
+    const state = makeState({ viewMode: 'raw' });
+    const result = handleBrowseKey(key({ char: ']' }), state, false);
+    expect(result.state).toBe(state);
+  });
+
+  it('E is no-op without diff data', () => {
+    const state = makeState({ viewMode: 'raw' });
+    const result = handleBrowseKey(key({ char: 'E' }), state, false);
+    expect(result.state).toBe(state);
   });
 });

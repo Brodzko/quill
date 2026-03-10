@@ -27,6 +27,8 @@ import {
   CYAN,
   DIFF_ADDED_BG,
   DIFF_ADDED_CURSOR_BG,
+  DIFF_EXPANDED_BG,
+  DIFF_EXPANDED_CURSOR_BG,
   DIFF_HUNK_BG,
   DIFF_MODIFIED_NEW_BG,
   DIFF_MODIFIED_NEW_CURSOR_BG,
@@ -303,19 +305,23 @@ const renderDiffViewport = (
   cols: number,
   selection?: Selection,
   search?: SearchState,
+  effectiveDiffRows?: readonly AlignedRow[],
 ): ViewportResult => {
   const rows: string[] = [];
   const rowToLine: (number | undefined)[] = [];
+
+  // Use effective rows (with expanded context) when available, otherwise base rows
+  const displayRows = effectiveDiffRows ?? diffData.rows;
 
   const separatorWidth = 1;
   const leftPaneWidth = Math.floor((cols - separatorWidth) / 2);
   const rightPaneWidth = cols - separatorWidth - leftPaneWidth;
 
-  // Gutter widths based on max line numbers in the diff
-  const maxOldLine = diffData.rows.reduce(
+  // Gutter widths based on max line numbers in the display rows
+  const maxOldLine = displayRows.reduce(
     (mx, r) => (r.oldLineNumber !== null && r.oldLineNumber > mx ? r.oldLineNumber : mx), 0
   );
-  const maxNewLine = diffData.rows.reduce(
+  const maxNewLine = displayRows.reduce(
     (mx, r) => (r.newLineNumber !== null && r.newLineNumber > mx ? r.newLineNumber : mx), 0
   );
   const leftGutter = gutterWidthFor(maxOldLine);
@@ -332,7 +338,7 @@ const renderDiffViewport = (
   let rowIndex = state.viewportOffset;
 
   while (rows.length < viewportHeight) {
-    if (rowIndex >= diffData.rows.length) {
+    if (rowIndex >= displayRows.length) {
       // Past end of diff — empty row
       rows.push(`${CLEAR_LINE}~`);
       rowToLine.push(undefined);
@@ -340,7 +346,7 @@ const renderDiffViewport = (
       continue;
     }
 
-    const diffRow: AlignedRow = diffData.rows[rowIndex]!;
+    const diffRow: AlignedRow = displayRows[rowIndex]!;
     const newLine = diffRow.newLineNumber;
 
     // Is the cursor on this row's new-file line?
@@ -355,10 +361,20 @@ const renderDiffViewport = (
     const isMatch = !isCurrentMatch && newLine !== null && search !== undefined
       && search.matchLines.length > 0 && search.matchLines.includes(newLine);
 
-    if (diffRow.type === 'hunk-header') {
-      // Full-width hunk separator row
-      const headerText = diffRow.header ?? '@@ ... @@';
-      const hunkRow = truncateAnsi(` ${DIM}${headerText}${RESET}`, cols);
+    if (diffRow.type === 'collapsed') {
+      // Full-width collapsed separator row with hunk-style header
+      const count = diffRow.hiddenLineCount ?? 0;
+      const region = diffRow.regionIndex !== undefined
+        ? state.diffMeta?.collapsedRegions?.[diffRow.regionIndex]
+        : undefined;
+      const hunkHeader = region
+        ? `@@ -${region.oldStartLine},${region.oldEndLine - region.oldStartLine + 1} +${region.newStartLine},${region.newEndLine - region.newStartLine + 1} @@`
+        : '';
+      const hiddenLabel = `${count} line${count === 1 ? '' : 's'} hidden`;
+      const label = hunkHeader
+        ? `${hunkHeader} ··· ${hiddenLabel} ···`
+        : `··· ${hiddenLabel} ···`;
+      const hunkRow = truncateAnsi(` ${DIM}${label}${RESET}`, cols);
       rows.push(`${CLEAR_LINE}${bgLine(hunkRow, DIFF_HUNK_BG, cols)}`);
       rowToLine.push(undefined);
       rowIndex++;
@@ -368,8 +384,9 @@ const renderDiffViewport = (
     // Determine backgrounds per side based on row type
     let leftBg: string | undefined;
     let rightBg: string | undefined;
-    const isLeftPadding = diffRow.oldContent === null && diffRow.type !== 'context';
-    const isRightPadding = diffRow.newContent === null && diffRow.type !== 'context';
+    const isContextLike = diffRow.type === 'context' || diffRow.type === 'expanded-context';
+    const isLeftPadding = diffRow.oldContent === null && !isContextLike;
+    const isRightPadding = diffRow.newContent === null && !isContextLike;
 
     switch (diffRow.type) {
       case 'removed':
@@ -383,6 +400,10 @@ const renderDiffViewport = (
       case 'modified':
         leftBg = DIFF_MODIFIED_OLD_BG;
         rightBg = DIFF_MODIFIED_NEW_BG;
+        break;
+      case 'expanded-context':
+        leftBg = DIFF_EXPANDED_BG;
+        rightBg = DIFF_EXPANDED_BG;
         break;
       case 'context':
         // No background, or cursor/selection background on right
@@ -400,6 +421,7 @@ const renderDiffViewport = (
       // Blend cursor with diff background so both signals are visible
       if (rightBg === DIFF_ADDED_BG) rightBg = DIFF_ADDED_CURSOR_BG;
       else if (rightBg === DIFF_MODIFIED_NEW_BG) rightBg = DIFF_MODIFIED_NEW_CURSOR_BG;
+      else if (rightBg === DIFF_EXPANDED_BG) rightBg = DIFF_EXPANDED_CURSOR_BG;
       else rightBg = CURSOR_BG;
     }
 
@@ -511,10 +533,13 @@ const renderStatusBar = (state: SessionState, filePath: string, diffLabel?: stri
           return `  sel ${r.startLine}–${r.endLine} (${span} ln${span === 1 ? '' : 's'})`;
         })()
       : '';
+  const searchHidden = state.search?.hiddenMatchCount && state.search.hiddenMatchCount > 0
+    ? ` (${state.search.hiddenMatchCount} hidden)`
+    : '';
   const searchInfo = state.search && state.search.matchLines.length > 0
-    ? `  "${state.search.pattern}" ${state.search.currentMatchIndex + 1}/${state.search.matchLines.length}`
+    ? `  "${state.search.pattern}" ${state.search.currentMatchIndex + 1}/${state.search.matchLines.length}${searchHidden}`
     : state.search && state.search.pattern.length > 0
-      ? `  "${state.search.pattern}" 0 matches`
+      ? `  "${state.search.pattern}" 0 matches${searchHidden}`
       : '';
   const viewLabel = state.viewMode === 'diff' && diffLabel
     ? `diff: ${diffLabel}`
@@ -705,6 +730,10 @@ export type RenderContext = {
   diffData?: DiffData;
   /** Old-file highlighted lines — undefined when old content unavailable. */
   oldHighlightedLines?: readonly string[];
+  /** Resolved effective diff rows (base + expanded context). Computed per-paint by session.ts. */
+  effectiveDiffRows?: readonly AlignedRow[];
+  /** Raw old-file source lines — for expanded region old-side content. */
+  oldSourceLines?: readonly string[];
 };
 
 /** Compute modal height for a given render context. */
@@ -776,6 +805,7 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
         ctx.terminalCols,
         ctx.state.selection,
         ctx.state.search,
+        ctx.effectiveDiffRows,
       )
     : renderViewport(
         ctx.lines,

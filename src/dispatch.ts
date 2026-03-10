@@ -41,6 +41,8 @@ import {
   CATEGORY_OPTIONS,
 } from './picker.js';
 import { BROWSE, SELECT, PICKER } from './keymap.js';
+import type { CollapsedRegion, RegionExpansion } from './diff-align.js';
+import { findRegionForLine, isLineRevealed, autoExpandForLine } from './diff-align.js';
 import {
   deleteBack,
   deleteToLineStart,
@@ -292,13 +294,17 @@ export const handleGotoKey = (
 
   if (key.return) {
     const target = parseInt(flow.input, 10);
+    // Auto-expand region if goto target is in a collapsed region
+    const baseState = !Number.isNaN(target) && target > 0
+      ? autoExpandIfNeeded(state, target)
+      : state;
     const actions = [
       { type: 'set_mode' as const, mode: 'browse' as const },
       ...(!Number.isNaN(target) && target > 0
         ? [{ type: 'set_cursor' as const, line: target }]
         : []),
     ];
-    return { state: { ...applyActions(state, actions), gotoFlow: undefined } };
+    return { state: { ...applyActions(baseState, actions), gotoFlow: undefined } };
   }
 
   if (key.backspace) {
@@ -396,12 +402,15 @@ const jumpToNextAnnotation = (
   const target = sorted[nextIdx]!;
   const targetLine = target.endLine;
 
+  // Auto-expand region if target endLine is in a collapsed region
+  const expandedState = autoExpandIfNeeded(state, targetLine);
+
   // Expand the target annotation if not already expanded, move cursor, set focus
-  const expandAction = state.expandedAnnotations.has(target.id)
+  const expandAction = expandedState.expandedAnnotations.has(target.id)
     ? []
     : [{ type: 'toggle_annotation' as const, annotationId: target.id }];
 
-  const nextState = applyActions(state, [
+  const nextState = applyActions(expandedState, [
     { type: 'set_cursor', line: targetLine },
     ...expandAction,
     { type: 'focus_annotation', annotationId: target.id },
@@ -415,6 +424,83 @@ const jumpToNextAnnotation = (
   }
 
   return { state: nextState };
+};
+
+// --- Auto-expand helper ---
+
+/**
+ * If the target line is in a collapsed region, dispatch the necessary expansion.
+ * Returns an updated state with the region auto-expanded, or the original state if not needed.
+ */
+const autoExpandIfNeeded = (state: SessionState, targetLine: number): SessionState => {
+  if (!state.baseDiffData || !state.diffMeta?.collapsedRegions) return state;
+
+  const region = findRegionForLine(state.diffMeta.collapsedRegions, targetLine);
+  if (!region) return state;
+
+  const expandedRegions = state.expandedRegions ?? new Map<number, RegionExpansion>();
+  const current = expandedRegions.get(region.index) ?? { fromTop: 0, fromBottom: 0 };
+
+  // Check if already revealed
+  if (isLineRevealed(region, current, targetLine)) return state;
+
+  const expansion = autoExpandForLine(targetLine, region, current);
+  const nextMap = new Map(expandedRegions);
+  nextMap.set(region.index, expansion);
+  return reduce(state, { type: 'set_expanded_regions', expandedRegions: nextMap });
+};
+
+// --- Region expansion helpers ---
+
+const EXPAND_STEP = 20;
+
+/**
+ * Find the nearest collapsed region below the cursor (for `]` key).
+ * Scans regions to find the first one whose line range starts at or after
+ * the cursor. Accounts for already-expanded top portions.
+ */
+const findNearestRegionBelow = (
+  cursorLine: number,
+  regions: readonly CollapsedRegion[],
+  expandedRegions: ReadonlyMap<number, RegionExpansion>,
+): CollapsedRegion | undefined => {
+  for (const region of regions) {
+    const expansion = expandedRegions.get(region.index);
+    const fromTop = expansion ? Math.min(expansion.fromTop, region.lineCount) : 0;
+    const fromBottom = expansion ? Math.min(expansion.fromBottom, Math.max(0, region.lineCount - fromTop)) : 0;
+    const remaining = region.lineCount - fromTop - fromBottom;
+    if (remaining <= 0) continue; // fully expanded
+
+    // The effective collapsed start is after any top-expanded lines
+    const effectiveStart = region.newStartLine + fromTop;
+    if (effectiveStart >= cursorLine) return region;
+  }
+  return undefined;
+};
+
+/**
+ * Find the nearest collapsed region above the cursor (for `[` key).
+ * Scans regions in reverse to find the first one whose line range ends
+ * at or before the cursor. Accounts for already-expanded bottom portions.
+ */
+const findNearestRegionAbove = (
+  cursorLine: number,
+  regions: readonly CollapsedRegion[],
+  expandedRegions: ReadonlyMap<number, RegionExpansion>,
+): CollapsedRegion | undefined => {
+  for (let i = regions.length - 1; i >= 0; i--) {
+    const region = regions[i]!;
+    const expansion = expandedRegions.get(region.index);
+    const fromTop = expansion ? Math.min(expansion.fromTop, region.lineCount) : 0;
+    const fromBottom = expansion ? Math.min(expansion.fromBottom, Math.max(0, region.lineCount - fromTop)) : 0;
+    const remaining = region.lineCount - fromTop - fromBottom;
+    if (remaining <= 0) continue; // fully expanded
+
+    // The effective collapsed end is before any bottom-expanded lines
+    const effectiveEnd = region.newEndLine - fromBottom;
+    if (effectiveEnd <= cursorLine) return region;
+  }
+  return undefined;
 };
 
 // --- Browse mode ---
@@ -628,6 +714,47 @@ export const handleBrowseKey = (
   if (BROWSE.toggleDiff.match(key)) {
     if (state.diffMeta) {
       return { state: reduce(state, { type: 'toggle_view_mode' }) };
+    }
+    return { state };
+  }
+
+  // Expand regions — diff mode only, browse mode only
+  if (BROWSE.expandDown.match(key)) {
+    if (state.viewMode === 'diff' && state.diffMeta?.collapsedRegions) {
+      const regions = state.diffMeta.collapsedRegions;
+      const expandedRegions = state.expandedRegions ?? new Map<number, RegionExpansion>();
+      const region = findNearestRegionBelow(state.cursorLine, regions, expandedRegions);
+      if (region) {
+        return { state: reduce(state, { type: 'expand_region', regionIndex: region.index, direction: 'down', step: EXPAND_STEP }) };
+      }
+    }
+    return { state };
+  }
+  if (BROWSE.expandUp.match(key)) {
+    if (state.viewMode === 'diff' && state.diffMeta?.collapsedRegions) {
+      const regions = state.diffMeta.collapsedRegions;
+      const expandedRegions = state.expandedRegions ?? new Map<number, RegionExpansion>();
+      const region = findNearestRegionAbove(state.cursorLine, regions, expandedRegions);
+      if (region) {
+        return { state: reduce(state, { type: 'expand_region', regionIndex: region.index, direction: 'up', step: EXPAND_STEP }) };
+      }
+    }
+    return { state };
+  }
+  if (BROWSE.toggleAllRegions.match(key)) {
+    if (state.viewMode === 'diff' && state.diffMeta?.collapsedRegions && state.diffMeta.collapsedRegions.length > 0) {
+      const regions = state.diffMeta.collapsedRegions;
+      const expandedRegions = state.expandedRegions ?? new Map<number, RegionExpansion>();
+      // If any region has expansion → collapse all first. Otherwise → expand all.
+      const anyExpanded = regions.some(r => {
+        const exp = expandedRegions.get(r.index);
+        return exp !== undefined && (exp.fromTop + exp.fromBottom) > 0;
+      });
+      if (anyExpanded) {
+        return { state: reduce(state, { type: 'collapse_all_regions' }) };
+      } else {
+        return { state: reduce(state, { type: 'expand_all_regions' }) };
+      }
     }
     return { state };
   }

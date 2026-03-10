@@ -20,6 +20,7 @@ import {
   handleSearchKey,
   handleSelectKey,
 } from './dispatch.js';
+import { resolveEffectiveRows } from './diff-align.js';
 import { parseKeypress } from './keypress.js';
 import { type RenderContext, buildFrame, getViewportHeight } from './render.js';
 import { type SessionResult, createOutput } from './schema.js';
@@ -55,6 +56,8 @@ export type SessionConfig = {
   diffData?: import('./diff-align.js').DiffData;
   /** Old-file highlighted lines — undefined when old content unavailable. */
   oldHighlightedLines?: readonly string[];
+  /** Raw old-file source lines — for expanded region old-side content. */
+  oldSourceLines?: readonly string[];
   /** Diff reference label (e.g. 'main', 'staged') — used in output JSON. */
   diffRef?: string;
 };
@@ -102,7 +105,7 @@ const createGgTimer = (timeoutMs = 300): GgTimer => {
  * with terminal cleanup).
  */
 export const runSession = (config: SessionConfig): void => {
-  const { filePath, lines, sourceLines, initialState, diffData, oldHighlightedLines, diffRef } = config;
+  const { filePath, lines, sourceLines, initialState, diffData, oldHighlightedLines, oldSourceLines, diffRef } = config;
 
   // --- Interactive input setup ---
   const input = resolveInteractiveInput();
@@ -148,6 +151,17 @@ export const runSession = (config: SessionConfig): void => {
       state = reduce(state, { type: 'update_viewport', viewportHeight: vh });
     }
 
+    // Resolve effective diff rows with expansion state
+    const effectiveDiffRows = diffData && state.expandedRegions && state.expandedRegions.size > 0
+      ? resolveEffectiveRows(
+          diffData.rows,
+          diffData.collapsedRegions,
+          state.expandedRegions,
+          sourceLines,
+          oldSourceLines,
+        )
+      : undefined;
+
     const ctx: RenderContext = {
       filePath,
       lines,
@@ -156,6 +170,8 @@ export const runSession = (config: SessionConfig): void => {
       terminalCols: cols,
       diffData,
       oldHighlightedLines,
+      effectiveDiffRows,
+      oldSourceLines,
     };
 
     const result = buildFrame(ctx);

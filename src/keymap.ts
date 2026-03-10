@@ -206,6 +206,21 @@ export const BROWSE = {
     hint: 'd',
     description: 'diff',
   },
+  expandDown: {
+    match: (k: Key): boolean => k.char === ']',
+    hint: '[/]',
+    description: 'expand',
+  },
+  expandUp: {
+    match: (k: Key): boolean => k.char === '[',
+    hint: '[/]',
+    description: 'expand',
+  },
+  toggleAllRegions: {
+    match: (k: Key): boolean => k.char === 'E',
+    hint: 'E',
+    description: 'expand/collapse all',
+  },
   finish: {
     match: (k: Key): boolean => k.char === 'q',
     hint: 'q',
@@ -333,6 +348,8 @@ export const BROWSE_EXPANDED_HELP = helpBar([
 export const BROWSE_DIFF_HELP = helpBar([
   BROWSE.moveUp,
   { ...BROWSE.toggleDiff, description: 'raw view' },
+  BROWSE.expandDown,
+  BROWSE.toggleAllRegions,
   BROWSE.startSelect,
   BROWSE.nextAnnotation,
   BROWSE.search,

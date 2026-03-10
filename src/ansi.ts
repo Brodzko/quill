@@ -72,6 +72,10 @@ export const DIFF_ADDED_CURSOR_BG = `${ESC}48;2;38;62;38m`;
 export const DIFF_MODIFIED_NEW_CURSOR_BG = `${ESC}48;2;42;66;42m`;
 /** Diff: center separator foreground. */
 export const DIFF_SEPARATOR_FG = `${ESC}38;2;60;65;75m`;
+/** Diff: expanded-context line background — very dim blue-gray. */
+export const DIFF_EXPANDED_BG = `${ESC}48;2;28;32;38m`;
+/** Diff: expanded-context + cursor background. */
+export const DIFF_EXPANDED_CURSOR_BG = `${ESC}48;2;36;40;48m`;
 
 // --- Formatting helpers ---
 
