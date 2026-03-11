@@ -100,6 +100,47 @@ export type DiffData = {
 // --- Alignment ---
 
 /**
+ * Minimum similarity (0–1) for a del/add pair to be shown as a "modified" row.
+ * Below this threshold, lines are emitted as separate removed + added rows.
+ * Comparable to git's `-M` rename detection threshold — deterministic given
+ * the same inputs, just threshold-dependent.
+ */
+const SIMILARITY_THRESHOLD = 0.4;
+
+/**
+ * Compute similarity between two strings using bigram overlap (Dice coefficient).
+ * Returns 0–1 where 1 = identical. Deterministic and fast for short lines.
+ * Empty strings vs non-empty = 0; both empty = 1.
+ */
+export const similarity = (a: string, b: string): number => {
+  const ta = a.trim();
+  const tb = b.trim();
+  if (ta === tb) return 1;
+  if (ta.length === 0 || tb.length === 0) return 0;
+
+  const bigrams = (s: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < s.length - 1; i++) {
+      const bg = s.slice(i, i + 2);
+      m.set(bg, (m.get(bg) ?? 0) + 1);
+    }
+    return m;
+  };
+
+  // For single-char strings, fall back to exact match (already handled above → 0)
+  if (ta.length < 2 || tb.length < 2) return 0;
+
+  const aMap = bigrams(ta);
+  const bMap = bigrams(tb);
+  let intersection = 0;
+  for (const [bg, count] of aMap) {
+    intersection += Math.min(count, bMap.get(bg) ?? 0);
+  }
+  const totalBigrams = (ta.length - 1) + (tb.length - 1);
+  return (2 * intersection) / totalBigrams;
+};
+
+/**
  * Strip the leading diff prefix character (+, -, space) from a change line.
  */
 const stripPrefix = (content: string): string =>
@@ -312,15 +353,30 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
         }
         case 'add': {
           if (pendingDels.length > 0) {
-            // Pair with first pending deletion → modified row
-            const del = pendingDels.shift()!;
-            rows.push({
-              type: 'modified',
-              oldLineNumber: del.ln,
-              newLineNumber: change.ln,
-              oldContent: stripPrefix(del.content),
-              newContent: stripPrefix(change.content),
-            });
+            const del = pendingDels[0]!;
+            const sim = similarity(stripPrefix(del.content), stripPrefix(change.content));
+            if (sim >= SIMILARITY_THRESHOLD) {
+              // Similar enough → pair as modified row
+              pendingDels.shift();
+              rows.push({
+                type: 'modified',
+                oldLineNumber: del.ln,
+                newLineNumber: change.ln,
+                oldContent: stripPrefix(del.content),
+                newContent: stripPrefix(change.content),
+              });
+            } else {
+              // Not similar → emit add now, keep dels pending.
+              // Pending dels flush at next context line or end of hunk,
+              // so additions render before deletions (new code first).
+              rows.push({
+                type: 'added',
+                oldLineNumber: null,
+                newLineNumber: change.ln,
+                oldContent: null,
+                newContent: stripPrefix(change.content),
+              });
+            }
           } else {
             // Pure addition — left side is padding
             rows.push({

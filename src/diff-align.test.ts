@@ -6,6 +6,7 @@ import {
   isLineRevealed,
   recomputeDiffMeta,
   resolveEffectiveRows,
+  similarity,
   type CollapsedRegion,
   type DiffData,
   type DiffLineType,
@@ -213,6 +214,98 @@ rename to bar.ts`;
         [null, 3],  // overflow add
         [null, 4],  // overflow add
         [3, 5],
+      ]);
+    });
+  });
+
+  describe('similarity function', () => {
+    it('returns 1 for identical strings', () => {
+      expect(similarity('const a = 1;', 'const a = 1;')).toBe(1);
+    });
+
+    it('returns 1 for identical after trim', () => {
+      expect(similarity('  const a = 1;  ', 'const a = 1;')).toBe(1);
+    });
+
+    it('returns 0 for empty vs non-empty', () => {
+      expect(similarity('', 'const a = 1;')).toBe(0);
+      expect(similarity('const a = 1;', '')).toBe(0);
+    });
+
+    it('returns 1 for both empty', () => {
+      expect(similarity('', '')).toBe(1);
+    });
+
+    it('returns high score for genuine edits', () => {
+      expect(similarity('const b = 2;', 'const b = 22;')).toBeGreaterThan(0.9);
+    });
+
+    it('returns low score for unrelated lines', () => {
+      expect(similarity("import { foo } from './foo';", 'const x = calculate();')).toBeLessThan(0.2);
+      expect(similarity('const b = 2;', 'function helper() {')).toBeLessThan(0.2);
+    });
+  });
+
+  describe('similarity-gated pairing', () => {
+    it('does not pair unrelated del/add with equal block sizes', () => {
+      const diff = makeDiff(`@@ -1,5 +1,5 @@
+ const a = 1;
+-import { foo } from './foo';
+-import { bar } from './bar';
+-import { baz } from './baz';
++const x = calculate();
++const y = transform(x);
++const z = finalize(y);
+ const e = 5;`);
+      const data = alignDiff(diff, 'main');
+
+      // Unrelated lines should NOT be paired — adds first, then dels
+      expect(types(data)).toEqual([
+        'context',
+        'added', 'added', 'added',
+        'removed', 'removed', 'removed',
+        'context',
+      ]);
+    });
+
+    it('does not pair unrelated del/add with unequal block sizes', () => {
+      const diff = makeDiff(`@@ -1,4 +1,6 @@
+ const a = 1;
+-const b = 2;
+-const c = 3;
++function helper() {
++  console.log('x');
++  console.log('y');
++  console.log('z');
++}
+ const d = 4;`);
+      const data = alignDiff(diff, 'main');
+
+      // All unrelated — adds first, then dels, no modified
+      expect(types(data)).toEqual([
+        'context',
+        'added', 'added', 'added', 'added', 'added',
+        'removed', 'removed',
+        'context',
+      ]);
+    });
+
+    it('still pairs genuine edits as modified', () => {
+      const diff = makeDiff(`@@ -1,5 +1,5 @@
+ const a = 1;
+-const b = 2;
+-const c = 3;
+-const d = 4;
++const b = 22;
++const c = 33;
++const d = 44;
+ const e = 5;`);
+      const data = alignDiff(diff, 'main');
+
+      expect(types(data)).toEqual([
+        'context',
+        'modified', 'modified', 'modified',
+        'context',
       ]);
     });
   });
