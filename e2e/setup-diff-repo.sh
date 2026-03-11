@@ -32,7 +32,8 @@ cp "$F/diff-pairing-base.ts" pairing-reorder.ts
 cp "$F/diff-pairing-unequal-base.ts" pairing-unequal.ts
 cp "$F/diff-pairing-equal-base.ts" pairing-equal.ts
 cp "$F/diff-pairing-true-edit-base.ts" pairing-true-edit.ts
-git add code.ts whitespace.ts long.ts expand.ts pairing-reorder.ts pairing-unequal.ts pairing-equal.ts pairing-true-edit.ts
+cp "$F/diff-pairing-insert-base.ts" pairing-insert.ts
+git add code.ts whitespace.ts long.ts expand.ts pairing-reorder.ts pairing-unequal.ts pairing-equal.ts pairing-true-edit.ts pairing-insert.ts
 git commit -q -m "base version"
 git tag base
 
@@ -45,7 +46,8 @@ cp "$F/diff-pairing-modified.ts" pairing-reorder.ts
 cp "$F/diff-pairing-unequal-modified.ts" pairing-unequal.ts
 cp "$F/diff-pairing-equal-modified.ts" pairing-equal.ts
 cp "$F/diff-pairing-true-edit-modified.ts" pairing-true-edit.ts
-git add code.ts whitespace.ts long.ts expand.ts pairing-reorder.ts pairing-unequal.ts pairing-equal.ts pairing-true-edit.ts
+cp "$F/diff-pairing-insert-modified.ts" pairing-insert.ts
+git add code.ts whitespace.ts long.ts expand.ts pairing-reorder.ts pairing-unequal.ts pairing-equal.ts pairing-true-edit.ts pairing-insert.ts
 git commit -q -m "modified version"
 
 echo "$REPO"

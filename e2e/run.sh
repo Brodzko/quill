@@ -197,6 +197,9 @@ add "Diff pairing — equal size unrelated (3 imports → 3 calculations)" \
 add "Diff pairing — true edits (control case, should NOT change)" \
     '(cd $DIFF_REPO && $QUILL pairing-true-edit.ts --diff-ref base)' \
     "Look at lines 2-4. You should see 'const b = 2' on the left and 'const b = 22' on the right, ON THE SAME ROW. Same for c=3→33 and d=4→44. This is CORRECT — these are genuine edits of the same line, so showing them side-by-side is the right behavior. This should look the same before and after the fix."
+add "Diff pairing — pure insertion (block added in middle, nothing deleted)" \
+    '(cd $DIFF_REPO && $QUILL pairing-insert.ts --diff-ref base)' \
+    "ONLY green added block on the right side (helperNew function + helperNew() call). NO red on the left — left pane should show dark empty fill for added rows. Context lines (helperA, helperB, imports) unchanged on both sides. The export line is the only modified row (helperNew added to export list). No false pairing of braces or empty lines."
 
 # Resize / edge
 add "Terminal resize" \
