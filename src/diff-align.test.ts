@@ -290,6 +290,73 @@ rename to bar.ts`;
       ]);
     });
 
+    it('pure insertion produces only added rows, no red on left', () => {
+      // Simulates inserting a new function block between existing code.
+      // Git should produce only '+' lines — no dels at all.
+      // All added lines should be type 'added', context lines untouched.
+      const diff = makeDiff(`@@ -1,4 +1,10 @@
+ const a = 1;
+ const b = 2;
++
++function newHelper() {
++  const x = calculate();
++  return transform(x);
++}
++
+ const c = 3;
+ const d = 4;`);
+      const data = alignDiff(diff, 'main');
+
+      expect(types(data)).toEqual([
+        'context', 'context',
+        'added', 'added', 'added', 'added', 'added', 'added',
+        'context', 'context',
+      ]);
+
+      // No row should have red/left content without green/right content
+      for (const row of data.rows) {
+        if (row.type === 'added') {
+          expect(row.oldContent).toBeNull();
+          expect(row.oldLineNumber).toBeNull();
+          expect(row.newContent).not.toBeNull();
+        }
+        if (row.type === 'context') {
+          expect(row.oldContent).not.toBeNull();
+          expect(row.newContent).not.toBeNull();
+        }
+        // No 'removed' or 'modified' rows expected
+        expect(row.type).not.toBe('removed');
+        expect(row.type).not.toBe('modified');
+      }
+    });
+
+    it('pure insertion with structurally similar lines (braces) stays as added', () => {
+      // The inserted block has `}` which also exists in surrounding code.
+      // This must NOT cause false pairing via similarity matching.
+      const diff = makeDiff(`@@ -1,5 +1,11 @@
+ function foo() {
+   return 1;
+ }
++
++function inserted() {
++  return 42;
++}
++
++// separator
+ 
+ function bar() {`);
+      const data = alignDiff(diff, 'main');
+
+      // All new lines are purely added — no removed, no modified
+      const addedRows = data.rows.filter(r => r.type === 'added');
+      const removedRows = data.rows.filter(r => r.type === 'removed');
+      const modifiedRows = data.rows.filter(r => r.type === 'modified');
+
+      expect(addedRows.length).toBe(6);
+      expect(removedRows.length).toBe(0);
+      expect(modifiedRows.length).toBe(0);
+    });
+
     it('still pairs genuine edits as modified', () => {
       const diff = makeDiff(`@@ -1,5 +1,5 @@
  const a = 1;
