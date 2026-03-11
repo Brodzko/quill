@@ -7,7 +7,7 @@
  * interactive terminal session.
  */
 
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { stderr } from 'process';
 import * as R from 'remeda';
 import { defineCommand, runMain } from 'citty';
@@ -204,6 +204,11 @@ const command = defineCommand({
       type: 'boolean',
       description: 'Diff unstaged changes (working tree vs index)',
     },
+    'dump-diff': {
+      type: 'string',
+      description:
+        'Debug: dump raw git diff + aligned rows to a file and exit (no TUI). Use with --diff-ref/--staged/--unstaged.',
+    },
   },
   async run({ args }) {
     const filePath = args.file;
@@ -215,6 +220,7 @@ const command = defineCommand({
     const diffRef = args['diff-ref'] ?? undefined;
     const staged = args.staged ?? false;
     const unstaged = args.unstaged ?? false;
+    const dumpDiffPath = args['dump-diff'] ?? undefined;
 
     try {
       // --- Input resolution ---
@@ -275,6 +281,25 @@ const command = defineCommand({
             ? { type: 'staged' as const }
             : { type: 'unstaged' as const };
         const diffInput = resolveDiff(source, filePath);
+        if (dumpDiffPath) {
+          const dumpData = diffInput.rawDiff.trim().length === 0
+            ? '(no differences)\n'
+            : (() => {
+                const dd = alignDiff(diffInput.rawDiff, diffInput.label, lineCount);
+                const header = `# Raw git diff\n\n${diffInput.rawDiff}\n\n# Aligned rows (${dd.rows.length} total)\n\n`;
+                const table = dd.rows.map((r, i) => {
+                  const ol = String(r.oldLineNumber ?? '').padStart(4);
+                  const nl = String(r.newLineNumber ?? '').padStart(4);
+                  const oc = r.oldContent ?? '';
+                  const nc = r.newContent ?? '';
+                  return `${String(i).padStart(4)} ${r.type.padEnd(12)} old:${ol} new:${nl} | ${oc.padEnd(60)} | ${nc}`;
+                }).join('\n');
+                return header + table + '\n';
+              })();
+          writeFileSync(dumpDiffPath, dumpData, 'utf-8');
+          stderr.write(`Dumped diff to ${dumpDiffPath}\n`);
+          process.exit(0);
+        }
         if (diffInput.rawDiff.trim().length === 0) {
           stderr.write('No differences found — opening in raw mode\n');
         } else {
