@@ -12,7 +12,7 @@ npm run build            # required — runs against dist/cli.js
 ./e2e/run.sh build       # build first, then pick
 ```
 
-## Scenarios (30)
+## Scenarios (49)
 
 ### Raw mode basics (1–5)
 Basic file viewing, cursor nav, horizontal scroll, tiny/empty files.
@@ -33,10 +33,19 @@ Side-by-side against git refs, horizontal scroll in diff, annotations in diff,
 toggle raw↔diff, no-changes fallback, whitespace/offset noise suppression,
 Tab annotation cycling with file-level annotation in diff mode.
 
-### Resize / edge cases (25–27)
+### Expandable collapsed regions (25–35)
+Collapsed region display, expand down/up, expand all, persist across toggle,
+annotation auto-expand, goto auto-expand, search with hidden matches,
+cursor navigation in expanded context, stable cursor positioning.
+
+### Diff pairing quality (36–39)
+Verifies del/add alignment produces minimal, readable diffs. Reordered
+functions, unequal block sizes, equal-size unrelated blocks, true edits.
+
+### Resize / edge cases (40–42)
 Terminal resize, narrow terminal, go-to-line.
 
-### File-level & annotation status (28–30)
+### File-level & annotation status (43–45)
 File-level comments (startLine: 0) with 📄 marker, per-annotation approve/dismiss toggling,
 scroll-into-view for last-line annotations.
 
@@ -59,6 +68,14 @@ scroll-into-view for last-line annotations.
 | `fixtures/diff-tab-base.ts` | Base file for diff Tab-cycling test — ~80 lines, changes at top/mid/bottom |
 | `fixtures/diff-tab-modified.ts` | Modified file: changed greet, replaced subtract→divide, added formatOutput |
 | `fixtures/annotations-diff-tab.json` | File-level + mid + bottom annotations for diff-mode Tab cycling |
+| `fixtures/diff-pairing-base.ts` | Base file for diff pairing tests — functions in original order |
+| `fixtures/diff-pairing-modified.ts` | Modified: functions reordered, new import, new function, one edit |
+| `fixtures/diff-pairing-unequal-base.ts` | Base for unequal block test — simple const declarations |
+| `fixtures/diff-pairing-unequal-modified.ts` | Modified: 2 consts replaced by 5-line function block |
+| `fixtures/diff-pairing-equal-base.ts` | Base for equal-size block test — imports |
+| `fixtures/diff-pairing-equal-modified.ts` | Modified: 3 imports replaced by 3 unrelated calculations |
+| `fixtures/diff-pairing-true-edit-base.ts` | Base for true-edit control case — const declarations |
+| `fixtures/diff-pairing-true-edit-modified.ts` | Modified: same consts with changed values (genuine edits) |
 
 ## Notes
 

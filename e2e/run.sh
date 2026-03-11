@@ -184,6 +184,20 @@ add "Diff — expand keys no-op in select mode" \
     '(cd $DIFF_REPO && $QUILL expand.ts --diff-ref base)' \
     "Navigate to hunk 1. Press v to enter select mode. Press ] — no expansion happens, no crash. Press [ — same, no-op. Press E — no-op. Press Esc to exit select. Now press ] — expansion works normally. Select mode blocks expand keys."
 
+# Diff pairing quality — verifies del/add alignment produces minimal, readable diffs
+add "Diff pairing — reorder (functions moved + new import)" \
+    '(cd $DIFF_REPO && $QUILL pairing-reorder.ts --diff-ref base)' \
+    "Look at the top of the diff, around the imports. BUG: you'll see a row where the LEFT pane shows an empty line and the RIGHT pane shows 'import { gamma }...' — both sides have text, both colored. This is wrong. EXPECTED after fix: 'import { gamma }' should appear ONLY in the right pane (green bg) with the left pane being a solid dark empty fill — because this is a pure addition, not an edit of the empty line."
+add "Diff pairing — unequal blocks (2 dels, 5 adds)" \
+    '(cd $DIFF_REPO && $QUILL pairing-unequal.ts --diff-ref base)' \
+    "Look at lines 2-3 area. BUG: you'll see rows where LEFT shows 'const b = 2' and RIGHT shows 'function helper()' on the same row, as if one was edited into the other. Same for 'const c = 3' paired with 'console.log(x)'. EXPECTED after fix: 'const b' and 'const c' should each appear ONLY on the left (red bg, dark empty right), and the entire function helper block should appear ONLY on the right (green bg, dark empty left)."
+add "Diff pairing — equal size unrelated (3 imports → 3 calculations)" \
+    '(cd $DIFF_REPO && $QUILL pairing-equal.ts --diff-ref base)' \
+    "Look at lines 2-4. BUG: you'll see 'import { foo }' on the left paired with 'const x = calculate()' on the right, on the same row — as if the import was edited into the calculation. Same for bar/transform and baz/finalize. EXPECTED after fix: all 3 imports should appear ONLY on the left (red bg, dark empty right), all 3 calculations ONLY on the right (green bg, dark empty left)."
+add "Diff pairing — true edits (control case, should NOT change)" \
+    '(cd $DIFF_REPO && $QUILL pairing-true-edit.ts --diff-ref base)' \
+    "Look at lines 2-4. You should see 'const b = 2' on the left and 'const b = 22' on the right, ON THE SAME ROW. Same for c=3→33 and d=4→44. This is CORRECT — these are genuine edits of the same line, so showing them side-by-side is the right behavior. This should look the same before and after the fix."
+
 # Resize / edge
 add "Terminal resize" \
     "$QUILL $F/sample.ts --annotations $F/annotations-basic.json" \
