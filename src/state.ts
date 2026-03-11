@@ -29,6 +29,8 @@ export type AnnotationFlowState = {
   readonly category?: string;
   readonly comment: TextBuffer;
   readonly picker: PickerState;
+  /** When true, annotation targets the whole file (startLine: 0, endLine: 0). */
+  readonly fileLevel?: boolean;
 };
 
 export const INITIAL_ANNOTATION_FLOW: AnnotationFlowState = {

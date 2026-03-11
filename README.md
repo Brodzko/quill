@@ -62,6 +62,7 @@ The `--help` output is the authoritative reference for both humans and agents.
 | `:` or `Ctrl+G` | Go to line number |
 | `v` or `Shift+↑`/`↓` | Start/extend line selection |
 | `a` | Create annotation (on cursor line or selection) |
+| `A` | Create file-level annotation (not tied to a specific line) |
 | `Tab`/`Shift+Tab` | Next/previous annotation |
 | `c` | Toggle annotation expanded/collapsed |
 | `C` | Toggle all annotations |

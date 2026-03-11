@@ -247,6 +247,13 @@ describe('handleBrowseKey', () => {
     expect(result.state.annotationFlow?.step).toBe('intent');
   });
 
+  it('A enters annotate mode with fileLevel flag', () => {
+    const result = handleBrowseKey(key({ char: 'A' }), makeState(), false);
+    expect(result.state.mode).toBe('annotate');
+    expect(result.state.annotationFlow?.step).toBe('intent');
+    expect(result.state.annotationFlow?.fileLevel).toBe(true);
+  });
+
   it('q enters decide mode with flow', () => {
     const result = handleBrowseKey(key({ char: 'q' }), makeState(), false);
     expect(result.state.mode).toBe('decide');
@@ -507,6 +514,17 @@ describe('handleAnnotateKey', () => {
       expect(result.state.annotations[0]?.startLine).toBe(5);
       expect(result.state.annotations[0]?.endLine).toBe(5);
       expect(result.state.annotationFlow).toBeUndefined();
+    });
+
+    it('Enter with fileLevel flag creates file-level annotation anchored at line 1', () => {
+      const f: AnnotationFlowState = { ...flow, comment: createBuffer('file note'), fileLevel: true };
+      const result = handleAnnotateKey(key({ return: true }), state, f);
+      expect(result.state.mode).toBe('browse');
+      expect(result.state.annotations).toHaveLength(1);
+      expect(result.state.annotations[0]?.startLine).toBe(1);
+      expect(result.state.annotations[0]?.endLine).toBe(1);
+      expect(result.state.annotations[0]?.fileLevel).toBe(true);
+      expect(result.state.annotations[0]?.comment).toBe('file note');
     });
 
     it('Enter with selection range uses selection', () => {

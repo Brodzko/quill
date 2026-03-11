@@ -166,6 +166,11 @@ export const BROWSE = {
     hint: 'a',
     description: 'annotate',
   },
+  annotateFile: {
+    match: (k: Key): boolean => k.char === 'A',
+    hint: 'A',
+    description: 'file comment',
+  },
   search: {
     match: (k: Key): boolean => k.char === '/',
     hint: '/',
@@ -316,6 +321,7 @@ export const BROWSE_HELP = helpBar([
   BROWSE.nextAnnotation,
   BROWSE.search,
   BROWSE.annotate,
+  BROWSE.annotateFile,
   BROWSE.gotoLine,
   BROWSE.finish,
 ]);
@@ -341,6 +347,7 @@ export const BROWSE_EXPANDED_HELP = helpBar([
   BROWSE.toggleAnnotation,
   BROWSE.toggleAllAnnotations,
   { ...BROWSE.annotate, description: 'new' },
+  BROWSE.annotateFile,
   BROWSE.finish,
 ]);
 

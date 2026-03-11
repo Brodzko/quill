@@ -244,9 +244,11 @@ export const handleAnnotateKey = (
   if (key.return && !key.shift && !key.alt) {
     const trimmed = getText(flow.comment).trim();
     if (trimmed.length > 0 && flow.intent) {
-      const range = state.selection
-        ? selectionRange(state.selection)
-        : { startLine: state.cursorLine, endLine: state.cursorLine };
+      const range = flow.fileLevel
+        ? { startLine: 1, endLine: 1 }
+        : state.selection
+          ? selectionRange(state.selection)
+          : { startLine: state.cursorLine, endLine: state.cursorLine };
       const newId = randomUUID();
       const nextState = applyActions(state, [
         {
@@ -258,6 +260,7 @@ export const handleAnnotateKey = (
             category: flow.category as KnownCategory | undefined,
             comment: trimmed,
             source: 'user',
+            ...(flow.fileLevel ? { fileLevel: true } : {}),
           },
         },
         { type: 'toggle_annotation', annotationId: newId },
@@ -763,6 +766,13 @@ export const handleBrowseKey = (
   if (BROWSE.annotate.match(key)) {
     return {
       state: { ...reduce(state, { type: 'set_mode', mode: 'annotate' }), annotationFlow: { ...INITIAL_ANNOTATION_FLOW } },
+    };
+  }
+
+  // Annotate file-level (startLine: 0, endLine: 0)
+  if (BROWSE.annotateFile.match(key)) {
+    return {
+      state: { ...reduce(state, { type: 'set_mode', mode: 'annotate' }), annotationFlow: { ...INITIAL_ANNOTATION_FLOW, fileLevel: true } },
     };
   }
 
