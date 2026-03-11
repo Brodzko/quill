@@ -1025,7 +1025,6 @@ describe('buildFrame — diff mode', () => {
       oldStartLine: 4,
       oldEndLine: 45,
       lineCount: 42,
-      insertAfterRow: 0,
     };
     const rows: AlignedRow[] = [
       { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },

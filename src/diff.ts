@@ -38,6 +38,7 @@ export type DiffInput = {
 };
 
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
+const GIT_DIFF_BASE_ARGS = ['diff', '--diff-algorithm=histogram', '-w'] as const;
 
 /**
  * Get the repo-relative path for a file. Git commands like `git show ref:path`
@@ -56,6 +57,19 @@ const repoRelativePath = (filePath: string): string => {
   }
 };
 
+const resolveGitDiff = (
+  relPath: string,
+  options: {
+    diffArgs: readonly string[];
+    oldContentRef: string;
+    label: string;
+  },
+): DiffInput => ({
+  rawDiff: execGitDiff([...GIT_DIFF_BASE_ARGS, ...options.diffArgs, '--', relPath]),
+  oldContent: execGitShow(options.oldContentRef),
+  label: options.label,
+});
+
 /**
  * Resolve a DiffSource into a DiffInput for a given file path.
  * Throws on unrecoverable git errors.
@@ -64,21 +78,24 @@ export const resolveDiff = (source: DiffSource, filePath: string): DiffInput => 
   const relPath = repoRelativePath(filePath);
 
   switch (source.type) {
-    case 'ref': {
-      const rawDiff = execGitDiff(['diff', '--diff-algorithm=histogram', '-w', source.ref, '--', relPath]);
-      const oldContent = execGitShow(`${source.ref}:${relPath}`);
-      return { rawDiff, oldContent, label: source.ref };
-    }
-    case 'staged': {
-      const rawDiff = execGitDiff(['diff', '--diff-algorithm=histogram', '-w', '--staged', '--', relPath]);
-      const oldContent = execGitShow(`HEAD:${relPath}`);
-      return { rawDiff, oldContent, label: 'staged' };
-    }
-    case 'unstaged': {
-      const rawDiff = execGitDiff(['diff', '--diff-algorithm=histogram', '-w', '--', relPath]);
-      const oldContent = execGitShow(`:${relPath}`);
-      return { rawDiff, oldContent, label: 'unstaged' };
-    }
+    case 'ref':
+      return resolveGitDiff(relPath, {
+        diffArgs: [source.ref],
+        oldContentRef: `${source.ref}:${relPath}`,
+        label: source.ref,
+      });
+    case 'staged':
+      return resolveGitDiff(relPath, {
+        diffArgs: ['--staged'],
+        oldContentRef: `HEAD:${relPath}`,
+        label: 'staged',
+      });
+    case 'unstaged':
+      return resolveGitDiff(relPath, {
+        diffArgs: [],
+        oldContentRef: `:${relPath}`,
+        label: 'unstaged',
+      });
     case 'file':
       return {
         rawDiff: readFileSync(source.path, 'utf-8'),

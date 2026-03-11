@@ -13,7 +13,6 @@ import * as R from 'remeda';
 import { defineCommand, runMain } from 'citty';
 import { visibleLength } from './ansi.js';
 import { alignDiff, autoExpandForLine, findRegionForLine, isLineRevealed, type DiffData, type RegionExpansion } from './diff-align.js';
-import { recomputeDiffMeta } from './diff-align.js';
 import { resolveDiff } from './diff.js';
 import {
   type BundledTheme,
@@ -50,6 +49,7 @@ import {
   clampLine,
   clampCursor,
   computeRawViewportOffset,
+  createDiffMeta,
   type DiffMeta,
   type SessionState,
 } from './state.js';
@@ -207,7 +207,7 @@ const command = defineCommand({
     'dump-diff': {
       type: 'string',
       description:
-        'Debug: dump raw git diff + aligned rows to a file and exit (no TUI). Use with --diff-ref/--staged/--unstaged.',
+        '[debug] Dump raw git diff + aligned rows to a file and exit without launching the TUI. Use with --diff-ref/--staged/--unstaged.',
     },
   },
   async run({ args }) {
@@ -304,13 +304,7 @@ const command = defineCommand({
           stderr.write('No differences found — opening in raw mode\n');
         } else {
           diffData = alignDiff(diffInput.rawDiff, diffInput.label, lineCount);
-          diffMeta = {
-            rowCount: diffData.rows.length,
-            visibleLines: diffData.visibleNewLines,
-            newLineToRow: diffData.newLineToRowIndex,
-            collapsedRegions: diffData.collapsedRegions,
-            baseRowCount: diffData.rows.length,
-          };
+          diffMeta = createDiffMeta(diffData);
 
           // Highlight old file content if available
           if (diffInput.oldContent) {
@@ -339,7 +333,7 @@ const command = defineCommand({
         ? clampLine(focusedAnnotation.startLine, lineCount)
         : clampLine(lineArg ?? 1, lineCount);
 
-      // DEBUG — remove after parity verification
+      // Optional startup diagnostics for diff/render debugging.
       if (process.env['QUILL_DEBUG']) {
         stderr.write(
           [
@@ -378,15 +372,7 @@ const command = defineCommand({
         }
         if (regionMap.size > 0) {
           initialExpandedRegions = regionMap;
-          // Recompute DiffMeta with expanded regions
-          const meta = recomputeDiffMeta(diffData, regionMap);
-          diffMeta = {
-            rowCount: meta.rowCount,
-            visibleLines: meta.visibleLines,
-            newLineToRow: meta.newLineToRow,
-            collapsedRegions: diffData.collapsedRegions,
-            baseRowCount: diffData.rows.length,
-          };
+          diffMeta = createDiffMeta(diffData, regionMap);
         }
       }
 

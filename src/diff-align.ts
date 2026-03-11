@@ -62,12 +62,6 @@ export type CollapsedRegion = {
   readonly oldEndLine: number;
   /** Total hidden lines (newEndLine - newStartLine + 1). */
   readonly lineCount: number;
-  /**
-   * Index into base DiffData.rows where this region sits.
-   * The region logically lives between rows[insertAfterRow] and
-   * rows[insertAfterRow + 1]. -1 = before first row.
-   */
-  readonly insertAfterRow: number;
 };
 
 /**
@@ -95,6 +89,12 @@ export type DiffData = {
   readonly label: string;
   /** Collapsed regions between/around hunks. Ordered by file position. */
   readonly collapsedRegions: readonly CollapsedRegion[];
+};
+
+export type DiffMetaLike = {
+  readonly rowCount: number;
+  readonly visibleLines: readonly number[];
+  readonly newLineToRow: ReadonlyMap<number, number>;
 };
 
 // --- Alignment ---
@@ -148,23 +148,28 @@ const stripPrefix = (content: string): string =>
     ? content.slice(1)
     : content;
 
-/**
- * Reclassify noise rows as context:
- * - `modified` rows where trimmed content is identical (whitespace-only
- *   or line-number-only offset changes).
- */
-const suppressNoiseRows = (rows: AlignedRow[]): AlignedRow[] =>
-  rows.map((row) => {
-    if (
-      row.type === 'modified' &&
-      row.oldContent !== null &&
-      row.newContent !== null &&
-      row.oldContent.trim() === row.newContent.trim()
-    ) {
-      return { ...row, type: 'context' as const };
-    }
-    return row;
+const pushCollapsedRegion = (
+  regions: CollapsedRegion[],
+  region: Omit<CollapsedRegion, 'index'>,
+): void => {
+  if (region.lineCount <= 0) return;
+  regions.push({
+    index: regions.length,
+    ...region,
   });
+};
+
+const pushCollapsedRow = (rows: AlignedRow[], region: CollapsedRegion): void => {
+  rows.push({
+    type: 'collapsed',
+    oldLineNumber: null,
+    newLineNumber: null,
+    oldContent: null,
+    newContent: null,
+    regionIndex: region.index,
+    hiddenLineCount: region.lineCount,
+  });
+};
 
 /**
  * Parse a unified diff and align into side-by-side rows.
@@ -199,16 +204,13 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
 
   // Before first hunk
   if (chunks[0]!.newStart > 1) {
-    const region: CollapsedRegion = {
-      index: collapsedRegions.length,
+    pushCollapsedRegion(collapsedRegions, {
       newStartLine: 1,
       newEndLine: chunks[0]!.newStart - 1,
       oldStartLine: 1,
       oldEndLine: chunks[0]!.oldStart - 1,
       lineCount: chunks[0]!.newStart - 1,
-      insertAfterRow: -1,
-    };
-    if (region.lineCount > 0) collapsedRegions.push(region);
+    });
   }
 
   // Between hunks N and N+1
@@ -220,17 +222,13 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
     const oldStart = current.oldStart + current.oldLines;
     const oldEnd = next.oldStart - 1;
     const count = newEnd - newStart + 1;
-    if (count > 0) {
-      collapsedRegions.push({
-        index: collapsedRegions.length,
-        newStartLine: newStart,
-        newEndLine: newEnd,
-        oldStartLine: oldStart,
-        oldEndLine: oldEnd,
-        lineCount: count,
-        insertAfterRow: -1, // patched below after rows are built
-      });
-    }
+    pushCollapsedRegion(collapsedRegions, {
+      newStartLine: newStart,
+      newEndLine: newEnd,
+      oldStartLine: oldStart,
+      oldEndLine: oldEnd,
+      lineCount: count,
+    });
   }
 
   // After last hunk (only when lineCount is provided)
@@ -241,14 +239,12 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
     const count = newEnd - newStart + 1;
     if (count > 0) {
       const oldStart = last.oldStart + last.oldLines;
-      collapsedRegions.push({
-        index: collapsedRegions.length,
+      pushCollapsedRegion(collapsedRegions, {
         newStartLine: newStart,
         newEndLine: newEnd,
         oldStartLine: oldStart,
         oldEndLine: oldStart + count - 1,
         lineCount: count,
-        insertAfterRow: -1, // patched below
       });
     }
   }
@@ -284,17 +280,7 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
   // Emit collapsed row for before-first-hunk region
   const beforeFirstRegion = gapToRegion.get(0);
   if (beforeFirstRegion) {
-    const updatedRegion = { ...beforeFirstRegion, insertAfterRow: -1 };
-    collapsedRegions[updatedRegion.index] = updatedRegion;
-    rows.push({
-      type: 'collapsed',
-      oldLineNumber: null,
-      newLineNumber: null,
-      oldContent: null,
-      newContent: null,
-      regionIndex: updatedRegion.index,
-      hiddenLineCount: updatedRegion.lineCount,
-    });
+    pushCollapsedRow(rows, beforeFirstRegion);
   }
 
   for (let ci = 0; ci < chunks.length; ci++) {
@@ -304,18 +290,7 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
     if (ci > 0) {
       const region = gapToRegion.get(ci);
       if (region) {
-        const insertAfterRow = rows.length - 1;
-        const updatedRegion = { ...region, insertAfterRow };
-        collapsedRegions[updatedRegion.index] = updatedRegion;
-        rows.push({
-          type: 'collapsed',
-          oldLineNumber: null,
-          newLineNumber: null,
-          oldContent: null,
-          newContent: null,
-          regionIndex: updatedRegion.index,
-          hiddenLineCount: updatedRegion.lineCount,
-        });
+        pushCollapsedRow(rows, region);
       }
     }
 
@@ -327,7 +302,7 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
           type: 'removed',
           oldLineNumber: del.ln,
           newLineNumber: null,
-          oldContent: stripPrefix(del.content),
+          oldContent: del.content,
           newContent: null,
         });
       }
@@ -348,13 +323,14 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
           break;
         }
         case 'del': {
-          pendingDels.push({ ln: change.ln, content: change.content });
+          pendingDels.push({ ln: change.ln, content: stripPrefix(change.content) });
           break;
         }
         case 'add': {
           if (pendingDels.length > 0) {
             const del = pendingDels[0]!;
-            const sim = similarity(stripPrefix(del.content), stripPrefix(change.content));
+            const addedContent = stripPrefix(change.content);
+            const sim = similarity(del.content, addedContent);
             if (sim >= SIMILARITY_THRESHOLD) {
               // Similar enough → pair as modified row
               pendingDels.shift();
@@ -362,8 +338,8 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
                 type: 'modified',
                 oldLineNumber: del.ln,
                 newLineNumber: change.ln,
-                oldContent: stripPrefix(del.content),
-                newContent: stripPrefix(change.content),
+                oldContent: del.content,
+                newContent: addedContent,
               });
             } else {
               // Not similar → emit add now, keep dels pending.
@@ -374,7 +350,7 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
                 oldLineNumber: null,
                 newLineNumber: change.ln,
                 oldContent: null,
-                newContent: stripPrefix(change.content),
+                newContent: addedContent,
               });
             }
           } else {
@@ -399,21 +375,10 @@ export const alignDiff = (rawDiff: string, label: string, lineCount?: number): D
   // After-last-hunk collapsed row
   const afterLastRegion = gapToRegion.get(chunks.length);
   if (afterLastRegion) {
-    const insertAfterRow = rows.length - 1;
-    const updatedRegion = { ...afterLastRegion, insertAfterRow };
-    collapsedRegions[updatedRegion.index] = updatedRegion;
-    rows.push({
-      type: 'collapsed',
-      oldLineNumber: null,
-      newLineNumber: null,
-      oldContent: null,
-      newContent: null,
-      regionIndex: updatedRegion.index,
-      hiddenLineCount: updatedRegion.lineCount,
-    });
+    pushCollapsedRow(rows, afterLastRegion);
   }
 
-  return buildDiffData(suppressNoiseRows(rows), label, collapsedRegions);
+  return buildDiffData(rows, label, collapsedRegions);
 };
 
 // --- DiffData construction ---
@@ -480,6 +445,21 @@ export type RegionExpansion = {
  * 3. Emits revealed lines from bottom edge as 'expanded-context' rows
  * Non-collapsed rows pass through unchanged.
  */
+export const getNormalizedRegionExpansion = (
+  region: CollapsedRegion,
+  expansion: RegionExpansion,
+): {
+  actualFromTop: number;
+  actualFromBottom: number;
+  remaining: number;
+} => {
+  const actualFromTop = Math.min(expansion.fromTop, region.lineCount);
+  const actualFromBottom = Math.min(expansion.fromBottom, region.lineCount - actualFromTop);
+  const remaining = region.lineCount - actualFromTop - actualFromBottom;
+
+  return { actualFromTop, actualFromBottom, remaining };
+};
+
 export const resolveEffectiveRows = (
   baseRows: readonly AlignedRow[],
   collapsedRegions: readonly CollapsedRegion[],
@@ -509,10 +489,7 @@ export const resolveEffectiveRows = (
       continue;
     }
 
-    const { fromTop, fromBottom } = expansion;
-    const actualFromTop = Math.min(fromTop, region.lineCount);
-    const actualFromBottom = Math.min(fromBottom, region.lineCount - actualFromTop);
-    const remaining = region.lineCount - actualFromTop - actualFromBottom;
+    const { actualFromTop, actualFromBottom, remaining } = getNormalizedRegionExpansion(region, expansion);
 
     // Emit expanded lines from top edge
     for (let k = 0; k < actualFromTop; k++) {
@@ -568,7 +545,7 @@ export const resolveEffectiveRows = (
 export const recomputeDiffMeta = (
   baseDiffData: DiffData,
   expandedRegions: ReadonlyMap<number, RegionExpansion>,
-): { rowCount: number; visibleLines: readonly number[]; newLineToRow: ReadonlyMap<number, number> } => {
+): DiffMetaLike => {
   if (expandedRegions.size === 0) {
     return {
       rowCount: baseDiffData.rows.length,
@@ -604,10 +581,7 @@ export const recomputeDiffMeta = (
       continue;
     }
 
-    const { fromTop, fromBottom } = expansion;
-    const actualFromTop = Math.min(fromTop, region.lineCount);
-    const actualFromBottom = Math.min(fromBottom, region.lineCount - actualFromTop);
-    const remaining = region.lineCount - actualFromTop - actualFromBottom;
+    const { actualFromTop, actualFromBottom, remaining } = getNormalizedRegionExpansion(region, expansion);
 
     // Top expanded lines
     for (let k = 0; k < actualFromTop; k++) {

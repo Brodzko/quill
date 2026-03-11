@@ -10,8 +10,9 @@ import {
   INTENT_OPTIONS,
 } from './picker.js';
 import { annotationBoxHeight } from './annotation-box.js';
-import type { CollapsedRegion, DiffData, RegionExpansion } from './diff-align.js';
+import type { CollapsedRegion, DiffData, DiffMetaLike, RegionExpansion } from './diff-align.js';
 import {
+  getNormalizedRegionExpansion,
   recomputeDiffMeta,
   findRegionForLine as findRegionForLineHelper,
   isLineRevealed as isLineRevealedHelper,
@@ -131,17 +132,9 @@ export type Selection = {
  * state so the reducer can clamp cursors and compute viewport offsets without
  * needing the full DiffData. Undefined when no diff data exists.
  */
-export type DiffMeta = {
-  /** Total display rows (DiffData.rows.length or effective rows when expanded). */
-  readonly rowCount: number;
-  /** Sorted new-file line numbers visible in the diff (from DiffData.visibleNewLines). */
-  readonly visibleLines: readonly number[];
-  /** Maps new-file line number (1-indexed) → display row index. */
-  readonly newLineToRow: ReadonlyMap<number, number>;
+export type DiffMeta = DiffMetaLike & {
   /** Collapsed regions — immutable reference from DiffData. Needed for expand/collapse. */
   readonly collapsedRegions?: readonly CollapsedRegion[];
-  /** Base row count from the immutable DiffData (before any expansion). */
-  readonly baseRowCount?: number;
 };
 
 export type SessionState = {
@@ -186,9 +179,6 @@ export type SessionState = {
   readonly confirmFlow?: ConfirmFlowState;
   readonly searchFlow?: SearchFlowState;
 };
-
-/** @deprecated Use SessionState — alias kept for migration. */
-export type BrowseState = SessionState;
 
 // Standard useReducer-compatible signature: (state, action) => state.
 export type BrowseAction =
@@ -655,23 +645,36 @@ const extraRows = (state: SessionState): number =>
   computeExpandedExtraRows(state.annotations, state.expandedAnnotations);
 
 /**
+ * Build the reducer-facing DiffMeta from immutable DiffData + optional expansion state.
+ */
+export const createDiffMeta = (
+  baseDiffData: DiffData,
+  expandedRegions?: ReadonlyMap<number, RegionExpansion>,
+): DiffMeta => {
+  const meta = expandedRegions
+    ? recomputeDiffMeta(baseDiffData, expandedRegions)
+    : {
+        rowCount: baseDiffData.rows.length,
+        visibleLines: baseDiffData.visibleNewLines,
+        newLineToRow: baseDiffData.newLineToRowIndex,
+      };
+
+  return {
+    ...meta,
+    collapsedRegions: baseDiffData.collapsedRegions,
+  };
+};
+
+/**
  * Apply region expansion to state, recomputing DiffMeta.
  * Uses baseDiffData to pass to recomputeDiffMeta for structural metadata.
- * Preserves collapsedRegions and baseRowCount on the resulting DiffMeta.
  */
 const applyRegionExpansion = (
   state: SessionState,
   expandedRegions: ReadonlyMap<number, RegionExpansion>,
   baseDiffData: DiffData,
 ): SessionState => {
-  const meta = recomputeDiffMeta(baseDiffData, expandedRegions);
-  const diffMeta: DiffMeta = {
-    rowCount: meta.rowCount,
-    visibleLines: meta.visibleLines,
-    newLineToRow: meta.newLineToRow,
-    collapsedRegions: baseDiffData.collapsedRegions,
-    baseRowCount: baseDiffData.rows.length,
-  };
+  const diffMeta = createDiffMeta(baseDiffData, expandedRegions);
   return { ...state, expandedRegions, diffMeta };
 };
 
@@ -1020,8 +1023,7 @@ export const reduce = (state: SessionState, action: BrowseAction): SessionState 
 
       const currentMap = state.expandedRegions ?? new Map<number, RegionExpansion>();
       const current = currentMap.get(region.index) ?? { fromTop: 0, fromBottom: 0 };
-      const remaining = region.lineCount - Math.min(current.fromTop, region.lineCount) -
-        Math.min(current.fromBottom, Math.max(0, region.lineCount - current.fromTop));
+      const { remaining } = getNormalizedRegionExpansion(region, current);
 
       if (remaining <= 0) return state; // fully expanded already
 

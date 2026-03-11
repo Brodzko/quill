@@ -515,78 +515,6 @@ rename to bar.ts`;
     });
   });
 
-  describe('whitespace / offset noise suppression', () => {
-    it('reclassifies modified rows with identical trimmed content as context', () => {
-      // Indentation change only: 2-space → 4-space
-      const diff = makeDiff(`@@ -1,3 +1,3 @@
- const a = 1;
--  const b = 2;
-+    const b = 2;
- const c = 3;`);
-      const data = alignDiff(diff, 'main');
-
-      expect(types(data)).toEqual(['context', 'context', 'context']);
-      // Original content is preserved even though type changed
-      expect(data.rows[1]!.oldContent).toBe('  const b = 2;');
-      expect(data.rows[1]!.newContent).toBe('    const b = 2;');
-    });
-
-    it('reclassifies offset-only changes (identical content, different line numbers)', () => {
-      // Line was "moved" due to an addition above — content identical
-      const diff = makeDiff(`@@ -1,3 +1,4 @@
- const a = 1;
-+const inserted = true;
--const b = 2;
-+const b = 2;
- const c = 3;`);
-      const data = alignDiff(diff, 'main');
-
-      // The del(b=2) + add(b=2) pair: identical content → context
-      const modifiedOrContext = data.rows.filter(
-        (r) => r.oldContent === 'const b = 2;' || r.newContent === 'const b = 2;'
-      );
-      for (const row of modifiedOrContext) {
-        if (row.oldContent !== null && row.newContent !== null) {
-          expect(row.type).toBe('context');
-        }
-      }
-    });
-
-    it('keeps genuinely modified rows as modified', () => {
-      const diff = makeDiff(`@@ -1,3 +1,3 @@
- const a = 1;
--const b = 2;
-+const b = 22;
- const c = 3;`);
-      const data = alignDiff(diff, 'main');
-
-      expect(types(data)).toEqual(['context', 'modified', 'context']);
-    });
-
-    it('reclassifies trailing-whitespace-only changes', () => {
-      // Trailing space removed
-      const diff = makeDiff(`@@ -1,1 +1,1 @@
--const a = 1;   
-+const a = 1;`);
-      const data = alignDiff(diff, 'main');
-
-      expect(types(data)).toEqual(['context']);
-    });
-
-    it('preserves line numbers on reclassified context rows', () => {
-      const diff = makeDiff(`@@ -5,1 +8,1 @@
--  indented;
-+    indented;`);
-      const data = alignDiff(diff, 'main');
-
-      // First row is collapsed region (lines 1-7 hidden), second is the reclassified context
-      expect(data.rows[0]!.type).toBe('collapsed');
-      expect(data.rows[1]!.type).toBe('context');
-      expect(data.rows[1]!.oldLineNumber).toBe(5);
-      expect(data.rows[1]!.newLineNumber).toBe(8);
-    });
-  });
-
   describe('complex interleaved changes', () => {
     it('handles del, del, del, add, add, normal, del, add, add', () => {
       // This is the example from PHASE_3_PLAN.md
@@ -979,8 +907,8 @@ describe('recomputeDiffMeta', () => {
 
 describe('findRegionForLine', () => {
   const regions: CollapsedRegion[] = [
-    { index: 0, newStartLine: 1, newEndLine: 4, oldStartLine: 1, oldEndLine: 4, lineCount: 4, insertAfterRow: -1 },
-    { index: 1, newStartLine: 10, newEndLine: 15, oldStartLine: 10, oldEndLine: 15, lineCount: 6, insertAfterRow: 5 },
+    { index: 0, newStartLine: 1, newEndLine: 4, oldStartLine: 1, oldEndLine: 4, lineCount: 4 },
+    { index: 1, newStartLine: 10, newEndLine: 15, oldStartLine: 10, oldEndLine: 15, lineCount: 6 },
   ];
 
   it('finds region containing the line', () => {
@@ -1009,7 +937,7 @@ describe('findRegionForLine', () => {
 describe('isLineRevealed', () => {
   const region: CollapsedRegion = {
     index: 0, newStartLine: 10, newEndLine: 20,
-    oldStartLine: 10, oldEndLine: 20, lineCount: 11, insertAfterRow: 0,
+    oldStartLine: 10, oldEndLine: 20, lineCount: 11,
   };
 
   it('returns true for lines in top expansion', () => {
@@ -1039,7 +967,7 @@ describe('isLineRevealed', () => {
 describe('autoExpandForLine', () => {
   const region: CollapsedRegion = {
     index: 0, newStartLine: 10, newEndLine: 30,
-    oldStartLine: 10, oldEndLine: 30, lineCount: 21, insertAfterRow: 0,
+    oldStartLine: 10, oldEndLine: 30, lineCount: 21,
   };
 
   it('expands from top when line is closer to top', () => {
