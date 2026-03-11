@@ -109,7 +109,7 @@ describe('diff', () => {
       mockedExecFileSync.mockImplementation((_cmd, args) => {
         const a = args as string[];
         if (a[0] === 'rev-parse') return '/repo\n';
-        if (a[0] === 'diff' && a[1] === '--staged') return SAMPLE_DIFF;
+        if (a[0] === 'diff' && a.includes('--staged')) return SAMPLE_DIFF;
         if (a[0] === 'show' && a[1] === 'HEAD:src/foo.ts') return 'old content';
         return '';
       });
@@ -126,7 +126,7 @@ describe('diff', () => {
       mockedExecFileSync.mockImplementation((_cmd, args) => {
         const a = args as string[];
         if (a[0] === 'rev-parse') return '/repo\n';
-        if (a[0] === 'diff' && a[1] === '--') return SAMPLE_DIFF;
+        if (a[0] === 'diff' && !a.includes('--staged')) return SAMPLE_DIFF;
         if (a[0] === 'show' && a[1] === ':src/foo.ts') return 'index content';
         return '';
       });

@@ -65,17 +65,17 @@ export const resolveDiff = (source: DiffSource, filePath: string): DiffInput => 
 
   switch (source.type) {
     case 'ref': {
-      const rawDiff = execGitDiff(['diff', source.ref, '--', relPath]);
+      const rawDiff = execGitDiff(['diff', '--diff-algorithm=histogram', source.ref, '--', relPath]);
       const oldContent = execGitShow(`${source.ref}:${relPath}`);
       return { rawDiff, oldContent, label: source.ref };
     }
     case 'staged': {
-      const rawDiff = execGitDiff(['diff', '--staged', '--', relPath]);
+      const rawDiff = execGitDiff(['diff', '--diff-algorithm=histogram', '--staged', '--', relPath]);
       const oldContent = execGitShow(`HEAD:${relPath}`);
       return { rawDiff, oldContent, label: 'staged' };
     }
     case 'unstaged': {
-      const rawDiff = execGitDiff(['diff', '--', relPath]);
+      const rawDiff = execGitDiff(['diff', '--diff-algorithm=histogram', '--', relPath]);
       const oldContent = execGitShow(`:${relPath}`);
       return { rawDiff, oldContent, label: 'unstaged' };
     }
