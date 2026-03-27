@@ -30,6 +30,7 @@ const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
   cursorLine: 1,
   viewportOffset: 0,
   horizontalOffset: 0,
+  lineWrap: false,
   mode: 'browse',
   annotations: [],
   expandedAnnotations: new Set(),
@@ -185,9 +186,13 @@ describe('stableViewportOffset', () => {
 // ---------------------------------------------------------------------------
 
 describe('cursorDisplayRow', () => {
-  const ann = (id: string, endLine: number): Annotation => makeAnnotation({
-    id, startLine: endLine, endLine, comment: 'test comment for wrapping',
-  });
+  const ann = (id: string, endLine: number): Annotation =>
+    makeAnnotation({
+      id,
+      startLine: endLine,
+      endLine,
+      comment: 'test comment for wrapping',
+    });
 
   it('returns simple offset when no annotations are expanded', () => {
     expect(cursorDisplayRow(0, 10, [], new Set())).toBe(9);
@@ -230,9 +235,13 @@ describe('cursorDisplayRow', () => {
 // ---------------------------------------------------------------------------
 
 describe('computeRawViewportOffset', () => {
-  const ann = (id: string, endLine: number): Annotation => makeAnnotation({
-    id, startLine: endLine, endLine, comment: 'test comment for wrapping',
-  });
+  const ann = (id: string, endLine: number): Annotation =>
+    makeAnnotation({
+      id,
+      startLine: endLine,
+      endLine,
+      comment: 'test comment for wrapping',
+    });
 
   it('scrolls down accounting for annotation box height', () => {
     const annotations = [ann('a1', 10)];
@@ -291,9 +300,13 @@ describe('computeRawViewportOffset', () => {
 // ---------------------------------------------------------------------------
 
 describe('reduce — move_cursor with annotations', () => {
-  const ann = (id: string, endLine: number): Annotation => makeAnnotation({
-    id, startLine: endLine, endLine, comment: 'test comment for box height',
-  });
+  const ann = (id: string, endLine: number): Annotation =>
+    makeAnnotation({
+      id,
+      startLine: endLine,
+      endLine,
+      comment: 'test comment for box height',
+    });
 
   it('scrolls viewport when cursor approaches bottom past annotation boxes', () => {
     const annotations = [ann('a1', 5)];
@@ -311,7 +324,10 @@ describe('reduce — move_cursor with annotations', () => {
     for (let i = 0; i < 25; i++) {
       s = reduce(s, { type: 'move_cursor', delta: 1 });
       const dr = cursorDisplayRow(
-        s.viewportOffset, s.cursorLine, s.annotations, s.expandedAnnotations,
+        s.viewportOffset,
+        s.cursorLine,
+        s.annotations,
+        s.expandedAnnotations
       );
       expect(dr).toBeGreaterThanOrEqual(0);
       expect(dr).toBeLessThan(s.viewportHeight);
@@ -688,19 +704,28 @@ describe('edge cases — zero-line file', () => {
 describe('toggle_annotation', () => {
   it('expands a collapsed annotation', () => {
     const state = makeState({ expandedAnnotations: new Set() });
-    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'toggle_annotation',
+      annotationId: 'a1',
+    });
     expect(next.expandedAnnotations.has('a1')).toBe(true);
   });
 
   it('collapses an expanded annotation', () => {
     const state = makeState({ expandedAnnotations: new Set(['a1']) });
-    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'toggle_annotation',
+      annotationId: 'a1',
+    });
     expect(next.expandedAnnotations.has('a1')).toBe(false);
   });
 
   it('does not affect other expanded annotations', () => {
     const state = makeState({ expandedAnnotations: new Set(['a1', 'a2']) });
-    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'toggle_annotation',
+      annotationId: 'a1',
+    });
     expect(next.expandedAnnotations.has('a1')).toBe(false);
     expect(next.expandedAnnotations.has('a2')).toBe(true);
   });
@@ -714,7 +739,10 @@ describe('delete_annotation', () => {
   it('removes annotation from list', () => {
     const ann = makeAnnotation({ id: 'a1' });
     const state = makeState({ annotations: [ann] });
-    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'delete_annotation',
+      annotationId: 'a1',
+    });
     expect(next.annotations).toEqual([]);
   });
 
@@ -724,7 +752,10 @@ describe('delete_annotation', () => {
       annotations: [ann],
       expandedAnnotations: new Set(['a1']),
     });
-    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'delete_annotation',
+      annotationId: 'a1',
+    });
     expect(next.expandedAnnotations.has('a1')).toBe(false);
   });
 
@@ -732,7 +763,10 @@ describe('delete_annotation', () => {
     const ann1 = makeAnnotation({ id: 'a1' });
     const ann2 = makeAnnotation({ id: 'a2', startLine: 20, endLine: 22 });
     const state = makeState({ annotations: [ann1, ann2] });
-    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'delete_annotation',
+      annotationId: 'a1',
+    });
     expect(next.annotations).toEqual([ann2]);
   });
 });
@@ -766,7 +800,12 @@ describe('update_annotation', () => {
 
   it('does not affect other annotations', () => {
     const ann1 = makeAnnotation({ id: 'a1', comment: 'one' });
-    const ann2 = makeAnnotation({ id: 'a2', comment: 'two', startLine: 20, endLine: 22 });
+    const ann2 = makeAnnotation({
+      id: 'a2',
+      comment: 'two',
+      startLine: 20,
+      endLine: 22,
+    });
     const state = makeState({ annotations: [ann1, ann2] });
     const next = reduce(state, {
       type: 'update_annotation',
@@ -992,7 +1031,11 @@ describe('reduce — scroll_horizontal', () => {
   });
 
   it('does not affect cursor or viewport offset', () => {
-    const state = makeState({ cursorLine: 10, viewportOffset: 5, horizontalOffset: 0 });
+    const state = makeState({
+      cursorLine: 10,
+      viewportOffset: 5,
+      horizontalOffset: 0,
+    });
     const next = reduce(state, { type: 'scroll_horizontal', delta: 4 });
     expect(next.cursorLine).toBe(10);
     expect(next.viewportOffset).toBe(5);
@@ -1051,14 +1094,20 @@ describe('reduce — collapse_all', () => {
 describe('reduce — expand_all', () => {
   it('expands all annotations', () => {
     const anns = [makeAnnotation({ id: 'a' }), makeAnnotation({ id: 'b' })];
-    const state = makeState({ annotations: anns, expandedAnnotations: new Set() });
+    const state = makeState({
+      annotations: anns,
+      expandedAnnotations: new Set(),
+    });
     const next = reduce(state, { type: 'expand_all' });
     expect(next.expandedAnnotations).toEqual(new Set(['a', 'b']));
   });
 
   it('is idempotent when all already expanded', () => {
     const anns = [makeAnnotation({ id: 'a' })];
-    const state = makeState({ annotations: anns, expandedAnnotations: new Set(['a']) });
+    const state = makeState({
+      annotations: anns,
+      expandedAnnotations: new Set(['a']),
+    });
     const next = reduce(state, { type: 'expand_all' });
     expect(next.expandedAnnotations).toEqual(new Set(['a']));
   });
@@ -1179,7 +1228,10 @@ describe('focusedAnnotationId — reducer integration', () => {
       annotations: [ann1],
       expandedAnnotations: new Set(),
     });
-    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'toggle_annotation',
+      annotationId: 'a1',
+    });
     expect(next.expandedAnnotations.has('a1')).toBe(true);
     expect(next.focusedAnnotationId).toBe('a1');
   });
@@ -1191,7 +1243,10 @@ describe('focusedAnnotationId — reducer integration', () => {
       expandedAnnotations: new Set(['a1']),
       focusedAnnotationId: 'a1',
     });
-    const next = reduce(state, { type: 'toggle_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'toggle_annotation',
+      annotationId: 'a1',
+    });
     expect(next.expandedAnnotations.has('a1')).toBe(false);
     expect(next.focusedAnnotationId).toBeNull();
   });
@@ -1203,7 +1258,10 @@ describe('focusedAnnotationId — reducer integration', () => {
       expandedAnnotations: new Set(['a1', 'a2']),
       focusedAnnotationId: 'a1',
     });
-    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'delete_annotation',
+      annotationId: 'a1',
+    });
     expect(next.focusedAnnotationId).toBe('a2');
   });
 
@@ -1214,7 +1272,10 @@ describe('focusedAnnotationId — reducer integration', () => {
       expandedAnnotations: new Set(['a1']),
       focusedAnnotationId: 'a1',
     });
-    const next = reduce(state, { type: 'delete_annotation', annotationId: 'a1' });
+    const next = reduce(state, {
+      type: 'delete_annotation',
+      annotationId: 'a1',
+    });
     expect(next.focusedAnnotationId).toBeNull();
   });
 
@@ -1245,7 +1306,10 @@ describe('focusedAnnotationId — reducer integration', () => {
       annotations: [ann1, ann2],
       expandedAnnotations: new Set(['a1', 'a2']),
     });
-    const next = reduce(state, { type: 'focus_annotation', annotationId: 'a2' });
+    const next = reduce(state, {
+      type: 'focus_annotation',
+      annotationId: 'a2',
+    });
     expect(next.focusedAnnotationId).toBe('a2');
   });
 });
@@ -1405,6 +1469,25 @@ describe('reduce — set_cursor (diff mode)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// reduce — toggle_line_wrap
+// ---------------------------------------------------------------------------
+
+describe('reduce — toggle_line_wrap', () => {
+  it('toggles lineWrap on and resets horizontal offset', () => {
+    const state = makeState({ lineWrap: false, horizontalOffset: 10 });
+    const next = reduce(state, { type: 'toggle_line_wrap' });
+    expect(next.lineWrap).toBe(true);
+    expect(next.horizontalOffset).toBe(0);
+  });
+
+  it('toggles lineWrap off', () => {
+    const state = makeState({ lineWrap: true });
+    const next = reduce(state, { type: 'toggle_line_wrap' });
+    expect(next.lineWrap).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // reduce — toggle_view_mode
 // ---------------------------------------------------------------------------
 
@@ -1515,7 +1598,11 @@ describe('reduce — toggle_view_mode', () => {
   });
 
   it('preserves search state across toggle', () => {
-    const search = { pattern: 'foo', matchLines: [3, 10], currentMatchIndex: 0 };
+    const search = {
+      pattern: 'foo',
+      matchLines: [3, 10],
+      currentMatchIndex: 0,
+    };
     const state = makeState({
       viewMode: 'raw',
       diffMeta,
@@ -1583,7 +1670,7 @@ describe('stable viewport — toggle_view_mode', () => {
     const next = reduce(state, { type: 'toggle_view_mode' });
     expect(next.viewMode).toBe('raw');
     // In raw mode, cursor row = cursorLine - 1 = 9. Visual row should be same.
-    const rawVisualRow = (next.cursorLine - 1) - next.viewportOffset;
+    const rawVisualRow = next.cursorLine - 1 - next.viewportOffset;
     const oldVisualRow = diffRow - state.viewportOffset;
     expect(rawVisualRow).toBe(oldVisualRow);
   });
@@ -1667,7 +1754,12 @@ index abc1234..def5678 100644
     const cursorRow = state.diffMeta!.newLineToRow.get(state.cursorLine)!;
     const visualRowBefore = cursorRow - state.viewportOffset;
 
-    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 3 });
+    const next = reduce(state, {
+      type: 'expand_region',
+      regionIndex: 0,
+      direction: 'down',
+      step: 3,
+    });
     const nextCursorRow = next.diffMeta!.newLineToRow.get(next.cursorLine)!;
     const visualRowAfter = nextCursorRow - next.viewportOffset;
 
@@ -1690,12 +1782,16 @@ index abc1234..def5678 100644
     const state = makeDiffState();
     // First expand all
     const expanded = reduce(state, { type: 'expand_all_regions' });
-    const expandedCursorRow = expanded.diffMeta!.newLineToRow.get(expanded.cursorLine)!;
+    const expandedCursorRow = expanded.diffMeta!.newLineToRow.get(
+      expanded.cursorLine
+    )!;
     const visualRowBefore = expandedCursorRow - expanded.viewportOffset;
 
     // Then collapse
     const collapsed = reduce(expanded, { type: 'collapse_all_regions' });
-    const collapsedCursorRow = collapsed.diffMeta!.newLineToRow.get(collapsed.cursorLine)!;
+    const collapsedCursorRow = collapsed.diffMeta!.newLineToRow.get(
+      collapsed.cursorLine
+    )!;
     const visualRowAfter = collapsedCursorRow - collapsed.viewportOffset;
 
     expect(visualRowAfter).toBe(visualRowBefore);
@@ -1707,7 +1803,11 @@ describe('stable viewport — navigate_match', () => {
     const state = makeState({
       cursorLine: 10,
       viewportOffset: 5,
-      search: { pattern: 'foo', matchLines: [10, 50, 80], currentMatchIndex: 0 },
+      search: {
+        pattern: 'foo',
+        matchLines: [10, 50, 80],
+        currentMatchIndex: 0,
+      },
     });
     // Visual row = cursorRow - viewportOffset = (10-1) - 5 = 4
     const next = reduce(state, { type: 'navigate_match', delta: 1 });
@@ -1826,19 +1926,31 @@ index abc1234..def5678 100644
     const regions = state.diffMeta!.collapsedRegions!;
     expect(regions.length).toBeGreaterThan(0);
 
-    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 3 });
+    const next = reduce(state, {
+      type: 'expand_region',
+      regionIndex: 0,
+      direction: 'down',
+      step: 3,
+    });
     expect(next.expandedRegions).toBeDefined();
     const exp = next.expandedRegions!.get(0);
     expect(exp).toBeDefined();
     expect(exp!.fromTop).toBe(3);
     expect(exp!.fromBottom).toBe(0);
     // DiffMeta should be recomputed with more visible lines
-    expect(next.diffMeta!.visibleLines.length).toBeGreaterThan(state.diffMeta!.visibleLines.length);
+    expect(next.diffMeta!.visibleLines.length).toBeGreaterThan(
+      state.diffMeta!.visibleLines.length
+    );
   });
 
   it('expands region from bottom (direction=up)', () => {
     const state = makeDiffState();
-    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'up', step: 2 });
+    const next = reduce(state, {
+      type: 'expand_region',
+      regionIndex: 0,
+      direction: 'up',
+      step: 2,
+    });
     const exp = next.expandedRegions!.get(0);
     expect(exp!.fromTop).toBe(0);
     expect(exp!.fromBottom).toBe(2);
@@ -1848,7 +1960,12 @@ index abc1234..def5678 100644
     const state = makeDiffState();
     const region = state.diffMeta!.collapsedRegions![0]!;
     // Expand more than available
-    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 100 });
+    const next = reduce(state, {
+      type: 'expand_region',
+      regionIndex: 0,
+      direction: 'down',
+      step: 100,
+    });
     const exp = next.expandedRegions!.get(0);
     expect(exp!.fromTop).toBe(region.lineCount);
   });
@@ -1857,15 +1974,30 @@ index abc1234..def5678 100644
     const state = makeDiffState();
     const region = state.diffMeta!.collapsedRegions![0]!;
     // First expand fully
-    const expanded = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: region.lineCount });
+    const expanded = reduce(state, {
+      type: 'expand_region',
+      regionIndex: 0,
+      direction: 'down',
+      step: region.lineCount,
+    });
     // Then try again
-    const next = reduce(expanded, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 5 });
+    const next = reduce(expanded, {
+      type: 'expand_region',
+      regionIndex: 0,
+      direction: 'down',
+      step: 5,
+    });
     expect(next).toBe(expanded); // unchanged
   });
 
   it('no-op without baseDiffData', () => {
     const state = makeState({ viewMode: 'diff' });
-    const next = reduce(state, { type: 'expand_region', regionIndex: 0, direction: 'down', step: 5 });
+    const next = reduce(state, {
+      type: 'expand_region',
+      regionIndex: 0,
+      direction: 'down',
+      step: 5,
+    });
     expect(next).toBe(state);
   });
 });
@@ -1894,7 +2026,12 @@ index abc1234..def5678 100644
       collapsedRegions: diffData.collapsedRegions,
       baseRowCount: diffData.rows.length,
     };
-    const state = makeState({ viewMode: 'diff', diffMeta: dm, baseDiffData: diffData, cursorLine: 1 });
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta: dm,
+      baseDiffData: diffData,
+      cursorLine: 1,
+    });
 
     const next = reduce(state, { type: 'expand_all_regions' });
     // All regions should be fully expanded
@@ -1930,7 +2067,12 @@ index abc1234..def5678 100644
       collapsedRegions: diffData.collapsedRegions,
       baseRowCount: diffData.rows.length,
     };
-    const state = makeState({ viewMode: 'diff', diffMeta: dm, baseDiffData: diffData, cursorLine: 1 });
+    const state = makeState({
+      viewMode: 'diff',
+      diffMeta: dm,
+      baseDiffData: diffData,
+      cursorLine: 1,
+    });
 
     // First expand
     const expanded = reduce(state, { type: 'expand_all_regions' });

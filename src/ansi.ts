@@ -124,11 +124,7 @@ export const truncateAnsi = (s: string, maxVisible: number): string => {
  *
  * Returns the string unchanged when start=0 and it fits within width.
  */
-export const sliceAnsi = (
-  s: string,
-  start: number,
-  width: number
-): string => {
+export const sliceAnsi = (s: string, start: number, width: number): string => {
   if (start === 0) return truncateAnsi(s, width);
 
   // Phase 1: skip `start` visible chars, collecting ANSI sequences
@@ -233,9 +229,7 @@ export const highlightSearchMatches = (
     const rawStart = visMap[match.start]!;
     // rawEnd: position *after* the last matched visible char
     const rawEnd =
-      match.end < visMap.length
-        ? visMap[match.end]!
-        : result.length;
+      match.end < visMap.length ? visMap[match.end]! : result.length;
 
     const before = result.slice(0, rawStart);
     const matched = result.slice(rawStart, rawEnd);
@@ -247,6 +241,33 @@ export const highlightSearchMatches = (
   }
 
   return result;
+};
+
+/**
+ * Wrap an ANSI-styled string into multiple lines of at most `width` visible
+ * characters each. Preserves ANSI state across line breaks so colors/styles
+ * carry over to continuation rows. Each returned row is RESET-terminated
+ * when truncated.
+ *
+ * Returns a single-element array when the string fits within `width`.
+ */
+export const wrapAnsi = (s: string, width: number): string[] => {
+  if (width <= 0) return [s];
+  if (visibleLength(s) <= width) return [s];
+
+  const rows: string[] = [];
+  // Use sliceAnsi to extract successive chunks, which already handles
+  // ANSI state preservation across boundaries.
+  let offset = 0;
+  const totalVisible = visibleLength(s);
+
+  while (offset < totalVisible) {
+    const chunk = sliceAnsi(s, offset, width);
+    rows.push(chunk);
+    offset += width;
+  }
+
+  return rows.length > 0 ? rows : [s];
 };
 
 export const bgLine = (s: string, bg: string, cols: number): string => {

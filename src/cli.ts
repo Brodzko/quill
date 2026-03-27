@@ -12,7 +12,14 @@ import { stderr } from 'process';
 import * as R from 'remeda';
 import { defineCommand, runMain } from 'citty';
 import { visibleLength } from './ansi.js';
-import { alignDiff, autoExpandForLine, findRegionForLine, isLineRevealed, type DiffData, type RegionExpansion } from './diff-align.js';
+import {
+  alignDiff,
+  autoExpandForLine,
+  findRegionForLine,
+  isLineRevealed,
+  type DiffData,
+  type RegionExpansion,
+} from './diff-align.js';
 import { resolveDiff } from './diff.js';
 import {
   type BundledTheme,
@@ -40,10 +47,7 @@ const isBinary = (buf: Buffer): boolean => {
   return false;
 };
 import { getViewportHeight } from './render.js';
-import {
-  normalizeInputAnnotations,
-  tryParseInputEnvelope,
-} from './schema.js';
+import { normalizeInputAnnotations, tryParseInputEnvelope } from './schema.js';
 import { runSession } from './session.js';
 import {
   clampLine,
@@ -240,9 +244,11 @@ const command = defineCommand({
       }
 
       const rawContent = rawBuf.toString('utf-8');
-      const sourceLines = rawContent.split('\n').map((l) =>
-        l.length > MAX_LINE_LENGTH ? l.slice(0, MAX_LINE_LENGTH) : l
-      );
+      const sourceLines = rawContent
+        .split('\n')
+        .map(l =>
+          l.length > MAX_LINE_LENGTH ? l.slice(0, MAX_LINE_LENGTH) : l
+        );
 
       const lineCount = sourceLines.length;
 
@@ -271,7 +277,9 @@ const command = defineCommand({
 
       const diffFlagCount = [diffRef, staged, unstaged].filter(Boolean).length;
       if (diffFlagCount > 1) {
-        throw new Error('Only one diff source allowed: --diff-ref, --staged, or --unstaged');
+        throw new Error(
+          'Only one diff source allowed: --diff-ref, --staged, or --unstaged'
+        );
       }
 
       if (diffRef || staged || unstaged) {
@@ -282,20 +290,27 @@ const command = defineCommand({
             : { type: 'unstaged' as const };
         const diffInput = resolveDiff(source, filePath);
         if (dumpDiffPath) {
-          const dumpData = diffInput.rawDiff.trim().length === 0
-            ? '(no differences)\n'
-            : (() => {
-                const dd = alignDiff(diffInput.rawDiff, diffInput.label, lineCount);
-                const header = `# Raw git diff\n\n${diffInput.rawDiff}\n\n# Aligned rows (${dd.rows.length} total)\n\n`;
-                const table = dd.rows.map((r, i) => {
-                  const ol = String(r.oldLineNumber ?? '').padStart(4);
-                  const nl = String(r.newLineNumber ?? '').padStart(4);
-                  const oc = r.oldContent ?? '';
-                  const nc = r.newContent ?? '';
-                  return `${String(i).padStart(4)} ${r.type.padEnd(12)} old:${ol} new:${nl} | ${oc.padEnd(60)} | ${nc}`;
-                }).join('\n');
-                return header + table + '\n';
-              })();
+          const dumpData =
+            diffInput.rawDiff.trim().length === 0
+              ? '(no differences)\n'
+              : (() => {
+                  const dd = alignDiff(
+                    diffInput.rawDiff,
+                    diffInput.label,
+                    lineCount
+                  );
+                  const header = `# Raw git diff\n\n${diffInput.rawDiff}\n\n# Aligned rows (${dd.rows.length} total)\n\n`;
+                  const table = dd.rows
+                    .map((r, i) => {
+                      const ol = String(r.oldLineNumber ?? '').padStart(4);
+                      const nl = String(r.newLineNumber ?? '').padStart(4);
+                      const oc = r.oldContent ?? '';
+                      const nc = r.newContent ?? '';
+                      return `${String(i).padStart(4)} ${r.type.padEnd(12)} old:${ol} new:${nl} | ${oc.padEnd(60)} | ${nc}`;
+                    })
+                    .join('\n');
+                  return header + table + '\n';
+                })();
           writeFileSync(dumpDiffPath, dumpData, 'utf-8');
           stderr.write(`Dumped diff to ${dumpDiffPath}\n`);
           process.exit(0);
@@ -325,7 +340,7 @@ const command = defineCommand({
       const focusedAnnotation = focusAnnotationArg
         ? R.find(
             initialAnnotations,
-            (annotation) => annotation.id === focusAnnotationArg
+            annotation => annotation.id === focusAnnotationArg
           )
         : undefined;
 
@@ -358,15 +373,30 @@ const command = defineCommand({
       const initialViewMode = diffData ? 'diff' : 'raw';
 
       // --- Auto-expand regions for pre-loaded annotations ---
-      let initialExpandedRegions: ReadonlyMap<number, RegionExpansion> | undefined;
-      if (diffData && diffData.collapsedRegions.length > 0 && initialAnnotations.length > 0) {
+      let initialExpandedRegions:
+        | ReadonlyMap<number, RegionExpansion>
+        | undefined;
+      if (
+        diffData &&
+        diffData.collapsedRegions.length > 0 &&
+        initialAnnotations.length > 0
+      ) {
         const regionMap = new Map<number, RegionExpansion>();
         for (const ann of initialAnnotations) {
-          const region = findRegionForLine(diffData.collapsedRegions, ann.endLine);
+          const region = findRegionForLine(
+            diffData.collapsedRegions,
+            ann.endLine
+          );
           if (region) {
-            const current = regionMap.get(region.index) ?? { fromTop: 0, fromBottom: 0 };
+            const current = regionMap.get(region.index) ?? {
+              fromTop: 0,
+              fromBottom: 0,
+            };
             if (!isLineRevealed(region, current, ann.endLine)) {
-              regionMap.set(region.index, autoExpandForLine(ann.endLine, region, current));
+              regionMap.set(
+                region.index,
+                autoExpandForLine(ann.endLine, region, current)
+              );
             }
           }
         }
@@ -383,6 +413,7 @@ const command = defineCommand({
         cursorLine: initialCursorLine,
         viewportOffset: 0,
         horizontalOffset: 0,
+        lineWrap: false,
         mode: 'browse',
         annotations: initialAnnotations,
         expandedAnnotations: initialExpandedAnnotations,
@@ -394,7 +425,10 @@ const command = defineCommand({
       };
       const initialStateBase: SessionState = {
         ...initialStatePreOffset,
-        viewportOffset: computeRawViewportOffset(initialStatePreOffset, initialCursorLine),
+        viewportOffset: computeRawViewportOffset(
+          initialStatePreOffset,
+          initialCursorLine
+        ),
       };
 
       // In diff mode, clamp cursor to nearest visible diff line

@@ -23,8 +23,10 @@ export type KeymapEntry = {
 
 const isUp = (k: Key): boolean => k.char === 'k' || k.upArrow;
 const isDown = (k: Key): boolean => k.char === 'j' || k.downArrow;
-const isHalfPageUp = (k: Key): boolean => k.pageUp || (k.ctrl && k.char === 'u');
-const isHalfPageDown = (k: Key): boolean => k.pageDown || (k.ctrl && k.char === 'd');
+const isHalfPageUp = (k: Key): boolean =>
+  k.pageUp || (k.ctrl && k.char === 'u');
+const isHalfPageDown = (k: Key): boolean =>
+  k.pageDown || (k.ctrl && k.char === 'd');
 const isScrollLeft = (k: Key): boolean => k.char === 'h' || k.leftArrow;
 const isScrollRight = (k: Key): boolean => k.char === 'l' || k.rightArrow;
 
@@ -206,6 +208,11 @@ export const BROWSE = {
     hint: ':',
     description: 'goto',
   },
+  toggleWrap: {
+    match: (k: Key): boolean => k.char === 'W',
+    hint: 'W',
+    description: 'wrap',
+  },
   toggleDiff: {
     match: (k: Key): boolean => k.char === 'd',
     hint: 'd',
@@ -317,6 +324,7 @@ export const helpBar = (entries: readonly KeymapEntry[]): string => {
 export const BROWSE_HELP = helpBar([
   BROWSE.moveUp,
   BROWSE.scrollLeft,
+  BROWSE.toggleWrap,
   BROWSE.startSelect,
   BROWSE.nextAnnotation,
   BROWSE.search,
@@ -369,6 +377,7 @@ export const BROWSE_DIFF_HELP = helpBar([
 export const BROWSE_RAW_WITH_DIFF_HELP = helpBar([
   BROWSE.moveUp,
   BROWSE.scrollLeft,
+  BROWSE.toggleWrap,
   { ...BROWSE.toggleDiff, description: 'diff view' },
   BROWSE.startSelect,
   BROWSE.nextAnnotation,

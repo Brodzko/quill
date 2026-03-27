@@ -54,8 +54,14 @@ import {
   highlightSearchMatches,
   sliceAnsi,
   truncateAnsi,
+  visibleLength,
+  wrapAnsi,
 } from './ansi.js';
-import { annotationsOnLine, renderAnnotationBox } from './annotation-box.js';
+import {
+  annotationBoxHeight,
+  annotationsOnLine,
+  renderAnnotationBox,
+} from './annotation-box.js';
 import {
   BROWSE_DIFF_HELP,
   BROWSE_HELP,
@@ -80,17 +86,21 @@ const lineMarker = (
   focusedAnnotationId: string | null
 ): string => {
   const lineAnns = annotations.filter(
-    (a) => lineNumber >= a.startLine && lineNumber <= a.endLine
+    a => lineNumber >= a.startLine && lineNumber <= a.endLine
   );
   if (lineAnns.length === 0) return '  ';
 
-  const hasExpanded = lineAnns.some((a) => expandedAnnotations.has(a.id));
-  const count = lineAnns.length > 1
-    ? lineAnns.length > 9 ? '+' : String(lineAnns.length)
-    : ' ';
+  const hasExpanded = lineAnns.some(a => expandedAnnotations.has(a.id));
+  const count =
+    lineAnns.length > 1
+      ? lineAnns.length > 9
+        ? '+'
+        : String(lineAnns.length)
+      : ' ';
 
-  const isFocusedLine = focusedAnnotationId !== null &&
-    lineAnns.some((a) => a.id === focusedAnnotationId);
+  const isFocusedLine =
+    focusedAnnotationId !== null &&
+    lineAnns.some(a => a.id === focusedAnnotationId);
 
   if (hasExpanded) {
     const dot = isFocusedLine ? `${FOCUS_MARKER}▼${RESET}` : `${DIM}▼${RESET}`;
@@ -115,6 +125,84 @@ type ViewportResult = {
   rowToLine: (number | undefined)[];
 };
 
+/**
+ * Compute how many display rows a source line takes when wrapping is enabled.
+ * Returns 1 when wrapping is off or the line fits.
+ */
+const wrappedRowCount = (line: string, codeWidth: number): number => {
+  const vis = visibleLength(line);
+  if (vis <= codeWidth) return 1;
+  return Math.ceil(vis / codeWidth);
+};
+
+/**
+ * Adjust viewport offset for wrap mode so the cursor line is visible.
+ * Walks forward from `startOffset`, accumulating display rows per wrapped line
+ * (plus annotation boxes). If the cursor would be pushed past viewportHeight,
+ * increments the start offset until it fits.
+ */
+const adjustOffsetForWrap = (
+  startOffset: number,
+  cursorLine: number,
+  lines: string[],
+  codeWidth: number,
+  viewportHeight: number,
+  annotations: readonly import('./schema.js').Annotation[],
+  expandedAnnotations: ReadonlySet<string>
+): number => {
+  let offset = startOffset;
+  const maxOffset = Math.max(0, lines.length - 1);
+
+  for (let attempt = 0; attempt < 200; attempt++) {
+    let displayRows = 0;
+    let cursorFound = false;
+
+    for (
+      let idx = offset;
+      idx < lines.length && displayRows < viewportHeight;
+      idx++
+    ) {
+      const lineNumber = idx + 1;
+      const lineRows = wrappedRowCount(lines[idx]!, codeWidth);
+
+      if (lineNumber === cursorLine) {
+        // Check if cursor line itself fits
+        if (displayRows + lineRows > viewportHeight) {
+          // Cursor line starts but doesn't fully fit — scroll down
+          break;
+        }
+        cursorFound = true;
+        break; // cursor is visible
+      }
+
+      displayRows += lineRows;
+
+      // Account for annotation boxes
+      const expandedAnns = annotationsOnLine(annotations, lineNumber).filter(
+        a => expandedAnnotations.has(a.id) && a.endLine === lineNumber
+      );
+      for (const ann of expandedAnns) {
+        displayRows += annotationBoxHeight(ann, {
+          maxWidth: 80,
+          isFocused: false,
+        });
+      }
+    }
+
+    if (cursorFound) break;
+
+    // Cursor didn't fit — advance offset
+    offset = Math.min(offset + 1, maxOffset);
+    if (offset >= cursorLine - 1) {
+      // Cursor line is at or before offset — just pin to cursor
+      offset = cursorLine - 1;
+      break;
+    }
+  }
+
+  return offset;
+};
+
 const renderViewport = (
   lines: string[],
   state: SessionState,
@@ -129,8 +217,23 @@ const renderViewport = (
   const selRange = selection ? selectionRange(selection) : undefined;
   const gutterPfx = gutterBlank(gutterWidth);
   const boxMaxWidth = Math.min(80, cols - gutterPfx.length);
+  const gutterVisWidth = gutterWidth + 4; // 1 + gutterWidth + 1 + 2
+  const availableCodeWidth = Math.max(1, cols - gutterVisWidth);
 
-  let lineIndex = state.viewportOffset;
+  // When line wrapping is active, adjust viewport offset so cursor is visible
+  const effectiveOffset = state.lineWrap
+    ? adjustOffsetForWrap(
+        state.viewportOffset,
+        state.cursorLine,
+        lines,
+        availableCodeWidth,
+        viewportHeight,
+        state.annotations,
+        state.expandedAnnotations
+      )
+    : state.viewportOffset;
+
+  let lineIndex = effectiveOffset;
 
   while (rows.length < viewportHeight) {
     if (lineIndex >= lines.length) {
@@ -146,17 +249,12 @@ const renderViewport = (
       selRange !== undefined &&
       lineNumber >= selRange.startLine &&
       lineNumber <= selRange.endLine;
-    const pointer = isCursor ? '>' : ' ';
     const marker = lineMarker(
       lineNumber,
       state.annotations,
       state.expandedAnnotations,
       state.focusedAnnotationId
     );
-    const paddedNum = String(lineNumber).padStart(gutterWidth, ' ');
-    const gutterStr = `${pointer}${paddedNum} ${marker}`;
-    // gutterStr visible width: 1 + gutterWidth + 1 + 2 = gutterWidth + 4
-    const gutterVisWidth = gutterWidth + 4;
 
     const isCurrentMatch =
       search !== undefined &&
@@ -171,20 +269,15 @@ const renderViewport = (
     // Apply inline search highlighting to code content before slicing
     let codeContent = lines[lineIndex]!;
     if ((isCurrentMatch || isMatch) && search) {
-      const inlineBg = isCurrentMatch ? SEARCH_CURRENT_MATCH_BG : SEARCH_MATCH_BG;
-      codeContent = highlightSearchMatches(codeContent, search.pattern, inlineBg);
+      const inlineBg = isCurrentMatch
+        ? SEARCH_CURRENT_MATCH_BG
+        : SEARCH_MATCH_BG;
+      codeContent = highlightSearchMatches(
+        codeContent,
+        search.pattern,
+        inlineBg
+      );
     }
-
-    // Horizontal scroll: slice the code content, preserving ANSI state
-    const hOffset = state.horizontalOffset;
-    const availableCodeWidth = Math.max(1, cols - gutterVisWidth);
-    const slicedCode = hOffset > 0
-      ? sliceAnsi(codeContent, hOffset, availableCodeWidth)
-      : truncateAnsi(codeContent, availableCodeWidth);
-
-    // Horizontal scroll indicator: show ← when content is scrolled right
-    const scrollIndicator = hOffset > 0 ? `${DIM}←${RESET}` : '';
-    const displayRow = `${gutterStr}${scrollIndicator}${slicedCode}`;
 
     const bg = isSelected
       ? SELECT_BG
@@ -195,12 +288,54 @@ const renderViewport = (
           : isCursor
             ? CURSOR_BG
             : undefined;
-    const truncated = truncateAnsi(displayRow, cols);
-    rows.push(`${CLEAR_LINE}${bg ? bgLine(truncated, bg, cols) : truncated}`);
-    rowToLine.push(lineNumber);
 
-    const expandedAnns = annotationsOnLine(state.annotations, lineNumber).filter(
-      (a) => state.expandedAnnotations.has(a.id) && a.endLine === lineNumber
+    if (state.lineWrap) {
+      // --- Wrap mode: split long lines into multiple display rows ---
+      const wrappedCodeRows = wrapAnsi(codeContent, availableCodeWidth);
+
+      for (
+        let wi = 0;
+        wi < wrappedCodeRows.length && rows.length < viewportHeight;
+        wi++
+      ) {
+        const isFirstRow = wi === 0;
+        const pointer = isFirstRow && isCursor ? '>' : ' ';
+        const paddedNum = isFirstRow
+          ? String(lineNumber).padStart(gutterWidth, ' ')
+          : ' '.repeat(gutterWidth);
+        const rowMarker = isFirstRow ? marker : '  ';
+        const gutterStr = `${pointer}${paddedNum} ${rowMarker}`;
+        const displayRow = `${gutterStr}${wrappedCodeRows[wi]}`;
+        const truncated = truncateAnsi(displayRow, cols);
+        rows.push(
+          `${CLEAR_LINE}${bg ? bgLine(truncated, bg, cols) : truncated}`
+        );
+        rowToLine.push(lineNumber);
+      }
+    } else {
+      // --- No-wrap mode: horizontal scroll + truncate ---
+      const pointer = isCursor ? '>' : ' ';
+      const paddedNum = String(lineNumber).padStart(gutterWidth, ' ');
+      const gutterStr = `${pointer}${paddedNum} ${marker}`;
+
+      const hOffset = state.horizontalOffset;
+      const slicedCode =
+        hOffset > 0
+          ? sliceAnsi(codeContent, hOffset, availableCodeWidth)
+          : truncateAnsi(codeContent, availableCodeWidth);
+
+      const scrollIndicator = hOffset > 0 ? `${DIM}←${RESET}` : '';
+      const displayRow = `${gutterStr}${scrollIndicator}${slicedCode}`;
+      const truncated = truncateAnsi(displayRow, cols);
+      rows.push(`${CLEAR_LINE}${bg ? bgLine(truncated, bg, cols) : truncated}`);
+      rowToLine.push(lineNumber);
+    }
+
+    const expandedAnns = annotationsOnLine(
+      state.annotations,
+      lineNumber
+    ).filter(
+      a => state.expandedAnnotations.has(a.id) && a.endLine === lineNumber
     );
 
     for (const ann of expandedAnns) {
@@ -253,7 +388,16 @@ const renderDiffPane = (opts: {
   marker: string;
   horizontalOffset: number;
 }): string => {
-  const { paneWidth, lineNumber, gutterWidth, isPadding, bg, pointer, marker, horizontalOffset } = opts;
+  const {
+    paneWidth,
+    lineNumber,
+    gutterWidth,
+    isPadding,
+    bg,
+    pointer,
+    marker,
+    horizontalOffset,
+  } = opts;
 
   if (isPadding) {
     // Empty padding pane — fill with background
@@ -261,9 +405,10 @@ const renderDiffPane = (opts: {
     return `${padBg}${' '.repeat(paneWidth)}${RESET}`;
   }
 
-  const paddedNum = lineNumber !== null
-    ? String(lineNumber).padStart(gutterWidth, ' ')
-    : ' '.repeat(gutterWidth);
+  const paddedNum =
+    lineNumber !== null
+      ? String(lineNumber).padStart(gutterWidth, ' ')
+      : ' '.repeat(gutterWidth);
   const gutterStr = `${pointer}${paddedNum} ${marker}`;
   const gutterVisWidth = 1 + gutterWidth + 1 + 2; // pointer + num + space + marker(2)
   const codeWidth = Math.max(1, paneWidth - gutterVisWidth);
@@ -273,10 +418,12 @@ const renderDiffPane = (opts: {
 
   // Horizontal scroll: slice the code content, preserving ANSI state
   const scrollIndicator = horizontalOffset > 0 ? `${DIM}←${RESET}` : '';
-  const effectiveCodeWidth = horizontalOffset > 0 ? Math.max(1, codeWidth - 1) : codeWidth;
-  const slicedCode = horizontalOffset > 0
-    ? sliceAnsi(code, horizontalOffset, effectiveCodeWidth)
-    : truncateAnsi(code, codeWidth);
+  const effectiveCodeWidth =
+    horizontalOffset > 0 ? Math.max(1, codeWidth - 1) : codeWidth;
+  const slicedCode =
+    horizontalOffset > 0
+      ? sliceAnsi(code, horizontalOffset, effectiveCodeWidth)
+      : truncateAnsi(code, codeWidth);
 
   const row = `${gutterStr}${scrollIndicator}${slicedCode}`;
   if (bg) {
@@ -305,7 +452,7 @@ const renderDiffViewport = (
   cols: number,
   selection?: Selection,
   search?: SearchState,
-  effectiveDiffRows?: readonly AlignedRow[],
+  effectiveDiffRows?: readonly AlignedRow[]
 ): ViewportResult => {
   const rows: string[] = [];
   const rowToLine: (number | undefined)[] = [];
@@ -319,10 +466,14 @@ const renderDiffViewport = (
 
   // Gutter widths based on max line numbers in the display rows
   const maxOldLine = displayRows.reduce(
-    (mx, r) => (r.oldLineNumber !== null && r.oldLineNumber > mx ? r.oldLineNumber : mx), 0
+    (mx, r) =>
+      r.oldLineNumber !== null && r.oldLineNumber > mx ? r.oldLineNumber : mx,
+    0
   );
   const maxNewLine = displayRows.reduce(
-    (mx, r) => (r.newLineNumber !== null && r.newLineNumber > mx ? r.newLineNumber : mx), 0
+    (mx, r) =>
+      r.newLineNumber !== null && r.newLineNumber > mx ? r.newLineNumber : mx,
+    0
   );
   const leftGutter = gutterWidthFor(maxOldLine);
   const rightGutter = gutterWidthFor(maxNewLine);
@@ -332,7 +483,9 @@ const renderDiffViewport = (
 
   // Annotation gutter prefix for annotation boxes (right pane gutter width)
   const rightGutterBlankWidth = 1 + rightGutter + 1 + 2; // pointer+num+space+marker
-  const boxGutterPfx = ' '.repeat(leftPaneWidth + separatorWidth + rightGutterBlankWidth);
+  const boxGutterPfx = ' '.repeat(
+    leftPaneWidth + separatorWidth + rightGutterBlankWidth
+  );
   const boxMaxWidth = Math.min(80, rightPaneWidth - rightGutterBlankWidth);
 
   let rowIndex = state.viewportOffset;
@@ -351,22 +504,32 @@ const renderDiffViewport = (
 
     // Is the cursor on this row's new-file line?
     const isCursor = newLine !== null && newLine === state.cursorLine;
-    const isSelected = newLine !== null && selRange !== undefined
-      && newLine >= selRange.startLine && newLine <= selRange.endLine;
+    const isSelected =
+      newLine !== null &&
+      selRange !== undefined &&
+      newLine >= selRange.startLine &&
+      newLine <= selRange.endLine;
 
     // Search state for new-file lines
-    const isCurrentMatch = newLine !== null && search !== undefined
-      && search.currentMatchIndex >= 0
-      && search.matchLines[search.currentMatchIndex] === newLine;
-    const isMatch = !isCurrentMatch && newLine !== null && search !== undefined
-      && search.matchLines.length > 0 && search.matchLines.includes(newLine);
+    const isCurrentMatch =
+      newLine !== null &&
+      search !== undefined &&
+      search.currentMatchIndex >= 0 &&
+      search.matchLines[search.currentMatchIndex] === newLine;
+    const isMatch =
+      !isCurrentMatch &&
+      newLine !== null &&
+      search !== undefined &&
+      search.matchLines.length > 0 &&
+      search.matchLines.includes(newLine);
 
     if (diffRow.type === 'collapsed') {
       // Full-width collapsed separator row with hunk-style header
       const count = diffRow.hiddenLineCount ?? 0;
-      const region = diffRow.regionIndex !== undefined
-        ? state.diffMeta?.collapsedRegions?.[diffRow.regionIndex]
-        : undefined;
+      const region =
+        diffRow.regionIndex !== undefined
+          ? state.diffMeta?.collapsedRegions?.[diffRow.regionIndex]
+          : undefined;
       const hunkHeader = region
         ? `@@ -${region.oldStartLine},${region.oldEndLine - region.oldStartLine + 1} +${region.newStartLine},${region.newEndLine - region.newStartLine + 1} @@`
         : '';
@@ -384,7 +547,8 @@ const renderDiffViewport = (
     // Determine backgrounds per side based on row type
     let leftBg: string | undefined;
     let rightBg: string | undefined;
-    const isContextLike = diffRow.type === 'context' || diffRow.type === 'expanded-context';
+    const isContextLike =
+      diffRow.type === 'context' || diffRow.type === 'expanded-context';
     const isLeftPadding = diffRow.oldContent === null && !isContextLike;
     const isRightPadding = diffRow.newContent === null && !isContextLike;
 
@@ -420,7 +584,8 @@ const renderDiffViewport = (
     } else if (isCursor) {
       // Blend cursor with diff background so both signals are visible
       if (rightBg === DIFF_ADDED_BG) rightBg = DIFF_ADDED_CURSOR_BG;
-      else if (rightBg === DIFF_MODIFIED_NEW_BG) rightBg = DIFF_MODIFIED_NEW_CURSOR_BG;
+      else if (rightBg === DIFF_MODIFIED_NEW_BG)
+        rightBg = DIFF_MODIFIED_NEW_CURSOR_BG;
       else if (rightBg === DIFF_EXPANDED_BG) rightBg = DIFF_EXPANDED_CURSOR_BG;
       else rightBg = CURSOR_BG;
     }
@@ -429,21 +594,31 @@ const renderDiffViewport = (
     const pointer = isCursor ? '>' : ' ';
 
     // Annotation markers — only on the right/new side
-    const rightMarker = newLine !== null
-      ? lineMarker(newLine, state.annotations, state.expandedAnnotations, state.focusedAnnotationId)
-      : '  ';
+    const rightMarker =
+      newLine !== null
+        ? lineMarker(
+            newLine,
+            state.annotations,
+            state.expandedAnnotations,
+            state.focusedAnnotationId
+          )
+        : '  ';
 
     // Highlighted line lookup
-    const oldHL = diffRow.oldLineNumber !== null && oldHighlightedLines
-      ? oldHighlightedLines[diffRow.oldLineNumber - 1]
-      : undefined;
-    let newHL = diffRow.newLineNumber !== null
-      ? newHighlightedLines[diffRow.newLineNumber - 1]
-      : undefined;
+    const oldHL =
+      diffRow.oldLineNumber !== null && oldHighlightedLines
+        ? oldHighlightedLines[diffRow.oldLineNumber - 1]
+        : undefined;
+    let newHL =
+      diffRow.newLineNumber !== null
+        ? newHighlightedLines[diffRow.newLineNumber - 1]
+        : undefined;
 
     // Apply inline search highlighting on new-side content
     if (newHL && (isCurrentMatch || isMatch) && search) {
-      const inlineBg = isCurrentMatch ? SEARCH_CURRENT_MATCH_BG : SEARCH_MATCH_BG;
+      const inlineBg = isCurrentMatch
+        ? SEARCH_CURRENT_MATCH_BG
+        : SEARCH_MATCH_BG;
       newHL = highlightSearchMatches(newHL, search.pattern, inlineBg);
     }
 
@@ -481,7 +656,7 @@ const renderDiffViewport = (
     // Render annotation boxes for expanded annotations ending on this line
     if (newLine !== null) {
       const expandedAnns = annotationsOnLine(state.annotations, newLine).filter(
-        (a) => state.expandedAnnotations.has(a.id) && a.endLine === newLine,
+        a => state.expandedAnnotations.has(a.id) && a.endLine === newLine
       );
 
       for (const ann of expandedAnns) {
@@ -519,7 +694,11 @@ const MODE_COLORS: Record<Mode, string> = {
   search: YELLOW,
 };
 
-const renderStatusBar = (state: SessionState, filePath: string, diffLabel?: string): string => {
+const renderStatusBar = (
+  state: SessionState,
+  filePath: string,
+  diffLabel?: string
+): string => {
   const modeTag = colorBold(
     MODE_COLORS[state.mode],
     ` ${state.mode.toUpperCase()} `
@@ -533,17 +712,21 @@ const renderStatusBar = (state: SessionState, filePath: string, diffLabel?: stri
           return `  sel ${r.startLine}–${r.endLine} (${span} ln${span === 1 ? '' : 's'})`;
         })()
       : '';
-  const searchHidden = state.search?.hiddenMatchCount && state.search.hiddenMatchCount > 0
-    ? ` (${state.search.hiddenMatchCount} hidden)`
-    : '';
-  const searchInfo = state.search && state.search.matchLines.length > 0
-    ? `  "${state.search.pattern}" ${state.search.currentMatchIndex + 1}/${state.search.matchLines.length}${searchHidden}`
-    : state.search && state.search.pattern.length > 0
-      ? `  "${state.search.pattern}" 0 matches${searchHidden}`
+  const searchHidden =
+    state.search?.hiddenMatchCount && state.search.hiddenMatchCount > 0
+      ? ` (${state.search.hiddenMatchCount} hidden)`
       : '';
-  const viewLabel = state.viewMode === 'diff' && diffLabel
-    ? `diff: ${diffLabel}`
-    : 'raw';
+  const searchInfo =
+    state.search && state.search.matchLines.length > 0
+      ? `  "${state.search.pattern}" ${state.search.currentMatchIndex + 1}/${state.search.matchLines.length}${searchHidden}`
+      : state.search && state.search.pattern.length > 0
+        ? `  "${state.search.pattern}" 0 matches${searchHidden}`
+        : '';
+  const wrapIndicator = state.lineWrap ? ' wrap' : '';
+  const viewLabel =
+    state.viewMode === 'diff' && diffLabel
+      ? `diff: ${diffLabel}`
+      : `raw${wrapIndicator}`;
   const info = dim(
     `  ln ${state.cursorLine}/${state.lineCount}${selInfo}  ${count} annotation${count === 1 ? '' : 's'}${searchInfo}  ${viewLabel}  ${filePath}`
   );
@@ -556,15 +739,21 @@ const renderHelpBar = (state: SessionState): string => {
   if (state.mode === 'select') return `${CLEAR_LINE}${dim(SELECT_HELP)}`;
   if (state.mode === 'browse') {
     // Show annotation-specific hints when on an expanded annotation line
-    const hasExpanded = annotationsOnLine(state.annotations, state.cursorLine)
-      .some((a) => state.expandedAnnotations.has(a.id));
-    const hasSearch = state.search !== undefined && state.search.matchLines.length > 0;
+    const hasExpanded = annotationsOnLine(
+      state.annotations,
+      state.cursorLine
+    ).some(a => state.expandedAnnotations.has(a.id));
+    const hasSearch =
+      state.search !== undefined && state.search.matchLines.length > 0;
     const hasDiffMeta = state.diffMeta !== undefined;
 
     if (hasExpanded) return `${CLEAR_LINE}${dim(BROWSE_EXPANDED_HELP)}`;
     if (hasSearch) return `${CLEAR_LINE}${dim(BROWSE_SEARCH_HELP)}`;
     if (hasDiffMeta) {
-      const hints = state.viewMode === 'diff' ? BROWSE_DIFF_HELP : BROWSE_RAW_WITH_DIFF_HELP;
+      const hints =
+        state.viewMode === 'diff'
+          ? BROWSE_DIFF_HELP
+          : BROWSE_RAW_WITH_DIFF_HELP;
       return `${CLEAR_LINE}${dim(hints)}`;
     }
     return `${CLEAR_LINE}${dim(BROWSE_HELP)}`;
@@ -644,19 +833,14 @@ const renderGotoModal = (
     `${CLEAR_LINE}${border}│${RESET}${pad(` ${hints} `, innerWidth + 2)}${border}│${RESET}`
   );
 
-  rows.push(
-    `${CLEAR_LINE}${border}└${'─'.repeat(innerWidth + 2)}┘${RESET}`
-  );
+  rows.push(`${CLEAR_LINE}${border}└${'─'.repeat(innerWidth + 2)}┘${RESET}`);
 
   return rows;
 };
 
 // --- Decision modal ---
 
-const renderDecisionModal = (
-  flow: DecideFlowState,
-  cols: number
-): string[] => {
+const renderDecisionModal = (flow: DecideFlowState, cols: number): string[] => {
   return renderPicker(flow.picker, {
     label: 'Decision',
     cols,
@@ -671,7 +855,7 @@ const renderConfirmModal = (
   annotations: readonly Annotation[],
   cols: number
 ): string[] => {
-  const ann = annotations.find((a) => a.id === flow.annotationId);
+  const ann = annotations.find(a => a.id === flow.annotationId);
   const label = ann
     ? `Delete annotation on L${ann.startLine}${ann.endLine !== ann.startLine ? `–${ann.endLine}` : ''}?`
     : 'Delete annotation?';
@@ -693,11 +877,12 @@ const renderSearchModal = (
     label: 'Search',
     cols,
     visibleRows: 1,
-    context: searchState && searchState.matchLines.length > 0
-      ? `${searchState.currentMatchIndex + 1}/${searchState.matchLines.length} matches`
-      : searchState && searchState.pattern.length > 0
-        ? '0 matches'
-        : undefined,
+    context:
+      searchState && searchState.matchLines.length > 0
+        ? `${searchState.currentMatchIndex + 1}/${searchState.matchLines.length} matches`
+        : searchState && searchState.pattern.length > 0
+          ? '0 matches'
+          : undefined,
   });
 };
 
@@ -742,7 +927,7 @@ const modalHeight = (ctx: RenderContext): number => {
     if (ctx.state.annotationFlow.step === 'intent') return 7; // picker: 4 options + 3 chrome
     if (ctx.state.annotationFlow.step === 'category') return 10; // picker: 7 options + 3 chrome
     // comment textbox
-    const hasContext = !!(ctx.state.annotationFlow.intent);
+    const hasContext = !!ctx.state.annotationFlow.intent;
     return 9 + (hasContext ? 1 : 0); // textbox: 6 rows + 3 chrome + context
   }
   if (ctx.state.mode === 'confirm' && ctx.state.confirmFlow) return 5; // 2 options + 3 chrome
@@ -786,35 +971,37 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
   const frame: string[] = [];
 
   // Title (includes diff label when in diff mode)
-  const titleSuffix = ctx.state.viewMode === 'diff' && ctx.diffData
-    ? ` (diff: ${ctx.diffData.label})`
-    : '';
+  const titleSuffix =
+    ctx.state.viewMode === 'diff' && ctx.diffData
+      ? ` (diff: ${ctx.diffData.label})`
+      : '';
   frame.push(`${CLEAR_LINE}${bold(`Quill — ${ctx.filePath}${titleSuffix}`)}`);
 
   // viewportStartRow = number of chrome rows above viewport + 1 (1-based)
   const viewportStartRow = frame.length + 1; // currently 2 (title is row 1)
 
   // Viewport — branch on view mode
-  const viewport = ctx.state.viewMode === 'diff' && ctx.diffData
-    ? renderDiffViewport(
-        ctx.state,
-        ctx.diffData,
-        ctx.oldHighlightedLines ?? null,
-        ctx.lines,
-        viewportHeight,
-        ctx.terminalCols,
-        ctx.state.selection,
-        ctx.state.search,
-        ctx.effectiveDiffRows,
-      )
-    : renderViewport(
-        ctx.lines,
-        ctx.state,
-        viewportHeight,
-        ctx.terminalCols,
-        ctx.state.selection,
-        ctx.state.search,
-      );
+  const viewport =
+    ctx.state.viewMode === 'diff' && ctx.diffData
+      ? renderDiffViewport(
+          ctx.state,
+          ctx.diffData,
+          ctx.oldHighlightedLines ?? null,
+          ctx.lines,
+          viewportHeight,
+          ctx.terminalCols,
+          ctx.state.selection,
+          ctx.state.search,
+          ctx.effectiveDiffRows
+        )
+      : renderViewport(
+          ctx.lines,
+          ctx.state,
+          viewportHeight,
+          ctx.terminalCols,
+          ctx.state.selection,
+          ctx.state.search
+        );
   frame.push(...viewport.rows);
 
   // Status bar
@@ -838,7 +1025,11 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
   }
   if (ctx.state.mode === 'confirm' && ctx.state.confirmFlow) {
     frame.push(
-      ...renderConfirmModal(ctx.state.confirmFlow, ctx.state.annotations, ctx.terminalCols)
+      ...renderConfirmModal(
+        ctx.state.confirmFlow,
+        ctx.state.annotations,
+        ctx.terminalCols
+      )
     );
   }
   if (ctx.state.mode === 'decide' && ctx.state.decideFlow) {
@@ -846,7 +1037,11 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
   }
   if (ctx.state.mode === 'goto' && ctx.state.gotoFlow) {
     frame.push(
-      ...renderGotoModal(ctx.state.gotoFlow, ctx.state.lineCount, ctx.terminalCols)
+      ...renderGotoModal(
+        ctx.state.gotoFlow,
+        ctx.state.lineCount,
+        ctx.terminalCols
+      )
     );
   }
   if (ctx.state.mode === 'reply' && ctx.state.replyFlow) {
@@ -857,7 +1052,11 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
   }
   if (ctx.state.mode === 'search' && ctx.state.searchFlow) {
     frame.push(
-      ...renderSearchModal(ctx.state.searchFlow, ctx.state.search, ctx.terminalCols)
+      ...renderSearchModal(
+        ctx.state.searchFlow,
+        ctx.state.search,
+        ctx.terminalCols
+      )
     );
   }
 
@@ -866,7 +1065,11 @@ export const buildFrame = (ctx: RenderContext): FrameResult => {
     frame.push(CLEAR_LINE);
   }
 
-  return { frame: frame.join('\n'), rowToLine: viewport.rowToLine, viewportStartRow };
+  return {
+    frame: frame.join('\n'),
+    rowToLine: viewport.rowToLine,
+    viewportStartRow,
+  };
 };
 
 /** Compute the viewport height for a given terminal height and context. */

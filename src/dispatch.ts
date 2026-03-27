@@ -9,7 +9,12 @@
 import { randomUUID } from 'crypto';
 import * as R from 'remeda';
 import type { Key } from './keypress.js';
-import type { Annotation, KnownCategory, KnownIntent, SessionResult } from './schema.js';
+import type {
+  Annotation,
+  KnownCategory,
+  KnownIntent,
+  SessionResult,
+} from './schema.js';
 import {
   type AnnotationFlowState,
   type ConfirmFlowState,
@@ -42,7 +47,11 @@ import {
 } from './picker.js';
 import { BROWSE, SELECT, PICKER } from './keymap.js';
 import type { CollapsedRegion, RegionExpansion } from './diff-align.js';
-import { findRegionForLine, isLineRevealed, autoExpandForLine } from './diff-align.js';
+import {
+  findRegionForLine,
+  isLineRevealed,
+  autoExpandForLine,
+} from './diff-align.js';
 import {
   deleteBack,
   deleteToLineStart,
@@ -136,7 +145,12 @@ export const handleAnnotateKey = (
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: { ...state, mode: 'browse', selection: undefined, annotationFlow: undefined },
+      state: {
+        ...state,
+        mode: 'browse',
+        selection: undefined,
+        annotationFlow: undefined,
+      },
     };
   }
 
@@ -145,12 +159,18 @@ export const handleAnnotateKey = (
     // Arrow navigation
     if (PICKER.up.match(key)) {
       return {
-        state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) } },
+        state: {
+          ...state,
+          annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) },
+        },
       };
     }
     if (PICKER.down.match(key)) {
       return {
-        state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) } },
+        state: {
+          ...state,
+          annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) },
+        },
       };
     }
 
@@ -197,12 +217,18 @@ export const handleAnnotateKey = (
     // Arrow navigation
     if (PICKER.up.match(key)) {
       return {
-        state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) } },
+        state: {
+          ...state,
+          annotationFlow: { ...flow, picker: moveHighlight(flow.picker, -1) },
+        },
       };
     }
     if (PICKER.down.match(key)) {
       return {
-        state: { ...state, annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) } },
+        state: {
+          ...state,
+          annotationFlow: { ...flow, picker: moveHighlight(flow.picker, 1) },
+        },
       };
     }
 
@@ -267,7 +293,12 @@ export const handleAnnotateKey = (
         { type: 'focus_annotation', annotationId: newId },
       ]);
       return {
-        state: { ...nextState, mode: 'browse', selection: undefined, annotationFlow: undefined },
+        state: {
+          ...nextState,
+          mode: 'browse',
+          selection: undefined,
+          annotationFlow: undefined,
+        },
       };
     }
     return { state: { ...state, annotationFlow: flow } };
@@ -276,7 +307,9 @@ export const handleAnnotateKey = (
   // Text editing keys
   const updatedBuf = applyTextKey(key, flow.comment);
   if (updatedBuf) {
-    return { state: { ...state, annotationFlow: { ...flow, comment: updatedBuf } } };
+    return {
+      state: { ...state, annotationFlow: { ...flow, comment: updatedBuf } },
+    };
   }
 
   return { state: { ...state, annotationFlow: flow } };
@@ -291,27 +324,35 @@ export const handleGotoKey = (
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), gotoFlow: undefined },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'browse' }),
+        gotoFlow: undefined,
+      },
     };
   }
 
   if (key.return) {
     const target = parseInt(flow.input, 10);
     // Auto-expand region if goto target is in a collapsed region
-    const baseState = !Number.isNaN(target) && target > 0
-      ? autoExpandIfNeeded(state, target)
-      : state;
+    const baseState =
+      !Number.isNaN(target) && target > 0
+        ? autoExpandIfNeeded(state, target)
+        : state;
     const actions = [
       { type: 'set_mode' as const, mode: 'browse' as const },
       ...(!Number.isNaN(target) && target > 0
         ? [{ type: 'set_cursor' as const, line: target }]
         : []),
     ];
-    return { state: { ...applyActions(baseState, actions), gotoFlow: undefined } };
+    return {
+      state: { ...applyActions(baseState, actions), gotoFlow: undefined },
+    };
   }
 
   if (key.backspace) {
-    return { state: { ...state, gotoFlow: { input: flow.input.slice(0, -1) } } };
+    return {
+      state: { ...state, gotoFlow: { input: flow.input.slice(0, -1) } },
+    };
   }
 
   if (key.char >= '0' && key.char <= '9') {
@@ -333,7 +374,10 @@ export const handleSelectKey = (
 
   if (SELECT.confirm.match(key)) {
     return {
-      state: { ...reduce(state, { type: 'confirm_select' }), annotationFlow: { ...INITIAL_ANNOTATION_FLOW } },
+      state: {
+        ...reduce(state, { type: 'confirm_select' }),
+        annotationFlow: { ...INITIAL_ANNOTATION_FLOW },
+      },
     };
   }
 
@@ -365,8 +409,11 @@ export const handleSelectKey = (
 const sortedAnnotations = (annotations: readonly Annotation[]): Annotation[] =>
   annotations
     .map((a, i) => ({ a, i }))
-    .sort((x, y) => x.a.endLine - y.a.endLine || x.a.startLine - y.a.startLine || x.i - y.i)
-    .map((x) => x.a);
+    .sort(
+      (x, y) =>
+        x.a.endLine - y.a.endLine || x.a.startLine - y.a.startLine || x.i - y.i
+    )
+    .map(x => x.a);
 
 /**
  * Jump to the next (direction=1) or previous (direction=-1) individual annotation,
@@ -381,25 +428,28 @@ const jumpToNextAnnotation = (
   if (state.annotations.length === 0) return { state };
 
   const sorted = sortedAnnotations(state.annotations);
-  const currentIdx = state.focusedAnnotationId !== null
-    ? sorted.findIndex((a) => a.id === state.focusedAnnotationId)
-    : -1;
+  const currentIdx =
+    state.focusedAnnotationId !== null
+      ? sorted.findIndex(a => a.id === state.focusedAnnotationId)
+      : -1;
 
   let nextIdx: number;
   if (currentIdx === -1) {
     // No current focus — pick the first annotation after cursor line, or first overall
     if (direction === 1) {
-      const after = sorted.findIndex((a) => a.endLine >= state.cursorLine);
+      const after = sorted.findIndex(a => a.endLine >= state.cursorLine);
       nextIdx = after >= 0 ? after : 0;
     } else {
       const before = R.pipe(
         sorted,
-        R.findLastIndex((a) => a.endLine <= state.cursorLine),
+        R.findLastIndex(a => a.endLine <= state.cursorLine)
       );
       nextIdx = before >= 0 ? before : sorted.length - 1;
     }
   } else {
-    nextIdx = ((currentIdx + direction) % sorted.length + sorted.length) % sorted.length;
+    nextIdx =
+      (((currentIdx + direction) % sorted.length) + sorted.length) %
+      sorted.length;
   }
 
   const target = sorted[nextIdx]!;
@@ -421,7 +471,11 @@ const jumpToNextAnnotation = (
 
   // Final nudge: ensure the focused annotation box (below endLine) plus
   // padding fits in the viewport. Works for both raw and diff modes.
-  const adjusted = nudgeForAnnotationBox(nextState, target, nextState.expandedAnnotations);
+  const adjusted = nudgeForAnnotationBox(
+    nextState,
+    target,
+    nextState.expandedAnnotations
+  );
   if (adjusted !== nextState.viewportOffset) {
     return { state: { ...nextState, viewportOffset: adjusted } };
   }
@@ -435,14 +489,21 @@ const jumpToNextAnnotation = (
  * If the target line is in a collapsed region, dispatch the necessary expansion.
  * Returns an updated state with the region auto-expanded, or the original state if not needed.
  */
-const autoExpandIfNeeded = (state: SessionState, targetLine: number): SessionState => {
+const autoExpandIfNeeded = (
+  state: SessionState,
+  targetLine: number
+): SessionState => {
   if (!state.baseDiffData || !state.diffMeta?.collapsedRegions) return state;
 
   const region = findRegionForLine(state.diffMeta.collapsedRegions, targetLine);
   if (!region) return state;
 
-  const expandedRegions = state.expandedRegions ?? new Map<number, RegionExpansion>();
-  const current = expandedRegions.get(region.index) ?? { fromTop: 0, fromBottom: 0 };
+  const expandedRegions =
+    state.expandedRegions ?? new Map<number, RegionExpansion>();
+  const current = expandedRegions.get(region.index) ?? {
+    fromTop: 0,
+    fromBottom: 0,
+  };
 
   // Check if already revealed
   if (isLineRevealed(region, current, targetLine)) return state;
@@ -450,7 +511,10 @@ const autoExpandIfNeeded = (state: SessionState, targetLine: number): SessionSta
   const expansion = autoExpandForLine(targetLine, region, current);
   const nextMap = new Map(expandedRegions);
   nextMap.set(region.index, expansion);
-  return reduce(state, { type: 'set_expanded_regions', expandedRegions: nextMap });
+  return reduce(state, {
+    type: 'set_expanded_regions',
+    expandedRegions: nextMap,
+  });
 };
 
 // --- Region expansion helpers ---
@@ -465,12 +529,16 @@ const EXPAND_STEP = 20;
 const findNearestRegionBelow = (
   cursorLine: number,
   regions: readonly CollapsedRegion[],
-  expandedRegions: ReadonlyMap<number, RegionExpansion>,
+  expandedRegions: ReadonlyMap<number, RegionExpansion>
 ): CollapsedRegion | undefined => {
   for (const region of regions) {
     const expansion = expandedRegions.get(region.index);
-    const fromTop = expansion ? Math.min(expansion.fromTop, region.lineCount) : 0;
-    const fromBottom = expansion ? Math.min(expansion.fromBottom, Math.max(0, region.lineCount - fromTop)) : 0;
+    const fromTop = expansion
+      ? Math.min(expansion.fromTop, region.lineCount)
+      : 0;
+    const fromBottom = expansion
+      ? Math.min(expansion.fromBottom, Math.max(0, region.lineCount - fromTop))
+      : 0;
     const remaining = region.lineCount - fromTop - fromBottom;
     if (remaining <= 0) continue; // fully expanded
 
@@ -489,13 +557,17 @@ const findNearestRegionBelow = (
 const findNearestRegionAbove = (
   cursorLine: number,
   regions: readonly CollapsedRegion[],
-  expandedRegions: ReadonlyMap<number, RegionExpansion>,
+  expandedRegions: ReadonlyMap<number, RegionExpansion>
 ): CollapsedRegion | undefined => {
   for (let i = regions.length - 1; i >= 0; i--) {
     const region = regions[i]!;
     const expansion = expandedRegions.get(region.index);
-    const fromTop = expansion ? Math.min(expansion.fromTop, region.lineCount) : 0;
-    const fromBottom = expansion ? Math.min(expansion.fromBottom, Math.max(0, region.lineCount - fromTop)) : 0;
+    const fromTop = expansion
+      ? Math.min(expansion.fromTop, region.lineCount)
+      : 0;
+    const fromBottom = expansion
+      ? Math.min(expansion.fromBottom, Math.max(0, region.lineCount - fromTop))
+      : 0;
     const remaining = region.lineCount - fromTop - fromBottom;
     if (remaining <= 0) continue; // fully expanded
 
@@ -520,16 +592,20 @@ export const handleBrowseKey = (
 
   // Shift+arrows → start selection and extend
   if (BROWSE.shiftSelectUp.match(key)) {
-    return { state: applyActions(state, [
-      { type: 'start_select' },
-      { type: 'extend_select', delta: -1 },
-    ]) };
+    return {
+      state: applyActions(state, [
+        { type: 'start_select' },
+        { type: 'extend_select', delta: -1 },
+      ]),
+    };
   }
   if (BROWSE.shiftSelectDown.match(key)) {
-    return { state: applyActions(state, [
-      { type: 'start_select' },
-      { type: 'extend_select', delta: 1 },
-    ]) };
+    return {
+      state: applyActions(state, [
+        { type: 'start_select' },
+        { type: 'extend_select', delta: 1 },
+      ]),
+    };
   }
 
   // Single-line movement
@@ -605,7 +681,10 @@ export const handleBrowseKey = (
   // Goto line (must precede gg check — Ctrl+G has char='g' + ctrl=true)
   if (BROWSE.gotoLine.match(key)) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'goto' }), gotoFlow: { ...INITIAL_GOTO_FLOW } },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'goto' }),
+        gotoFlow: { ...INITIAL_GOTO_FLOW },
+      },
     };
   }
 
@@ -642,67 +721,103 @@ export const handleBrowseKey = (
 
   // c — toggle annotations on cursor line (expand if collapsed, collapse if expanded)
   if (BROWSE.toggleAnnotation.match(key)) {
-    const toggleActions = annotationsOnLine(state.annotations, state.cursorLine)
-      .map((a) => ({ type: 'toggle_annotation' as const, annotationId: a.id }));
-    return { state: toggleActions.length > 0 ? applyActions(state, toggleActions) : state };
+    const toggleActions = annotationsOnLine(
+      state.annotations,
+      state.cursorLine
+    ).map(a => ({ type: 'toggle_annotation' as const, annotationId: a.id }));
+    return {
+      state:
+        toggleActions.length > 0 ? applyActions(state, toggleActions) : state,
+    };
   }
 
   // C — toggle all: collapse all if any expanded, expand all if none expanded
   if (BROWSE.toggleAllAnnotations.match(key)) {
     if (state.annotations.length === 0) return { state };
-    const action = state.expandedAnnotations.size > 0
-      ? { type: 'collapse_all' as const }
-      : { type: 'expand_all' as const };
+    const action =
+      state.expandedAnnotations.size > 0
+        ? { type: 'collapse_all' as const }
+        : { type: 'expand_all' as const };
     return { state: reduce(state, action) };
   }
 
   // r — reply to focused annotation
   if (BROWSE.reply.match(key)) {
-    const target = state.focusedAnnotationId !== null
-      ? state.annotations.find((a) => a.id === state.focusedAnnotationId && state.expandedAnnotations.has(a.id))
-      : undefined;
+    const target =
+      state.focusedAnnotationId !== null
+        ? state.annotations.find(
+            a =>
+              a.id === state.focusedAnnotationId &&
+              state.expandedAnnotations.has(a.id)
+          )
+        : undefined;
     if (target) {
       return {
-        state: { ...reduce(state, { type: 'set_mode', mode: 'reply' }), replyFlow: INITIAL_REPLY_FLOW(target.id) },
+        state: {
+          ...reduce(state, { type: 'set_mode', mode: 'reply' }),
+          replyFlow: INITIAL_REPLY_FLOW(target.id),
+        },
       };
     }
   }
 
   // w — edit (rewrite) focused annotation
   if (BROWSE.editAnnotation.match(key)) {
-    const target = state.focusedAnnotationId !== null
-      ? state.annotations.find((a) => a.id === state.focusedAnnotationId && state.expandedAnnotations.has(a.id))
-      : undefined;
+    const target =
+      state.focusedAnnotationId !== null
+        ? state.annotations.find(
+            a =>
+              a.id === state.focusedAnnotationId &&
+              state.expandedAnnotations.has(a.id)
+          )
+        : undefined;
     if (target) {
       return {
-        state: { ...reduce(state, { type: 'set_mode', mode: 'edit' }), editFlow: INITIAL_EDIT_FLOW(target) },
+        state: {
+          ...reduce(state, { type: 'set_mode', mode: 'edit' }),
+          editFlow: INITIAL_EDIT_FLOW(target),
+        },
       };
     }
   }
 
   // x — confirm delete of focused annotation
   if (BROWSE.deleteAnnotation.match(key)) {
-    const target = state.focusedAnnotationId !== null
-      ? state.annotations.find((a) => a.id === state.focusedAnnotationId && state.expandedAnnotations.has(a.id))
-      : undefined;
+    const target =
+      state.focusedAnnotationId !== null
+        ? state.annotations.find(
+            a =>
+              a.id === state.focusedAnnotationId &&
+              state.expandedAnnotations.has(a.id)
+          )
+        : undefined;
     if (target) {
       return {
-        state: { ...reduce(state, { type: 'set_mode', mode: 'confirm' }), confirmFlow: INITIAL_CONFIRM_FLOW(target.id) },
+        state: {
+          ...reduce(state, { type: 'set_mode', mode: 'confirm' }),
+          confirmFlow: INITIAL_CONFIRM_FLOW(target.id),
+        },
       };
     }
   }
 
   // s — cycle annotation status: none → approved → dismissed → none
   if (BROWSE.cycleStatus.match(key)) {
-    const target = state.focusedAnnotationId !== null
-      ? state.annotations.find((a) => a.id === state.focusedAnnotationId && state.expandedAnnotations.has(a.id))
-      : undefined;
+    const target =
+      state.focusedAnnotationId !== null
+        ? state.annotations.find(
+            a =>
+              a.id === state.focusedAnnotationId &&
+              state.expandedAnnotations.has(a.id)
+          )
+        : undefined;
     if (target) {
-      const nextStatus = target.status === undefined
-        ? 'approved' as const
-        : target.status === 'approved'
-          ? 'dismissed' as const
-          : undefined;
+      const nextStatus =
+        target.status === undefined
+          ? ('approved' as const)
+          : target.status === 'approved'
+            ? ('dismissed' as const)
+            : undefined;
       return {
         state: reduce(state, {
           type: 'update_annotation',
@@ -711,6 +826,14 @@ export const handleBrowseKey = (
         }),
       };
     }
+  }
+
+  // Toggle line wrap (raw mode only)
+  if (BROWSE.toggleWrap.match(key)) {
+    if (state.viewMode === 'raw') {
+      return { state: reduce(state, { type: 'toggle_line_wrap' }) };
+    }
+    return { state };
   }
 
   // Toggle diff/raw view
@@ -725,10 +848,22 @@ export const handleBrowseKey = (
   if (BROWSE.expandDown.match(key)) {
     if (state.viewMode === 'diff' && state.diffMeta?.collapsedRegions) {
       const regions = state.diffMeta.collapsedRegions;
-      const expandedRegions = state.expandedRegions ?? new Map<number, RegionExpansion>();
-      const region = findNearestRegionBelow(state.cursorLine, regions, expandedRegions);
+      const expandedRegions =
+        state.expandedRegions ?? new Map<number, RegionExpansion>();
+      const region = findNearestRegionBelow(
+        state.cursorLine,
+        regions,
+        expandedRegions
+      );
       if (region) {
-        return { state: reduce(state, { type: 'expand_region', regionIndex: region.index, direction: 'down', step: EXPAND_STEP }) };
+        return {
+          state: reduce(state, {
+            type: 'expand_region',
+            regionIndex: region.index,
+            direction: 'down',
+            step: EXPAND_STEP,
+          }),
+        };
       }
     }
     return { state };
@@ -736,22 +871,39 @@ export const handleBrowseKey = (
   if (BROWSE.expandUp.match(key)) {
     if (state.viewMode === 'diff' && state.diffMeta?.collapsedRegions) {
       const regions = state.diffMeta.collapsedRegions;
-      const expandedRegions = state.expandedRegions ?? new Map<number, RegionExpansion>();
-      const region = findNearestRegionAbove(state.cursorLine, regions, expandedRegions);
+      const expandedRegions =
+        state.expandedRegions ?? new Map<number, RegionExpansion>();
+      const region = findNearestRegionAbove(
+        state.cursorLine,
+        regions,
+        expandedRegions
+      );
       if (region) {
-        return { state: reduce(state, { type: 'expand_region', regionIndex: region.index, direction: 'up', step: EXPAND_STEP }) };
+        return {
+          state: reduce(state, {
+            type: 'expand_region',
+            regionIndex: region.index,
+            direction: 'up',
+            step: EXPAND_STEP,
+          }),
+        };
       }
     }
     return { state };
   }
   if (BROWSE.toggleAllRegions.match(key)) {
-    if (state.viewMode === 'diff' && state.diffMeta?.collapsedRegions && state.diffMeta.collapsedRegions.length > 0) {
+    if (
+      state.viewMode === 'diff' &&
+      state.diffMeta?.collapsedRegions &&
+      state.diffMeta.collapsedRegions.length > 0
+    ) {
       const regions = state.diffMeta.collapsedRegions;
-      const expandedRegions = state.expandedRegions ?? new Map<number, RegionExpansion>();
+      const expandedRegions =
+        state.expandedRegions ?? new Map<number, RegionExpansion>();
       // If any region has expansion → collapse all first. Otherwise → expand all.
       const anyExpanded = regions.some(r => {
         const exp = expandedRegions.get(r.index);
-        return exp !== undefined && (exp.fromTop + exp.fromBottom) > 0;
+        return exp !== undefined && exp.fromTop + exp.fromBottom > 0;
       });
       if (anyExpanded) {
         return { state: reduce(state, { type: 'collapse_all_regions' }) };
@@ -765,21 +917,30 @@ export const handleBrowseKey = (
   // Annotate (single-line)
   if (BROWSE.annotate.match(key)) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'annotate' }), annotationFlow: { ...INITIAL_ANNOTATION_FLOW } },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'annotate' }),
+        annotationFlow: { ...INITIAL_ANNOTATION_FLOW },
+      },
     };
   }
 
   // Annotate file-level (startLine: 0, endLine: 0)
   if (BROWSE.annotateFile.match(key)) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'annotate' }), annotationFlow: { ...INITIAL_ANNOTATION_FLOW, fileLevel: true } },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'annotate' }),
+        annotationFlow: { ...INITIAL_ANNOTATION_FLOW, fileLevel: true },
+      },
     };
   }
 
   // Search
   if (BROWSE.search.match(key)) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'search' }), searchFlow: { ...INITIAL_SEARCH_FLOW } },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'search' }),
+        searchFlow: { ...INITIAL_SEARCH_FLOW },
+      },
     };
   }
 
@@ -802,7 +963,10 @@ export const handleBrowseKey = (
   // Finish / decision picker
   if (BROWSE.finish.match(key)) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'decide' }), decideFlow: { ...INITIAL_DECIDE_FLOW } },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'decide' }),
+        decideFlow: { ...INITIAL_DECIDE_FLOW },
+      },
     };
   }
 
@@ -818,7 +982,10 @@ export const handleReplyKey = (
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), replyFlow: undefined },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'browse' }),
+        replyFlow: undefined,
+      },
     };
   }
 
@@ -829,7 +996,11 @@ export const handleReplyKey = (
       return {
         state: {
           ...applyActions(state, [
-            { type: 'add_reply', annotationId: flow.annotationId, reply: { comment: trimmed, source: 'user' } },
+            {
+              type: 'add_reply',
+              annotationId: flow.annotationId,
+              reply: { comment: trimmed, source: 'user' },
+            },
             { type: 'set_mode', mode: 'browse' },
           ]),
           replyFlow: undefined,
@@ -857,7 +1028,10 @@ export const handleEditKey = (
 ): DispatchResult => {
   if (key.escape) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), editFlow: undefined },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'browse' }),
+        editFlow: undefined,
+      },
     };
   }
 
@@ -868,7 +1042,11 @@ export const handleEditKey = (
       return {
         state: {
           ...applyActions(state, [
-            { type: 'update_annotation', annotationId: flow.annotationId, changes: { comment: trimmed } },
+            {
+              type: 'update_annotation',
+              annotationId: flow.annotationId,
+              changes: { comment: trimmed },
+            },
             { type: 'set_mode', mode: 'browse' },
           ]),
           editFlow: undefined,
@@ -896,19 +1074,28 @@ export const handleConfirmKey = (
 ): DispatchResult => {
   if (PICKER.cancel.match(key)) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), confirmFlow: undefined },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'browse' }),
+        confirmFlow: undefined,
+      },
     };
   }
 
   // Arrow navigation
   if (PICKER.up.match(key)) {
     return {
-      state: { ...state, confirmFlow: { ...flow, picker: moveHighlight(flow.picker, -1) } },
+      state: {
+        ...state,
+        confirmFlow: { ...flow, picker: moveHighlight(flow.picker, -1) },
+      },
     };
   }
   if (PICKER.down.match(key)) {
     return {
-      state: { ...state, confirmFlow: { ...flow, picker: moveHighlight(flow.picker, 1) } },
+      state: {
+        ...state,
+        confirmFlow: { ...flow, picker: moveHighlight(flow.picker, 1) },
+      },
     };
   }
 
@@ -928,7 +1115,10 @@ export const handleConfirmKey = (
     }
     // "no" or default — cancel
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), confirmFlow: undefined },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'browse' }),
+        confirmFlow: undefined,
+      },
     };
   }
 
@@ -947,7 +1137,10 @@ export const handleConfirmKey = (
   }
   if (matched?.id === 'no') {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), confirmFlow: undefined },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'browse' }),
+        confirmFlow: undefined,
+      },
     };
   }
 
@@ -1027,10 +1220,13 @@ export const handleSearchKey = (
     // Live preview: compute matches as user types
     const pattern = getText(updatedBuf).trim();
     const matchLines = findMatchLines(sourceLines, pattern);
-    const nextState = pattern.length > 0
-      ? reduce(state, { type: 'set_search', pattern, matchLines })
-      : reduce(state, { type: 'clear_search' });
-    return { state: { ...nextState, searchFlow: { ...flow, input: updatedBuf } } };
+    const nextState =
+      pattern.length > 0
+        ? reduce(state, { type: 'set_search', pattern, matchLines })
+        : reduce(state, { type: 'clear_search' });
+    return {
+      state: { ...nextState, searchFlow: { ...flow, input: updatedBuf } },
+    };
   }
 
   return { state: { ...state, searchFlow: flow } };
@@ -1045,19 +1241,28 @@ export const handleDecideKey = (
 ): DispatchResult => {
   if (PICKER.cancel.match(key)) {
     return {
-      state: { ...reduce(state, { type: 'set_mode', mode: 'browse' }), decideFlow: undefined },
+      state: {
+        ...reduce(state, { type: 'set_mode', mode: 'browse' }),
+        decideFlow: undefined,
+      },
     };
   }
 
   // Arrow navigation
   if (PICKER.up.match(key)) {
     return {
-      state: { ...state, decideFlow: { picker: moveHighlight(flow.picker, -1) } },
+      state: {
+        ...state,
+        decideFlow: { picker: moveHighlight(flow.picker, -1) },
+      },
     };
   }
   if (PICKER.down.match(key)) {
     return {
-      state: { ...state, decideFlow: { picker: moveHighlight(flow.picker, 1) } },
+      state: {
+        ...state,
+        decideFlow: { picker: moveHighlight(flow.picker, 1) },
+      },
     };
   }
 

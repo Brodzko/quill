@@ -70,6 +70,7 @@ const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
   cursorLine: 10,
   viewportOffset: 0,
   horizontalOffset: 0,
+  lineWrap: false,
   mode: 'browse',
   annotations: [],
   expandedAnnotations: new Set(),
@@ -79,8 +80,9 @@ const makeState = (overrides: Partial<SessionState> = {}): SessionState => ({
 });
 
 /** Helper to get text from a flow's comment TextBuffer */
-const commentText = (flow: { comment: { lines: readonly string[] } } | undefined): string =>
-  flow ? flow.comment.lines.join('\n') : '';
+const commentText = (
+  flow: { comment: { lines: readonly string[] } } | undefined
+): string => (flow ? flow.comment.lines.join('\n') : '');
 
 // ---------------------------------------------------------------------------
 // handleBrowseKey
@@ -103,7 +105,11 @@ describe('handleBrowseKey', () => {
   });
 
   it('down arrow moves cursor down', () => {
-    const result = handleBrowseKey(key({ downArrow: true }), makeState(), false);
+    const result = handleBrowseKey(
+      key({ downArrow: true }),
+      makeState(),
+      false
+    );
     expect(result.state.cursorLine).toBe(11);
   });
 
@@ -120,12 +126,20 @@ describe('handleBrowseKey', () => {
 
   it('Ctrl+U moves by half page up', () => {
     const state = makeState({ cursorLine: 20 });
-    const result = handleBrowseKey(key({ ctrl: true, char: 'u' }), state, false);
+    const result = handleBrowseKey(
+      key({ ctrl: true, char: 'u' }),
+      state,
+      false
+    );
     expect(result.state.cursorLine).toBe(10);
   });
 
   it('Ctrl+D moves by half page down', () => {
-    const result = handleBrowseKey(key({ ctrl: true, char: 'd' }), makeState(), false);
+    const result = handleBrowseKey(
+      key({ ctrl: true, char: 'd' }),
+      makeState(),
+      false
+    );
     expect(result.state.cursorLine).toBe(20);
   });
 
@@ -267,19 +281,31 @@ describe('handleBrowseKey', () => {
   });
 
   it('Ctrl+G enters goto mode', () => {
-    const result = handleBrowseKey(key({ ctrl: true, char: 'g' }), makeState(), false);
+    const result = handleBrowseKey(
+      key({ ctrl: true, char: 'g' }),
+      makeState(),
+      false
+    );
     expect(result.state.mode).toBe('goto');
   });
 
   it('Shift+Up starts selection and extends up', () => {
-    const result = handleBrowseKey(key({ shift: true, upArrow: true }), makeState(), false);
+    const result = handleBrowseKey(
+      key({ shift: true, upArrow: true }),
+      makeState(),
+      false
+    );
     expect(result.state.mode).toBe('select');
     expect(result.state.selection?.anchor).toBe(10);
     expect(result.state.selection?.active).toBe(9);
   });
 
   it('Shift+Down starts selection and extends down', () => {
-    const result = handleBrowseKey(key({ shift: true, downArrow: true }), makeState(), false);
+    const result = handleBrowseKey(
+      key({ shift: true, downArrow: true }),
+      makeState(),
+      false
+    );
     expect(result.state.mode).toBe('select');
     expect(result.state.selection?.anchor).toBe(10);
     expect(result.state.selection?.active).toBe(11);
@@ -370,7 +396,9 @@ describe('handleGotoKey', () => {
   });
 
   it('backspace removes last digit', () => {
-    const result = handleGotoKey(key({ backspace: true }), state, { input: '42' });
+    const result = handleGotoKey(key({ backspace: true }), state, {
+      input: '42',
+    });
     expect(result.state.gotoFlow?.input).toBe('4');
   });
 
@@ -517,7 +545,11 @@ describe('handleAnnotateKey', () => {
     });
 
     it('Enter with fileLevel flag creates file-level annotation anchored at line 1', () => {
-      const f: AnnotationFlowState = { ...flow, comment: createBuffer('file note'), fileLevel: true };
+      const f: AnnotationFlowState = {
+        ...flow,
+        comment: createBuffer('file note'),
+        fileLevel: true,
+      };
       const result = handleAnnotateKey(key({ return: true }), state, f);
       expect(result.state.mode).toBe('browse');
       expect(result.state.annotations).toHaveLength(1);
@@ -547,13 +579,21 @@ describe('handleAnnotateKey', () => {
 
     it('Shift+Enter inserts newline', () => {
       const f = { ...flow, comment: createBuffer('line1') };
-      const result = handleAnnotateKey(key({ return: true, shift: true }), state, f);
+      const result = handleAnnotateKey(
+        key({ return: true, shift: true }),
+        state,
+        f
+      );
       expect(commentText(result.state.annotationFlow)).toBe('line1\n');
     });
 
     it('Alt+Enter inserts newline', () => {
       const f = { ...flow, comment: createBuffer('line1') };
-      const result = handleAnnotateKey(key({ return: true, alt: true }), state, f);
+      const result = handleAnnotateKey(
+        key({ return: true, alt: true }),
+        state,
+        f
+      );
       expect(commentText(result.state.annotationFlow)).toBe('line1\n');
     });
 
@@ -565,7 +605,11 @@ describe('handleAnnotateKey', () => {
 
     it('Ctrl+A moves to line start', () => {
       const f = { ...flow, comment: createBuffer('hello') };
-      const result = handleAnnotateKey(key({ ctrl: true, char: 'a' }), state, f);
+      const result = handleAnnotateKey(
+        key({ ctrl: true, char: 'a' }),
+        state,
+        f
+      );
       expect(result.state.annotationFlow?.comment.cursor.col).toBe(0);
     });
   });
@@ -606,7 +650,11 @@ describe('handleDecideKey', () => {
   it('arrow down + Enter selects deny', () => {
     const moved = handleDecideKey(key({ downArrow: true }), state, flow);
     expect(moved.state.decideFlow?.picker.highlighted).toBe(1);
-    const result = handleDecideKey(key({ return: true }), state, moved.state.decideFlow!);
+    const result = handleDecideKey(
+      key({ return: true }),
+      state,
+      moved.state.decideFlow!
+    );
     expect(result.exit?.type).toBe('finish');
     if (result.exit?.type === 'finish') {
       expect(result.exit.decision).toBe('deny');
@@ -655,13 +703,21 @@ describe('handleBrowseKey — annotation interaction', () => {
 
   it('Tab jumps to annotation line and expands', () => {
     const state = makeState({ cursorLine: 5, annotations: [annotation] });
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    const result = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      state,
+      false
+    );
     expect(result.state.cursorLine).toBe(10);
     expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
   });
 
   it('Tab on annotation line wraps to same annotation if only one', () => {
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), stateWithExpanded, false);
+    const result = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      stateWithExpanded,
+      false
+    );
     // Only one annotation — wraps to itself. Stays expanded and focused.
     expect(result.state.cursorLine).toBe(10);
     expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
@@ -676,7 +732,11 @@ describe('handleBrowseKey — annotation interaction', () => {
       expandedAnnotations: new Set(['ann-1']),
       focusedAnnotationId: 'ann-1',
     });
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    const result = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      state,
+      false
+    );
     expect(result.state.cursorLine).toBe(20);
     // New behavior: Tab does not collapse previously focused annotation
     expect(result.state.expandedAnnotations.has('ann-1')).toBe(true);
@@ -686,12 +746,20 @@ describe('handleBrowseKey — annotation interaction', () => {
 
   it('Tab with no annotations is no-op', () => {
     const state = makeState({ cursorLine: 5, annotations: [] });
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    const result = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      state,
+      false
+    );
     expect(result.state).toEqual(state);
   });
 
   it('c toggles: collapses expanded annotation on cursor line', () => {
-    const result = handleBrowseKey(key({ char: 'c' }), stateWithExpanded, false);
+    const result = handleBrowseKey(
+      key({ char: 'c' }),
+      stateWithExpanded,
+      false
+    );
     expect(result.state.expandedAnnotations.has('ann-1')).toBe(false);
   });
 
@@ -731,7 +799,11 @@ describe('handleBrowseKey — annotation interaction', () => {
   });
 
   it('r on expanded annotation enters reply mode', () => {
-    const result = handleBrowseKey(key({ char: 'r' }), stateWithExpanded, false);
+    const result = handleBrowseKey(
+      key({ char: 'r' }),
+      stateWithExpanded,
+      false
+    );
     expect(result.state.mode).toBe('reply');
     expect(result.state.replyFlow).toBeDefined();
     expect(result.state.replyFlow?.annotationId).toBe('ann-1');
@@ -744,7 +816,11 @@ describe('handleBrowseKey — annotation interaction', () => {
   });
 
   it('w on expanded annotation enters edit mode', () => {
-    const result = handleBrowseKey(key({ char: 'w' }), stateWithExpanded, false);
+    const result = handleBrowseKey(
+      key({ char: 'w' }),
+      stateWithExpanded,
+      false
+    );
     expect(result.state.mode).toBe('edit');
     expect(result.state.editFlow).toBeDefined();
     expect(result.state.editFlow?.annotationId).toBe('ann-1');
@@ -752,7 +828,11 @@ describe('handleBrowseKey — annotation interaction', () => {
   });
 
   it('x on expanded annotation enters confirm mode', () => {
-    const result = handleBrowseKey(key({ char: 'x' }), stateWithExpanded, false);
+    const result = handleBrowseKey(
+      key({ char: 'x' }),
+      stateWithExpanded,
+      false
+    );
     expect(result.state.mode).toBe('confirm');
     expect(result.state.confirmFlow).toBeDefined();
     expect(result.state.confirmFlow?.annotationId).toBe('ann-1');
@@ -805,19 +885,31 @@ describe('handleBrowseKey — multi-annotation focus', () => {
       focusedAnnotationId: 'ann-1',
     });
     // First Tab: advances from ann-1 to ann-2 (same line)
-    const result1 = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    const result1 = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      state,
+      false
+    );
     expect(result1.state.focusedAnnotationId).toBe('ann-2');
     expect(result1.state.cursorLine).toBe(5);
     expect(result1.state.expandedAnnotations.has('ann-2')).toBe(true);
 
     // Second Tab: advances from ann-2 to ann-3 (different line)
-    const result2 = handleBrowseKey(key({ tab: true, char: '\t' }), result1.state, false);
+    const result2 = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      result1.state,
+      false
+    );
     expect(result2.state.focusedAnnotationId).toBe('ann-3');
     expect(result2.state.cursorLine).toBe(15);
     expect(result2.state.expandedAnnotations.has('ann-3')).toBe(true);
 
     // Third Tab: wraps back to ann-1
-    const result3 = handleBrowseKey(key({ tab: true, char: '\t' }), result2.state, false);
+    const result3 = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      result2.state,
+      false
+    );
     expect(result3.state.focusedAnnotationId).toBe('ann-1');
     expect(result3.state.cursorLine).toBe(5);
   });
@@ -830,7 +922,11 @@ describe('handleBrowseKey — multi-annotation focus', () => {
       focusedAnnotationId: 'ann-1',
     });
     // Shift+Tab from ann-1 wraps to ann-3
-    const result = handleBrowseKey(key({ tab: true, shift: true, char: '\t' }), state, false);
+    const result = handleBrowseKey(
+      key({ tab: true, shift: true, char: '\t' }),
+      state,
+      false
+    );
     expect(result.state.focusedAnnotationId).toBe('ann-3');
     expect(result.state.cursorLine).toBe(15);
   });
@@ -878,9 +974,15 @@ describe('handleBrowseKey — multi-annotation focus', () => {
       expandedAnnotations: new Set(['ann-1', 'ann-2']),
       focusedAnnotationId: null,
     });
-    expect(handleBrowseKey(key({ char: 'r' }), state, false).state.mode).toBe('browse');
-    expect(handleBrowseKey(key({ char: 'w' }), state, false).state.mode).toBe('browse');
-    expect(handleBrowseKey(key({ char: 'x' }), state, false).state.mode).toBe('browse');
+    expect(handleBrowseKey(key({ char: 'r' }), state, false).state.mode).toBe(
+      'browse'
+    );
+    expect(handleBrowseKey(key({ char: 'w' }), state, false).state.mode).toBe(
+      'browse'
+    );
+    expect(handleBrowseKey(key({ char: 'x' }), state, false).state.mode).toBe(
+      'browse'
+    );
   });
 
   it('c toggles all on cursor line and auto-focuses first expanded', () => {
@@ -928,7 +1030,10 @@ describe('handleReplyKey', () => {
     annotations: [annotation],
     expandedAnnotations: new Set(['ann-1']),
   });
-  const flow: ReplyFlowState = { annotationId: 'ann-1', comment: createBuffer() };
+  const flow: ReplyFlowState = {
+    annotationId: 'ann-1',
+    comment: createBuffer(),
+  };
 
   it('typing appends to comment', () => {
     const result = handleReplyKey(key({ char: 'h' }), state, flow);
@@ -936,23 +1041,21 @@ describe('handleReplyKey', () => {
   });
 
   it('backspace removes last char', () => {
-    const result = handleReplyKey(
-      key({ backspace: true }),
-      state,
-      { ...flow, comment: createBuffer('hi') }
-    );
+    const result = handleReplyKey(key({ backspace: true }), state, {
+      ...flow,
+      comment: createBuffer('hi'),
+    });
     expect(commentText(result.state.replyFlow)).toBe('h');
   });
 
   it('Enter with text adds reply and returns to browse', () => {
-    const result = handleReplyKey(
-      key({ return: true }),
-      state,
-      { ...flow, comment: createBuffer('my reply') }
-    );
+    const result = handleReplyKey(key({ return: true }), state, {
+      ...flow,
+      comment: createBuffer('my reply'),
+    });
     expect(result.state.mode).toBe('browse');
     expect(result.state.replyFlow).toBeUndefined();
-    const ann = result.state.annotations.find((a) => a.id === 'ann-1');
+    const ann = result.state.annotations.find(a => a.id === 'ann-1');
     expect(ann?.replies).toEqual([{ comment: 'my reply', source: 'user' }]);
   });
 
@@ -993,7 +1096,10 @@ describe('handleEditKey', () => {
     annotations: [annotation],
     expandedAnnotations: new Set(['ann-1']),
   });
-  const flow: EditFlowState = { annotationId: 'ann-1', comment: createBuffer('original comment') };
+  const flow: EditFlowState = {
+    annotationId: 'ann-1',
+    comment: createBuffer('original comment'),
+  };
 
   it('typing appends at cursor', () => {
     const result = handleEditKey(key({ char: '!' }), state, flow);
@@ -1006,23 +1112,21 @@ describe('handleEditKey', () => {
   });
 
   it('Enter saves edited comment and returns to browse', () => {
-    const result = handleEditKey(
-      key({ return: true }),
-      state,
-      { ...flow, comment: createBuffer('updated comment') }
-    );
+    const result = handleEditKey(key({ return: true }), state, {
+      ...flow,
+      comment: createBuffer('updated comment'),
+    });
     expect(result.state.mode).toBe('browse');
     expect(result.state.editFlow).toBeUndefined();
-    const ann = result.state.annotations.find((a) => a.id === 'ann-1');
+    const ann = result.state.annotations.find(a => a.id === 'ann-1');
     expect(ann?.comment).toBe('updated comment');
   });
 
   it('Enter with empty text is no-op', () => {
-    const result = handleEditKey(
-      key({ return: true }),
-      state,
-      { ...flow, comment: createBuffer('   ') }
-    );
+    const result = handleEditKey(key({ return: true }), state, {
+      ...flow,
+      comment: createBuffer('   '),
+    });
     expect(result.state.mode).toBe('edit');
   });
 
@@ -1030,7 +1134,7 @@ describe('handleEditKey', () => {
     const result = handleEditKey(key({ escape: true }), state, flow);
     expect(result.state.mode).toBe('browse');
     expect(result.state.editFlow).toBeUndefined();
-    const ann = result.state.annotations.find((a) => a.id === 'ann-1');
+    const ann = result.state.annotations.find(a => a.id === 'ann-1');
     expect(ann?.comment).toBe('original comment');
   });
 });
@@ -1077,7 +1181,11 @@ describe('handleConfirmKey', () => {
 
   it('arrow down + Enter on yes deletes', () => {
     const moved = handleConfirmKey(key({ downArrow: true }), state, flow);
-    const result = handleConfirmKey(key({ return: true }), state, moved.state.confirmFlow!);
+    const result = handleConfirmKey(
+      key({ return: true }),
+      state,
+      moved.state.confirmFlow!
+    );
     expect(result.state.annotations).toEqual([]);
   });
 
@@ -1160,7 +1268,11 @@ describe('handleBrowseKey — search', () => {
     const state = makeState({
       search: { pattern: 'foo', matchLines: [5, 15], currentMatchIndex: 0 },
     });
-    const result = handleBrowseKey(key({ ctrl: true, char: 'n' }), state, false);
+    const result = handleBrowseKey(
+      key({ ctrl: true, char: 'n' }),
+      state,
+      false
+    );
     expect(result.state.search?.currentMatchIndex).toBe(1);
   });
 
@@ -1168,7 +1280,11 @@ describe('handleBrowseKey — search', () => {
     const state = makeState({
       search: { pattern: 'foo', matchLines: [5, 15], currentMatchIndex: 1 },
     });
-    const result = handleBrowseKey(key({ ctrl: true, char: 'p' }), state, false);
+    const result = handleBrowseKey(
+      key({ ctrl: true, char: 'p' }),
+      state,
+      false
+    );
     expect(result.state.search?.currentMatchIndex).toBe(0);
   });
 
@@ -1197,7 +1313,12 @@ describe('handleSearchKey', () => {
   const flow: SearchFlowState = { ...INITIAL_SEARCH_FLOW };
 
   it('typing updates input and live-previews matches', () => {
-    const result = handleSearchKey(key({ char: 'f' }), state, flow, sourceLines);
+    const result = handleSearchKey(
+      key({ char: 'f' }),
+      state,
+      flow,
+      sourceLines
+    );
     expect(getText(result.state.searchFlow!.input)).toBe('f');
     // 'f' matches lines 1, 3, 4 (foo, function, foo)
     expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
@@ -1205,7 +1326,12 @@ describe('handleSearchKey', () => {
 
   it('Enter commits search and returns to browse', () => {
     const f: SearchFlowState = { input: createBuffer('foo') };
-    const result = handleSearchKey(key({ return: true }), state, f, sourceLines);
+    const result = handleSearchKey(
+      key({ return: true }),
+      state,
+      f,
+      sourceLines
+    );
     expect(result.state.mode).toBe('browse');
     expect(result.state.searchFlow).toBeUndefined();
     expect(result.state.search?.pattern).toBe('foo');
@@ -1220,14 +1346,24 @@ describe('handleSearchKey', () => {
   });
 
   it('Enter with empty pattern clears search and returns to browse', () => {
-    const result = handleSearchKey(key({ return: true }), state, flow, sourceLines);
+    const result = handleSearchKey(
+      key({ return: true }),
+      state,
+      flow,
+      sourceLines
+    );
     expect(result.state.mode).toBe('browse');
     expect(result.state.search).toBeUndefined();
   });
 
   it('Escape clears search and returns to browse', () => {
     const f: SearchFlowState = { input: createBuffer('foo') };
-    const result = handleSearchKey(key({ escape: true }), state, f, sourceLines);
+    const result = handleSearchKey(
+      key({ escape: true }),
+      state,
+      f,
+      sourceLines
+    );
     expect(result.state.mode).toBe('browse');
     expect(result.state.search).toBeUndefined();
     expect(result.state.searchFlow).toBeUndefined();
@@ -1235,13 +1371,23 @@ describe('handleSearchKey', () => {
 
   it('search is case-insensitive', () => {
     const f: SearchFlowState = { input: createBuffer('FOO') };
-    const result = handleSearchKey(key({ return: true }), state, f, sourceLines);
+    const result = handleSearchKey(
+      key({ return: true }),
+      state,
+      f,
+      sourceLines
+    );
     expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
   });
 
   it('backspace updates input and recomputes matches', () => {
     const f: SearchFlowState = { input: createBuffer('foo') };
-    const result = handleSearchKey(key({ backspace: true }), state, f, sourceLines);
+    const result = handleSearchKey(
+      key({ backspace: true }),
+      state,
+      f,
+      sourceLines
+    );
     expect(getText(result.state.searchFlow!.input)).toBe('fo');
     // 'fo' matches same lines: 1, 3, 4
     expect(result.state.search?.matchLines).toEqual([1, 3, 4]);
@@ -1249,7 +1395,12 @@ describe('handleSearchKey', () => {
 
   it('clearing input via backspace removes search state', () => {
     const f: SearchFlowState = { input: createBuffer('f') };
-    const result = handleSearchKey(key({ backspace: true }), state, f, sourceLines);
+    const result = handleSearchKey(
+      key({ backspace: true }),
+      state,
+      f,
+      sourceLines
+    );
     expect(getText(result.state.searchFlow!.input)).toBe('');
     expect(result.state.search).toBeUndefined();
   });
@@ -1345,7 +1496,11 @@ describe('Tab annotation navigation — edge cases', () => {
       lineCount: 100,
       annotations: [fileLevelAnn],
     });
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    const result = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      state,
+      false
+    );
     expect(result.state.cursorLine).toBe(1);
     expect(result.state.focusedAnnotationId).toBe('file-ann');
     expect(result.state.expandedAnnotations.has('file-ann')).toBe(true);
@@ -1363,7 +1518,11 @@ describe('Tab annotation navigation — edge cases', () => {
       diffMeta: makeDiffMeta([1, 5, 10, 15, 20]),
       annotations: [fileLevelAnn],
     });
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    const result = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      state,
+      false
+    );
     expect(result.state.cursorLine).toBe(1);
     expect(result.state.focusedAnnotationId).toBe('file-ann');
     expect(result.state.expandedAnnotations.has('file-ann')).toBe(true);
@@ -1379,7 +1538,11 @@ describe('Tab annotation navigation — edge cases', () => {
       diffMeta: makeDiffMeta([300, 305, 310, 315, 320]),
       annotations: [fileLevelAnn],
     });
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    const result = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      state,
+      false
+    );
     // Line 1 not in diff — cursor clamps to nearest visible (300)
     expect(result.state.cursorLine).toBe(300);
     expect(result.state.focusedAnnotationId).toBe('file-ann');
@@ -1387,7 +1550,9 @@ describe('Tab annotation navigation — edge cases', () => {
     // Viewport should show the cursor
     const rowOfCursor = state.diffMeta!.newLineToRow.get(300)!;
     expect(result.state.viewportOffset).toBeLessThanOrEqual(rowOfCursor);
-    expect(result.state.viewportOffset + result.state.viewportHeight).toBeGreaterThan(rowOfCursor);
+    expect(
+      result.state.viewportOffset + result.state.viewportHeight
+    ).toBeGreaterThan(rowOfCursor);
   });
 
   it('Tab scrolls viewport to show annotation box when near bottom', () => {
@@ -1408,7 +1573,11 @@ describe('Tab annotation navigation — edge cases', () => {
       lineCount: 100,
       annotations: [ann],
     });
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    const result = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      state,
+      false
+    );
     expect(result.state.cursorLine).toBe(95);
     expect(result.state.focusedAnnotationId).toBe('bottom-ann');
     // The annotation box should be within viewport bounds
@@ -1435,7 +1604,11 @@ describe('Tab annotation navigation — edge cases', () => {
       diffMeta,
       annotations: [ann],
     });
-    const result = handleBrowseKey(key({ tab: true, char: '\t' }), state, false);
+    const result = handleBrowseKey(
+      key({ tab: true, char: '\t' }),
+      state,
+      false
+    );
     expect(result.state.cursorLine).toBe(20);
     expect(result.state.focusedAnnotationId).toBe('diff-ann');
     expect(result.state.expandedAnnotations.has('diff-ann')).toBe(true);
@@ -1517,7 +1690,11 @@ index abc1234..def5678 100644
     // First expand all
     const expanded = handleBrowseKey(key({ char: 'E' }), state, false);
     // Then toggle — should collapse
-    const collapsed = handleBrowseKey(key({ char: 'E' }), expanded.state, false);
+    const collapsed = handleBrowseKey(
+      key({ char: 'E' }),
+      expanded.state,
+      false
+    );
     expect(collapsed.state.expandedRegions!.size).toBe(0);
   });
 
@@ -1525,7 +1702,8 @@ index abc1234..def5678 100644
     const state = makeDiffStateWithRegions();
     // Partially expand one region via ]
     const partial = handleBrowseKey(key({ char: ']' }), state, false);
-    const hasExpansion = partial.state.expandedRegions && partial.state.expandedRegions.size > 0;
+    const hasExpansion =
+      partial.state.expandedRegions && partial.state.expandedRegions.size > 0;
     expect(hasExpansion).toBe(true);
     // E should collapse (undo expansion), not expand all
     const result = handleBrowseKey(key({ char: 'E' }), partial.state, false);

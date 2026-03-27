@@ -15,22 +15,20 @@ import type { DiffMeta, SessionState } from './state.js';
 import { INITIAL_ANNOTATION_FLOW, INITIAL_DECIDE_FLOW } from './state.js';
 import { createBuffer } from './text-buffer.js';
 import { createPicker, CATEGORY_OPTIONS } from './picker.js';
-import {
-  type RenderContext,
-  buildFrame,
-  getViewportHeight,
-} from './render.js';
+import { type RenderContext, buildFrame, getViewportHeight } from './render.js';
 import { BROWSE_DIFF_HELP } from './keymap.js';
 
 const makeCtx = (overrides: Partial<RenderContext> = {}): RenderContext => {
-  const lines = overrides.lines ?? Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+  const lines =
+    overrides.lines ?? Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
   const state: SessionState = overrides.state ?? {
     lineCount: lines.length,
-      maxLineWidth: 120,
+    maxLineWidth: 120,
     viewportHeight: 10,
     cursorLine: 1,
     viewportOffset: 0,
-      horizontalOffset: 0,
+    horizontalOffset: 0,
+    lineWrap: false,
     mode: 'browse',
     annotations: [],
     expandedAnnotations: new Set(),
@@ -80,7 +78,9 @@ describe('buildFrame', () => {
   });
 
   it('contains the cursor line content', () => {
-    const frame = buildFrame(makeCtx({ lines: ['hello world', 'second'] })).frame;
+    const frame = buildFrame(
+      makeCtx({ lines: ['hello world', 'second'] })
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('hello world');
   });
@@ -130,15 +130,18 @@ describe('buildFrame — decide mode', () => {
       cursorLine: 1,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'decide',
       annotations: [],
       expandedAnnotations: new Set(),
       focusedAnnotationId: null,
       viewMode: 'raw',
     };
-    const frame = buildFrame(makeCtx({
-      state: { ...state, decideFlow: { ...INITIAL_DECIDE_FLOW } },
-    })).frame;
+    const frame = buildFrame(
+      makeCtx({
+        state: { ...state, decideFlow: { ...INITIAL_DECIDE_FLOW } },
+      })
+    ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('Decision');
     expect(plain).toContain('approve');
@@ -159,6 +162,7 @@ describe('buildFrame — goto mode', () => {
       cursorLine: 1,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'goto',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -188,6 +192,7 @@ describe('buildFrame — annotation flow', () => {
       cursorLine: 5,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'annotate',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -221,6 +226,7 @@ describe('buildFrame — select mode', () => {
       cursorLine: 5,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -241,6 +247,7 @@ describe('buildFrame — select mode', () => {
       cursorLine: 7,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -262,6 +269,7 @@ describe('buildFrame — select mode', () => {
       cursorLine: 5,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -284,6 +292,7 @@ describe('buildFrame — select mode', () => {
       cursorLine: 5,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'select',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -317,6 +326,7 @@ describe('buildFrame — annotation markers', () => {
       cursorLine: 1,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(),
@@ -324,11 +334,14 @@ describe('buildFrame — annotation markers', () => {
       viewMode: 'raw',
     };
     const frame = buildFrame(
-      makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
+      makeCtx({
+        state,
+        lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`),
+      })
     ).frame;
     const plain = stripAnsi(frame);
     const lines = plain.split('\n');
-    const line3 = lines.find((l) => l.includes('line 3'));
+    const line3 = lines.find(l => l.includes('line 3'));
     expect(line3).toContain('●');
   });
 
@@ -348,6 +361,7 @@ describe('buildFrame — annotation markers', () => {
       cursorLine: 3,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['focus-ann']),
@@ -361,7 +375,7 @@ describe('buildFrame — annotation markers', () => {
       })
     ).frame;
     const plain = stripAnsi(frame);
-    const line3 = plain.split('\n').find((l) => l.includes('line 3'));
+    const line3 = plain.split('\n').find(l => l.includes('line 3'));
     // Focused expanded annotation shows ▼
     expect(line3).toContain('▼');
     // The raw frame should contain the FOCUS_MARKER color escape
@@ -376,6 +390,7 @@ describe('buildFrame — annotation markers', () => {
       cursorLine: 1,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -383,7 +398,10 @@ describe('buildFrame — annotation markers', () => {
       viewMode: 'raw',
     };
     const frame = buildFrame(
-      makeCtx({ state, lines: Array.from({ length: 5 }, (_, i) => `line ${i + 1}`) })
+      makeCtx({
+        state,
+        lines: Array.from({ length: 5 }, (_, i) => `line ${i + 1}`),
+      })
     ).frame;
     const plain = stripAnsi(frame);
     expect(plain).not.toContain('●');
@@ -404,6 +422,7 @@ describe('buildFrame — viewport overflow', () => {
       cursorLine: 1,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -443,6 +462,7 @@ describe('buildFrame — expanded annotation box', () => {
       cursorLine: 3,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
@@ -450,7 +470,10 @@ describe('buildFrame — expanded annotation box', () => {
       viewMode: 'raw',
     };
     const frame = buildFrame(
-      makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
+      makeCtx({
+        state,
+        lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`),
+      })
     ).frame;
     const plain = stripAnsi(frame);
     expect(plain).toContain('┌');
@@ -474,6 +497,7 @@ describe('buildFrame — expanded annotation box', () => {
       cursorLine: 1,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
@@ -481,10 +505,13 @@ describe('buildFrame — expanded annotation box', () => {
       viewMode: 'raw',
     };
     const frame = buildFrame(
-      makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
+      makeCtx({
+        state,
+        lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`),
+      })
     ).frame;
     const plain = stripAnsi(frame);
-    const line3 = plain.split('\n').find((l) => l.includes('line 3'));
+    const line3 = plain.split('\n').find(l => l.includes('line 3'));
     expect(line3).toContain('▼');
   });
 
@@ -504,6 +531,7 @@ describe('buildFrame — expanded annotation box', () => {
       cursorLine: 3,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
@@ -538,6 +566,7 @@ describe('buildFrame — expanded annotation box', () => {
       cursorLine: 1,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(),
@@ -545,7 +574,10 @@ describe('buildFrame — expanded annotation box', () => {
       viewMode: 'raw',
     };
     const frame = buildFrame(
-      makeCtx({ state, lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`) })
+      makeCtx({
+        state,
+        lines: Array.from({ length: 10 }, (_, i) => `line ${i + 1}`),
+      })
     ).frame;
     const plain = stripAnsi(frame);
     expect(plain).not.toContain('This should not appear expanded.');
@@ -567,6 +599,7 @@ describe('buildFrame — expanded annotation box', () => {
       cursorLine: 2,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [annotation],
       expandedAnnotations: new Set(['a1']),
@@ -574,10 +607,13 @@ describe('buildFrame — expanded annotation box', () => {
       viewMode: 'raw',
     };
     const frame = buildFrame(
-      makeCtx({ state, lines: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`) })
+      makeCtx({
+        state,
+        lines: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`),
+      })
     ).frame;
     const plain = stripAnsi(frame);
-    const visibleLines = plain.split('\n').filter((l) => l.match(/line \d+/));
+    const visibleLines = plain.split('\n').filter(l => l.match(/line \d+/));
     expect(visibleLines.length).toBeLessThan(10);
   });
 });
@@ -595,6 +631,7 @@ describe('buildFrame — reply mode', () => {
       cursorLine: 5,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'reply',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -603,7 +640,10 @@ describe('buildFrame — reply mode', () => {
     };
     const frame = buildFrame(
       makeCtx({
-        state: { ...state, replyFlow: { annotationId: 'a1', comment: createBuffer('hello') } },
+        state: {
+          ...state,
+          replyFlow: { annotationId: 'a1', comment: createBuffer('hello') },
+        },
       })
     ).frame;
     const plain = stripAnsi(frame);
@@ -621,6 +661,7 @@ describe('buildFrame — edit mode', () => {
       cursorLine: 5,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'edit',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -629,7 +670,10 @@ describe('buildFrame — edit mode', () => {
     };
     const frame = buildFrame(
       makeCtx({
-        state: { ...state, editFlow: { annotationId: 'a1', comment: createBuffer('editing') } },
+        state: {
+          ...state,
+          editFlow: { annotationId: 'a1', comment: createBuffer('editing') },
+        },
       })
     ).frame;
     const plain = stripAnsi(frame);
@@ -647,6 +691,7 @@ describe('buildFrame — annotation flow category step', () => {
       cursorLine: 5,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'annotate',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -681,6 +726,7 @@ describe('buildFrame — annotation flow comment step', () => {
       cursorLine: 5,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'annotate',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -727,7 +773,14 @@ const makeDiffData = (rows: AlignedRow[], label = 'test'): DiffData => {
     }
   }
 
-  return { rows, rowToNewLine, newLineToRowIndex, visibleNewLines, label, collapsedRegions: [] };
+  return {
+    rows,
+    rowToNewLine,
+    newLineToRowIndex,
+    visibleNewLines,
+    label,
+    collapsedRegions: [],
+  };
 };
 
 /** Helper: build a DiffMeta from DiffData. */
@@ -739,28 +792,65 @@ const makeDiffMeta = (dd: DiffData): DiffMeta => ({
 
 /** Minimal diff rows for a 3-line context + 2 added + 1 removed scenario. */
 const sampleDiffRows: AlignedRow[] = [
-  { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'const a = 1;', newContent: 'const a = 1;' },
-  { type: 'removed', oldLineNumber: 2, newLineNumber: null, oldContent: 'const b = 2;', newContent: null },
-  { type: 'added', oldLineNumber: null, newLineNumber: 2, oldContent: null, newContent: 'const b = 3;' },
-  { type: 'modified', oldLineNumber: 3, newLineNumber: 3, oldContent: 'return a;', newContent: 'return a + b;' },
-  { type: 'context', oldLineNumber: 4, newLineNumber: 4, oldContent: '}', newContent: '}' },
+  {
+    type: 'context',
+    oldLineNumber: 1,
+    newLineNumber: 1,
+    oldContent: 'const a = 1;',
+    newContent: 'const a = 1;',
+  },
+  {
+    type: 'removed',
+    oldLineNumber: 2,
+    newLineNumber: null,
+    oldContent: 'const b = 2;',
+    newContent: null,
+  },
+  {
+    type: 'added',
+    oldLineNumber: null,
+    newLineNumber: 2,
+    oldContent: null,
+    newContent: 'const b = 3;',
+  },
+  {
+    type: 'modified',
+    oldLineNumber: 3,
+    newLineNumber: 3,
+    oldContent: 'return a;',
+    newContent: 'return a + b;',
+  },
+  {
+    type: 'context',
+    oldLineNumber: 4,
+    newLineNumber: 4,
+    oldContent: '}',
+    newContent: '}',
+  },
 ];
 
 const sampleDiffData = makeDiffData(sampleDiffRows, 'main');
 
-const makeDiffCtx = (overrides: {
-  diffData?: DiffData;
-  lines?: string[];
-  state?: Partial<SessionState>;
-  terminalRows?: number;
-  terminalCols?: number;
-  filePath?: string;
-  oldHighlightedLines?: readonly string[];
-  effectiveDiffRows?: readonly AlignedRow[];
-} = {}): RenderContext => {
+const makeDiffCtx = (
+  overrides: {
+    diffData?: DiffData;
+    lines?: string[];
+    state?: Partial<SessionState>;
+    terminalRows?: number;
+    terminalCols?: number;
+    filePath?: string;
+    oldHighlightedLines?: readonly string[];
+    effectiveDiffRows?: readonly AlignedRow[];
+  } = {}
+): RenderContext => {
   const dd = overrides.diffData ?? sampleDiffData;
   const meta = makeDiffMeta(dd);
-  const lines = overrides.lines ?? ['const a = 1;', 'const b = 3;', 'return a + b;', '}'];
+  const lines = overrides.lines ?? [
+    'const a = 1;',
+    'const b = 3;',
+    'return a + b;',
+    '}',
+  ];
   const state: SessionState = {
     lineCount: lines.length,
     maxLineWidth: 80,
@@ -768,6 +858,7 @@ const makeDiffCtx = (overrides: {
     cursorLine: 1,
     viewportOffset: 0,
     horizontalOffset: 0,
+    lineWrap: false,
     mode: 'browse',
     annotations: [],
     expandedAnnotations: new Set(),
@@ -860,9 +951,18 @@ describe('buildFrame — diff mode', () => {
   });
 
   it('shows ~ for rows past the end of diff', () => {
-    const dd = makeDiffData([
-      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'x', newContent: 'x' },
-    ], 'short');
+    const dd = makeDiffData(
+      [
+        {
+          type: 'context',
+          oldLineNumber: 1,
+          newLineNumber: 1,
+          oldContent: 'x',
+          newContent: 'x',
+        },
+      ],
+      'short'
+    );
     const ctx = makeDiffCtx({
       diffData: dd,
       lines: ['x'],
@@ -877,12 +977,34 @@ describe('buildFrame — diff mode', () => {
 
   it('renders collapsed separator with hunk background', () => {
     const rows: AlignedRow[] = [
-      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
-      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 42 },
-      { type: 'added', oldLineNumber: null, newLineNumber: 10, oldContent: null, newContent: 'new line' },
+      {
+        type: 'context',
+        oldLineNumber: 1,
+        newLineNumber: 1,
+        oldContent: 'a',
+        newContent: 'a',
+      },
+      {
+        type: 'collapsed',
+        oldLineNumber: null,
+        newLineNumber: null,
+        oldContent: null,
+        newContent: null,
+        regionIndex: 0,
+        hiddenLineCount: 42,
+      },
+      {
+        type: 'added',
+        oldLineNumber: null,
+        newLineNumber: 10,
+        oldContent: null,
+        newContent: 'new line',
+      },
     ];
     const dd = makeDiffData(rows, 'hunk-test');
-    const { frame } = buildFrame(makeDiffCtx({ diffData: dd, lines: Array(10).fill('x') }));
+    const { frame } = buildFrame(
+      makeDiffCtx({ diffData: dd, lines: Array(10).fill('x') })
+    );
     expect(frame).toContain(DIFF_HUNK_BG);
     const plain = stripAnsi(frame);
     expect(plain).toContain('42 lines hidden');
@@ -890,11 +1012,27 @@ describe('buildFrame — diff mode', () => {
 
   it('collapsed rows map to undefined in rowToLine', () => {
     const rows: AlignedRow[] = [
-      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 10 },
-      { type: 'added', oldLineNumber: null, newLineNumber: 1, oldContent: null, newContent: 'x' },
+      {
+        type: 'collapsed',
+        oldLineNumber: null,
+        newLineNumber: null,
+        oldContent: null,
+        newContent: null,
+        regionIndex: 0,
+        hiddenLineCount: 10,
+      },
+      {
+        type: 'added',
+        oldLineNumber: null,
+        newLineNumber: 1,
+        oldContent: null,
+        newContent: 'x',
+      },
     ];
     const dd = makeDiffData(rows, 'h');
-    const { rowToLine } = buildFrame(makeDiffCtx({ diffData: dd, lines: ['x'] }));
+    const { rowToLine } = buildFrame(
+      makeDiffCtx({ diffData: dd, lines: ['x'] })
+    );
     expect(rowToLine[0]).toBeUndefined();
     expect(rowToLine[1]).toBe(1);
   });
@@ -939,6 +1077,7 @@ describe('buildFrame — diff mode', () => {
       cursorLine: 1,
       viewportOffset: 0,
       horizontalOffset: 0,
+      lineWrap: false,
       mode: 'browse',
       annotations: [],
       expandedAnnotations: new Set(),
@@ -988,9 +1127,27 @@ describe('buildFrame — diff mode', () => {
 
   it('renders expanded-context rows with expanded background', () => {
     const rows: AlignedRow[] = [
-      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
-      { type: 'expanded-context', oldLineNumber: 2, newLineNumber: 2, oldContent: 'expanded line', newContent: 'expanded line' },
-      { type: 'added', oldLineNumber: null, newLineNumber: 3, oldContent: null, newContent: 'new' },
+      {
+        type: 'context',
+        oldLineNumber: 1,
+        newLineNumber: 1,
+        oldContent: 'a',
+        newContent: 'a',
+      },
+      {
+        type: 'expanded-context',
+        oldLineNumber: 2,
+        newLineNumber: 2,
+        oldContent: 'expanded line',
+        newContent: 'expanded line',
+      },
+      {
+        type: 'added',
+        oldLineNumber: null,
+        newLineNumber: 3,
+        oldContent: null,
+        newContent: 'new',
+      },
     ];
     const dd = makeDiffData(rows, 'expand-test');
     const ctx = makeDiffCtx({
@@ -1006,9 +1163,29 @@ describe('buildFrame — diff mode', () => {
 
   it('renders collapsed row with hidden line count', () => {
     const rows: AlignedRow[] = [
-      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
-      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 1 },
-      { type: 'added', oldLineNumber: null, newLineNumber: 5, oldContent: null, newContent: 'new' },
+      {
+        type: 'context',
+        oldLineNumber: 1,
+        newLineNumber: 1,
+        oldContent: 'a',
+        newContent: 'a',
+      },
+      {
+        type: 'collapsed',
+        oldLineNumber: null,
+        newLineNumber: null,
+        oldContent: null,
+        newContent: null,
+        regionIndex: 0,
+        hiddenLineCount: 1,
+      },
+      {
+        type: 'added',
+        oldLineNumber: null,
+        newLineNumber: 5,
+        oldContent: null,
+        newContent: 'new',
+      },
     ];
     const dd = makeDiffData(rows, 'single-test');
     const ctx = makeDiffCtx({ diffData: dd, lines: Array(5).fill('x') });
@@ -1027,9 +1204,29 @@ describe('buildFrame — diff mode', () => {
       lineCount: 42,
     };
     const rows: AlignedRow[] = [
-      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
-      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 42 },
-      { type: 'added', oldLineNumber: null, newLineNumber: 50, oldContent: null, newContent: 'new line' },
+      {
+        type: 'context',
+        oldLineNumber: 1,
+        newLineNumber: 1,
+        oldContent: 'a',
+        newContent: 'a',
+      },
+      {
+        type: 'collapsed',
+        oldLineNumber: null,
+        newLineNumber: null,
+        oldContent: null,
+        newContent: null,
+        regionIndex: 0,
+        hiddenLineCount: 42,
+      },
+      {
+        type: 'added',
+        oldLineNumber: null,
+        newLineNumber: 50,
+        oldContent: null,
+        newContent: 'new line',
+      },
     ];
     const dd: DiffData = {
       ...makeDiffData(rows, 'hunk-header-test'),
@@ -1056,9 +1253,29 @@ describe('buildFrame — diff mode', () => {
 
   it('renders collapsed separator without @@ header when collapsedRegions empty', () => {
     const rows: AlignedRow[] = [
-      { type: 'context', oldLineNumber: 1, newLineNumber: 1, oldContent: 'a', newContent: 'a' },
-      { type: 'collapsed', oldLineNumber: null, newLineNumber: null, oldContent: null, newContent: null, regionIndex: 0, hiddenLineCount: 5 },
-      { type: 'added', oldLineNumber: null, newLineNumber: 10, oldContent: null, newContent: 'new' },
+      {
+        type: 'context',
+        oldLineNumber: 1,
+        newLineNumber: 1,
+        oldContent: 'a',
+        newContent: 'a',
+      },
+      {
+        type: 'collapsed',
+        oldLineNumber: null,
+        newLineNumber: null,
+        oldContent: null,
+        newContent: null,
+        regionIndex: 0,
+        hiddenLineCount: 5,
+      },
+      {
+        type: 'added',
+        oldLineNumber: null,
+        newLineNumber: 10,
+        oldContent: null,
+        newContent: 'new',
+      },
     ];
     const dd = makeDiffData(rows, 'no-region');
     const ctx = makeDiffCtx({ diffData: dd, lines: Array(10).fill('x') });

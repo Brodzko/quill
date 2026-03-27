@@ -11,6 +11,7 @@ import {
   stripAnsi,
   truncateAnsi,
   visibleLength,
+  wrapAnsi,
 } from './ansi.js';
 
 describe('stripAnsi', () => {
@@ -222,5 +223,44 @@ describe('sliceAnsi', () => {
     const result = sliceAnsi(styled, 2, 3);
     // Should show "cde" with red/blue coloring
     expect(stripAnsi(result)).toBe('cde');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// wrapAnsi
+// ---------------------------------------------------------------------------
+
+describe('wrapAnsi', () => {
+  it('returns single-element array when string fits', () => {
+    expect(wrapAnsi('hello', 10)).toEqual(['hello']);
+  });
+
+  it('wraps plain text at width boundary', () => {
+    const result = wrapAnsi('abcdefghij', 4);
+    expect(result.map(r => stripAnsi(r))).toEqual(['abcd', 'efgh', 'ij']);
+  });
+
+  it('wraps ANSI-styled text preserving colors across rows', () => {
+    // green "abcdef"
+    const styled = `\x1b[32mabcdef${RESET}`;
+    const result = wrapAnsi(styled, 3);
+    expect(result.length).toBe(2);
+    expect(stripAnsi(result[0]!)).toBe('abc');
+    expect(stripAnsi(result[1]!)).toBe('def');
+    // Second row should re-inject the green color
+    expect(result[1]!).toContain('\x1b[32m');
+  });
+
+  it('returns original string for empty input', () => {
+    expect(wrapAnsi('', 10)).toEqual(['']);
+  });
+
+  it('handles width=0 gracefully', () => {
+    expect(wrapAnsi('abc', 0)).toEqual(['abc']);
+  });
+
+  it('wraps exactly at width boundary', () => {
+    const result = wrapAnsi('abcdef', 3);
+    expect(result.map(r => stripAnsi(r))).toEqual(['abc', 'def']);
   });
 });
